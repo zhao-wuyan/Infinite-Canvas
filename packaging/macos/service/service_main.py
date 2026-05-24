@@ -8,6 +8,7 @@ from pathlib import Path
 import fastapi  # noqa: F401
 import httpx  # noqa: F401
 import PIL  # noqa: F401
+import PIL.Image  # noqa: F401
 import pydantic  # noqa: F401
 import requests  # noqa: F401
 import uvicorn  # noqa: F401

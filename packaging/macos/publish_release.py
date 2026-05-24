@@ -3,12 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from packaging.macos.payload.build_payload import DEFAULT_MANIFEST, build_payload
 
 
-ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RELEASE_DIR = ROOT / "dist" / "macos-release"
 
 

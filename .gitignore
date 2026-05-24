@@ -4,6 +4,12 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 
+# Build artifacts
+build/
+dist/
+*.spec
+packaging/*/payload/app-base.zip
+
 # Local agent/workflow state
 .workflow/
 

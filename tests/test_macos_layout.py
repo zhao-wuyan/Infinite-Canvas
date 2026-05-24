@@ -1,8 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from packaging.macos.launcher.layout import MODE_RUNTIME, app_bundle_from_executable, compute_layout, default_storage_root
+from packaging.macos.launcher.launcher_main import default_app_bundle
 
 
 class MacLayoutTests(unittest.TestCase):
@@ -24,6 +26,15 @@ class MacLayoutTests(unittest.TestCase):
         path = Path("/Applications/Infinite Canvas.app/Contents/MacOS/Infinite Canvas")
 
         self.assertEqual(app_bundle_from_executable(path), Path("/Applications/Infinite Canvas.app"))
+
+    def test_default_app_bundle_uses_sys_executable(self):
+        with mock.patch(
+            "packaging.macos.launcher.launcher_main.sys.executable",
+            "/Applications/Infinite Canvas.app/Contents/MacOS/Infinite Canvas",
+        ):
+            bundle = default_app_bundle()
+
+        self.assertEqual(bundle, Path("/Applications/Infinite Canvas.app"))
 
 
 if __name__ == "__main__":

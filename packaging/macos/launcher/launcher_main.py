@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import webbrowser
@@ -26,7 +27,7 @@ from packaging.macos.launcher.runtime_manager import (
 
 
 def default_app_bundle() -> Path:
-    return app_bundle_from_executable(Path(__file__))
+    return app_bundle_from_executable(Path(sys.executable))
 
 
 def parse_args() -> argparse.Namespace:

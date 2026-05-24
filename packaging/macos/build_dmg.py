@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
-from packaging.macos.build_app import APP_NAME, DEFAULT_DIST_DIR, build_app, read_version
-
-
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from packaging.macos.build_app import APP_NAME, DEFAULT_DIST_DIR, build_app, read_version
 
 
 def build_dmg(dist_dir: Path) -> Path:

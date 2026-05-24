@@ -7,31 +7,51 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from packaging.macos.payload.build_payload import DEFAULT_MANIFEST, DEFAULT_OUTPUT, build_payload
 
 
-ROOT = Path(__file__).resolve().parents[2]
 APP_NAME = "Infinite Canvas"
 DEFAULT_DIST_DIR = ROOT / "dist" / "macos"
+MAC_SERVICE_HIDDEN_IMPORTS = [
+    "fastapi.staticfiles",
+    "fastapi.responses",
+    "fastapi.middleware.cors",
+    "fastapi.exceptions",
+    "pydantic",
+    "pydantic_core",
+    "PIL.Image",
+    "requests",
+    "httpx",
+    "uvicorn",
+]
 
 
-def run_pyinstaller(entrypoint: Path, name: str, dist_dir: Path) -> None:
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            "--noconfirm",
-            "--onefile",
-            "--name",
-            name,
-            "--distpath",
-            str(dist_dir),
-            str(entrypoint),
-        ],
-        cwd=str(ROOT),
-        check=True,
-    )
+def run_pyinstaller(
+    entrypoint: Path,
+    name: str,
+    dist_dir: Path,
+    hidden_imports: list[str] | None = None,
+) -> None:
+    command = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--onefile",
+        "--name",
+        name,
+        "--distpath",
+        str(dist_dir),
+    ]
+    for item in hidden_imports or []:
+        if item:
+            command.extend(["--hidden-import", item])
+    command.append(str(entrypoint))
+    subprocess.run(command, cwd=str(ROOT), check=True)
 
 
 def read_version() -> str:
@@ -60,13 +80,35 @@ def write_info_plist(app_bundle: Path, version: str) -> None:
         plistlib.dump(plist, fh)
 
 
+def sign_app_bundle(app_bundle: Path) -> None:
+    if not shutil.which("codesign"):
+        return
+    subprocess.run(
+        [
+            "codesign",
+            "--force",
+            "--deep",
+            "--sign",
+            "-",
+            str(app_bundle),
+        ],
+        cwd=str(ROOT),
+        check=True,
+    )
+
+
 def build_app(dist_dir: Path) -> Path:
     dist_dir.mkdir(parents=True, exist_ok=True)
     build_bin_dir = dist_dir / "bin"
     build_bin_dir.mkdir(parents=True, exist_ok=True)
 
     run_pyinstaller(ROOT / "packaging" / "macos" / "launcher" / "launcher_main.py", APP_NAME, build_bin_dir)
-    run_pyinstaller(ROOT / "packaging" / "macos" / "service" / "service_main.py", f"{APP_NAME} Service", build_bin_dir)
+    run_pyinstaller(
+        ROOT / "packaging" / "macos" / "service" / "service_main.py",
+        f"{APP_NAME} Service",
+        build_bin_dir,
+        hidden_imports=MAC_SERVICE_HIDDEN_IMPORTS,
+    )
     run_pyinstaller(ROOT / "packaging" / "macos" / "updater" / "updater_main.py", f"{APP_NAME} Updater", build_bin_dir)
 
     app_bundle = dist_dir / f"{APP_NAME}.app"
@@ -86,6 +128,7 @@ def build_app(dist_dir: Path) -> Path:
     shutil.copy2(DEFAULT_OUTPUT, bootstrap_dir / "app-base.zip")
     shutil.copy2(DEFAULT_MANIFEST, bootstrap_dir / "manifest.json")
     write_info_plist(app_bundle, read_version())
+    sign_app_bundle(app_bundle)
     return app_bundle
 
 
