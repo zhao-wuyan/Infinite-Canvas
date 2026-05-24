@@ -10,6 +10,7 @@ from packaging.windows.launcher.runtime_manager import (
     ensure_runtime_release,
     list_launcher_backups,
     load_launcher_state,
+    launch_server,
     persist_selected_port,
     replace_in_place_payload,
     rollback_launcher_backup,
@@ -55,6 +56,36 @@ class RuntimeManagerTests(unittest.TestCase):
                 archive.writestr("VERSION", "2026.05.24.1\n")
 
             self.assertEqual(current_release_name(install_dir), "2026.05.24.1")
+
+    def test_launch_server_prefers_packaged_service_executable(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            install_dir = root / "install"
+            service_dir = install_dir / "Infinite Canvas Service"
+            service_dir.mkdir(parents=True)
+            service = service_dir / "Infinite Canvas Service.exe"
+            service.write_text("service", encoding="utf-8")
+            bootstrap = install_dir / "bootstrap"
+            bootstrap.mkdir()
+            (bootstrap / "manifest.json").write_text("{}", encoding="utf-8")
+            layout = LaunchLayout(
+                install_dir=install_dir,
+                storage_root=root / "storage",
+                data_root=root / "storage" / "data",
+                logs_root=root / "storage" / "logs",
+                backups_root=root / "storage" / "backups",
+                runtime_root=root / "storage" / "runtime",
+                mode=MODE_RUNTIME,
+                work_dir=root / "runtime" / "v1",
+            )
+
+            with mock.patch("packaging.windows.launcher.runtime_manager.subprocess.Popen") as popen:
+                launch_server(layout, launcher_exe="launcher.exe", port=3007)
+
+            args, kwargs = popen.call_args
+            self.assertEqual(args[0], [str(service)])
+            self.assertEqual(kwargs["cwd"], str(layout.work_dir))
+            self.assertEqual(kwargs["env"]["INFINITE_CANVAS_PORT"], "3007")
 
     def test_replace_in_place_payload_preserves_bootstrap_files(self):
         with tempfile.TemporaryDirectory() as tempdir:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import webbrowser
@@ -24,9 +25,15 @@ from packaging.windows.launcher.runtime_manager import (
 )
 
 
+def default_install_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[3]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Infinite Canvas Windows launcher")
-    parser.add_argument("--install-dir", type=Path, default=Path(__file__).resolve().parents[3])
+    parser.add_argument("--install-dir", type=Path, default=default_install_dir())
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--check-update", action="store_true")
     parser.add_argument("--apply-update", action="store_true")

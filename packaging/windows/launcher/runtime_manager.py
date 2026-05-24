@@ -164,8 +164,19 @@ def python_executable(work_dir: Path) -> Path:
     return Path(sys.executable)
 
 
+def service_executable(layout: LaunchLayout) -> Path:
+    return layout.install_dir / "Infinite Canvas Service" / "Infinite Canvas Service.exe"
+
+
 def launch_server(layout: LaunchLayout, launcher_exe: str = "", port: int = DEFAULT_APP_PORT) -> subprocess.Popen[str]:
     env = build_launch_env(layout, launcher_exe=launcher_exe, port=port)
+    service = service_executable(layout)
+    if service.exists():
+        return subprocess.Popen(
+            [str(service)],
+            cwd=str(layout.work_dir),
+            env=env,
+        )
     pyexe = python_executable(layout.work_dir)
     return subprocess.Popen(
         [str(pyexe), "main.py"],

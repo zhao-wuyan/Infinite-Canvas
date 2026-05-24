@@ -10,6 +10,8 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\InfiniteCanvas
 DefaultGroupName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+OutputDir=..\..\..\dist\windows
+OutputBaseFilename=Infinite Canvas 安装程序
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -18,9 +20,13 @@ DisableDirPage=no
 UsePreviousAppDir=yes
 UninstallDisplayName={#MyAppName}
 
+[Languages]
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+
 [Files]
-Source: "..\..\dist\windows\Infinite Canvas.exe"; DestDir: "{app}"; DestName: "Infinite Canvas.exe"; Flags: ignoreversion
-Source: "..\..\dist\windows\Infinite Canvas Updater.exe"; DestDir: "{app}"; DestName: "Infinite Canvas Updater.exe"; Flags: ignoreversion
+Source: "..\..\..\dist\windows\Infinite Canvas.exe"; DestDir: "{app}"; DestName: "Infinite Canvas.exe"; Flags: ignoreversion
+Source: "..\..\..\dist\windows\Infinite Canvas Updater.exe"; DestDir: "{app}"; DestName: "Infinite Canvas Updater.exe"; Flags: ignoreversion
+Source: "..\..\..\dist\windows\Infinite Canvas Service\*"; DestDir: "{app}\Infinite Canvas Service"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\payload\app-base.zip"; DestDir: "{app}\bootstrap"; Flags: ignoreversion
 Source: "..\payload\manifest.json"; DestDir: "{app}\bootstrap"; Flags: ignoreversion
 
@@ -54,7 +60,10 @@ begin
 end;
 
 procedure InitializeWizard;
+var
+  PreviousStorageRoot: String;
 begin
+  PreviousStorageRoot := GetPreviousData('StorageRoot', StorageRootDefault(''));
   StoragePage :=
     CreateInputDirPage(
       wpSelectDir,
@@ -65,7 +74,7 @@ begin
       ''
     );
   StoragePage.Add('');
-  StoragePage.Values[0] := StorageRootDefault('');
+  StoragePage.Values[0] := PreviousStorageRoot;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;

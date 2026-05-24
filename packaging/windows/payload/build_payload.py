@@ -18,8 +18,6 @@ INCLUDE_PATHS = [
     "requirements.txt",
     "static",
     "workflows",
-    "python",
-    "packages",
 ]
 
 

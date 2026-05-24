@@ -6,7 +6,8 @@
 - `installer/`：Inno Setup 安装与卸载脚本
 - `payload/`：运行时资源清单与构建辅助文件
 - `updater/`：更新器实现
-- `build_launcher.py`：使用 `PyInstaller` 构建 `launcher.exe` / `updater.exe`
+- `service/`：真正运行 FastAPI 服务的后台可执行入口
+- `build_launcher.py`：使用 `PyInstaller` 构建 `launcher.exe` / `service/` / `updater.exe`
 - `publish_release.py`：生成静态更新源目录
 - `WINDOWS_RUNBOOK.md`：Windows 实机构建、安装、更新、回滚、卸载联调手册
 
@@ -57,6 +58,16 @@ python3 packaging/windows/build_launcher.py
 
 - 脚本：`packaging/windows/installer/infinite-canvas.iss`
 - 需要把生成的 `launcher.exe`、`updater.exe` 与 payload 文件一起纳入安装产物
+
+输出示例：
+
+```text
+dist/windows/
+  Infinite Canvas.exe
+  Infinite Canvas Service/
+  Infinite Canvas Updater.exe
+  Infinite Canvas 安装程序.exe
+```
 
 ## 当前状态
 

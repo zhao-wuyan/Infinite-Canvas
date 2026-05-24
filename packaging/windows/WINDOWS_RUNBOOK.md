@@ -5,9 +5,10 @@
 ## 目标产物
 
 - `dist/windows/Infinite Canvas.exe`
+- `dist/windows/Infinite Canvas Service/Infinite Canvas Service.exe`
 - `dist/windows/Infinite Canvas Updater.exe`
+- `dist/windows/Infinite Canvas 安装程序.exe`
 - `dist/windows-release/`
-- Inno Setup 安装包 `.exe`
 
 ## 环境前提
 
@@ -77,6 +78,7 @@ py -3 packaging\windows\build_launcher.py
 检查：
 
 - `dist\windows\Infinite Canvas.exe`
+- `dist\windows\Infinite Canvas Service\Infinite Canvas Service.exe`
 - `dist\windows\Infinite Canvas Updater.exe`
 
 ### 5. 编译安装包
@@ -85,9 +87,14 @@ py -3 packaging\windows\build_launcher.py
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\installer\infinite-canvas.iss
 ```
 
+检查：
+
+- `dist\windows\Infinite Canvas 安装程序.exe`
+
 联调前先确认脚本引用的文件都存在：
 
 - `dist\windows\Infinite Canvas.exe`
+- `dist\windows\Infinite Canvas Service\`
 - `dist\windows\Infinite Canvas Updater.exe`
 - `packaging\windows\payload\app-base.zip`
 - `packaging\windows\payload\manifest.json`
