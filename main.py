@@ -21,6 +21,7 @@ from threading import Lock
 import httpx
 from PIL import Image
 from io import BytesIO
+from app_runtime import DEFAULT_APP_HOST, DEFAULT_APP_PORT, resolve_app_port, resolve_runtime_paths
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
@@ -169,22 +170,27 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
 
 CLIENT_ID = str(uuid.uuid4())
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-WORKFLOW_DIR = os.path.join(BASE_DIR, "workflows")
-WORKFLOW_PATH = os.path.join(WORKFLOW_DIR, "Z-Image.json")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-ASSETS_DIR = os.path.join(BASE_DIR, "assets")
-OUTPUT_INPUT_DIR = os.path.join(ASSETS_DIR, "input")
-OUTPUT_OUTPUT_DIR = os.path.join(ASSETS_DIR, "output")
-ASSET_LIBRARY_DIR = os.path.join(ASSETS_DIR, "library")
-HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
-API_ENV_FILE = os.path.join(BASE_DIR, "API", ".env")
-DATA_DIR = os.path.join(BASE_DIR, "data")
-CONVERSATION_DIR = os.path.join(DATA_DIR, "conversations")
-CANVAS_DIR = os.path.join(DATA_DIR, "canvases")
-ASSET_LIBRARY_PATH = os.path.join(DATA_DIR, "asset_library.json")
-API_PROVIDERS_FILE = os.path.join(DATA_DIR, "api_providers.json")
-GLOBAL_CONFIG_FILE = os.path.join(BASE_DIR, "global_config.json")
+APP_DATA_ROOT = os.getenv("INFINITE_CANVAS_DATA_ROOT", "").strip()
+LAUNCHER_MANAGED = os.getenv("INFINITE_CANVAS_MANAGED_BY_LAUNCHER", "").strip() == "1"
+APP_PORT = resolve_app_port(os.getenv("INFINITE_CANVAS_PORT"), DEFAULT_APP_PORT)
+APP_HOST = os.getenv("INFINITE_CANVAS_HOST", DEFAULT_APP_HOST).strip() or DEFAULT_APP_HOST
+RUNTIME_PATHS = resolve_runtime_paths(BASE_DIR, APP_DATA_ROOT or None)
+WORKFLOW_DIR = RUNTIME_PATHS["WORKFLOW_DIR"]
+WORKFLOW_PATH = RUNTIME_PATHS["WORKFLOW_PATH"]
+STATIC_DIR = RUNTIME_PATHS["STATIC_DIR"]
+OUTPUT_DIR = RUNTIME_PATHS["OUTPUT_DIR"]
+ASSETS_DIR = RUNTIME_PATHS["ASSETS_DIR"]
+OUTPUT_INPUT_DIR = RUNTIME_PATHS["OUTPUT_INPUT_DIR"]
+OUTPUT_OUTPUT_DIR = RUNTIME_PATHS["OUTPUT_OUTPUT_DIR"]
+ASSET_LIBRARY_DIR = RUNTIME_PATHS["ASSET_LIBRARY_DIR"]
+HISTORY_FILE = RUNTIME_PATHS["HISTORY_FILE"]
+API_ENV_FILE = RUNTIME_PATHS["API_ENV_FILE"]
+DATA_DIR = RUNTIME_PATHS["DATA_DIR"]
+CONVERSATION_DIR = RUNTIME_PATHS["CONVERSATION_DIR"]
+CANVAS_DIR = RUNTIME_PATHS["CANVAS_DIR"]
+ASSET_LIBRARY_PATH = RUNTIME_PATHS["ASSET_LIBRARY_PATH"]
+API_PROVIDERS_FILE = RUNTIME_PATHS["API_PROVIDERS_FILE"]
+GLOBAL_CONFIG_FILE = RUNTIME_PATHS["GLOBAL_CONFIG_FILE"]
 CANVAS_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 QUEUE = []
@@ -748,11 +754,74 @@ def static_html_response(filename: str):
 @app.get("/api/app-info")
 def app_info():
     version = current_app_version()
-    return {
+    info = {
         "version": version,
         "repo_url": GITHUB_REPO_URL,
         "version_url": GITHUB_VERSION_URL,
+        "port": APP_PORT,
     }
+    if LAUNCHER_MANAGED:
+        info.update({
+            "managed_by_launcher": True,
+            "launcher_mode": os.getenv("INFINITE_CANVAS_LAUNCHER_MODE", ""),
+            "launcher_storage_root": APP_DATA_ROOT,
+            "version_url": "",
+            "preferred_local_url": f"http://127.0.0.1:{APP_PORT}/",
+        })
+    return info
+
+@app.get("/api/launcher/status")
+def launcher_status_api():
+    if not LAUNCHER_MANAGED:
+        raise HTTPException(status_code=404, detail="launcher unavailable")
+    return {
+        "managed_by_launcher": True,
+        "mode": os.getenv("INFINITE_CANVAS_LAUNCHER_MODE", ""),
+        "storage_root": APP_DATA_ROOT,
+        "update_base_url": os.getenv("INFINITE_CANVAS_UPDATE_BASE_URL", ""),
+        "port": APP_PORT,
+        "preferred_local_url": f"http://127.0.0.1:{APP_PORT}/",
+    }
+
+def launcher_executable_path() -> str:
+    return os.getenv("INFINITE_CANVAS_LAUNCHER_EXE", "").strip()
+
+def call_launcher_command(*args: str) -> Dict[str, Any]:
+    launcher_exe = launcher_executable_path()
+    if not launcher_exe or not os.path.exists(launcher_exe):
+        raise HTTPException(status_code=500, detail="launcher executable missing")
+    try:
+        result = subprocess.run(
+            [launcher_exe, *args],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"launcher invoke failed: {exc}") from exc
+    stdout = (result.stdout or "").strip()
+    payload = {}
+    if stdout:
+        try:
+            payload = json.loads(stdout.splitlines()[-1])
+        except Exception:
+            payload = {"raw": stdout}
+    if result.returncode != 0:
+        detail = payload.get("detail") if isinstance(payload, dict) else ""
+        raise HTTPException(status_code=500, detail=detail or "launcher command failed")
+    return payload if isinstance(payload, dict) else {"raw": stdout}
+
+@app.get("/api/launcher/check-update")
+def launcher_check_update_api():
+    if not LAUNCHER_MANAGED:
+        raise HTTPException(status_code=404, detail="launcher unavailable")
+    return call_launcher_command("--check-update")
+
+@app.post("/api/launcher/apply-update")
+def launcher_apply_update_api():
+    if not LAUNCHER_MANAGED:
+        raise HTTPException(status_code=404, detail="launcher unavailable")
+    return call_launcher_command("--apply-update")
 
 def update_allowed_file(path: str) -> bool:
     path = str(path or "").replace("\\", "/").lstrip("/")
@@ -888,6 +957,8 @@ class UpdateRequest(BaseModel):
 
 @app.post("/api/update-from-github")
 def update_from_github(req: UpdateRequest = UpdateRequest()):
+    if LAUNCHER_MANAGED:
+        raise HTTPException(status_code=403, detail="打包版请使用启动器更新。")
     if not UPDATE_LOCK.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="正在更新中，请稍后再试")
     try:
@@ -964,6 +1035,8 @@ def list_update_backups() -> List[Dict[str, Any]]:
 
 @app.get("/api/update-backups")
 def get_update_backups():
+    if LAUNCHER_MANAGED:
+        raise HTTPException(status_code=403, detail="打包版请使用启动器管理更新备份。")
     return {"backups": list_update_backups()}
 
 class RollbackRequest(BaseModel):
@@ -971,8 +1044,25 @@ class RollbackRequest(BaseModel):
     auto_restart: bool = False
     restart_delay: int = 3
 
+@app.get("/api/launcher/backups")
+def launcher_backups_api():
+    if not LAUNCHER_MANAGED:
+        raise HTTPException(status_code=404, detail="launcher unavailable")
+    return call_launcher_command("--list-backups")
+
+@app.post("/api/launcher/rollback")
+def launcher_rollback_api(req: RollbackRequest):
+    if not LAUNCHER_MANAGED:
+        raise HTTPException(status_code=404, detail="launcher unavailable")
+    backup_id = str(req.name or "").strip()
+    if not backup_id:
+        raise HTTPException(status_code=400, detail="缺少备份名称")
+    return call_launcher_command("--rollback-backup", backup_id)
+
 @app.post("/api/update-rollback")
 def rollback_update(req: RollbackRequest):
+    if LAUNCHER_MANAGED:
+        raise HTTPException(status_code=403, detail="打包版请使用启动器执行回滚。")
     if not req.name:
         raise HTTPException(status_code=400, detail="缺少备份名称")
     if not UPDATE_LOCK.acquire(blocking=False):
@@ -4835,4 +4925,4 @@ def run_workflow(name: str, payload: WorkflowRunRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=3000)
+    uvicorn.run(app, host=APP_HOST, port=APP_PORT)

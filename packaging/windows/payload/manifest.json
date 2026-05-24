@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "app_name": "Infinite Canvas",
+  "payload_name": "app-base.zip",
+  "storage_root_default": "%LOCALAPPDATA%\\InfiniteCanvas",
+  "update_base_url": "",
+  "version_endpoint": "VERSION",
+  "manifest_endpoint": "manifest.json",
+  "payload_endpoint": "app-base.zip",
+  "modes": {
+    "in_place": {
+      "description": "Install directory writable, run directly from install directory."
+    },
+    "runtime": {
+      "description": "Install directory not writable, extract runtime under storage_root."
+    }
+  }
+}

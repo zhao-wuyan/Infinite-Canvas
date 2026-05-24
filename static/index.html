@@ -991,6 +991,24 @@
 
         async function runProjectUpdate() {
             const isEn = window.StudioI18n?.lang?.() === 'en';
+            if (appInfo.managed_by_launcher) {
+                try {
+                    const res = await fetch('/api/launcher/apply-update', { method:'POST' });
+                    const data = await res.json().catch(() => ({}));
+                    if(!res.ok) throw new Error(data.detail || (isEn ? 'Update failed' : '更新失败'));
+                    if(data.updated) {
+                        alert(isEn
+                            ? `Updated to ${data.remote_version || ''}. Please restart the packaged app.`
+                            : `已更新到 ${data.remote_version || ''}。请重启打包版应用。`);
+                    } else {
+                        alert(isEn ? 'Already up to date.' : '当前已是最新版本。');
+                    }
+                    return;
+                } catch(e) {
+                    alert((isEn ? 'Update failed: ' : '更新失败：') + describeNetworkError(e, isEn));
+                    return;
+                }
+            }
             const askMessage = isEn
                 ? 'Update main.py, VERSION, and static files from GitHub now? A backup will be created. Click OK to update and auto-restart the backend. Requires an internet connection (github.com).'
                 : '现在从 GitHub 更新 main.py、VERSION 和 static 文件吗？更新前会自动备份，更新后将自动重启后端。需要本机能访问外网（github.com）。';
@@ -1040,6 +1058,44 @@
         }
         async function rollbackProjectUpdate() {
             const isEn = window.StudioI18n?.lang?.() === 'en';
+            if (appInfo.managed_by_launcher) {
+                try {
+                    const list = await fetch('/api/launcher/backups', { cache:'no-store' }).then(r => r.json());
+                    const backups = list.backups || [];
+                    if(!backups.length){ alert(isEn ? 'No launcher backups available.' : '没有可用的启动器备份'); return; }
+                    const lines = backups.slice(0, 8).map((b, i) => {
+                        const d = new Date((Number(b.created_at || 0)) * 1000);
+                        const ts = Number.isFinite(d.getTime()) ? d.toLocaleString() : '-';
+                        const fromVersion = b.source_version || b.restored_version || '-';
+                        const toVersion = b.target_version || '-';
+                        return `${i + 1}. ${b.name || b.id || '-'}  (${fromVersion} -> ${toVersion}, ${ts})`;
+                    });
+                    const promptMsg = (isEn
+                        ? 'Select a launcher backup to restore (enter the number):\n'
+                        : '选择要还原的启动器备份（输入序号）：\n') + lines.join('\n');
+                    const answer = prompt(promptMsg, '1');
+                    const idx = Number(answer) - 1;
+                    if(!(idx >= 0 && idx < backups.length)) return;
+                    const target = backups[idx];
+                    if(!confirm(isEn
+                        ? `Restore "${target.name || target.id}" and restart the packaged app afterwards?`
+                        : `要还原 "${target.name || target.id}" 并在之后重启打包版应用吗？`)) return;
+                    const res = await fetch('/api/launcher/rollback', {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify({ name:target.id || target.name || '' })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if(!res.ok) throw new Error(data.detail || (isEn ? 'Rollback failed' : '回滚失败'));
+                    alert(isEn
+                        ? `Rolled back to ${data.restored_version || ''}. Please restart the packaged app.`
+                        : `已回滚到 ${data.restored_version || ''}。请重启打包版应用。`);
+                    return;
+                } catch(e) {
+                    alert((isEn ? 'Rollback failed: ' : '回滚失败：') + describeNetworkError(e, isEn));
+                    return;
+                }
+            }
             try {
                 const list = await fetch('/api/update-backups').then(r => r.json());
                 const backups = list.backups || [];
@@ -1078,6 +1134,11 @@
             try {
                 const info = await fetch('/api/app-info', { cache:'no-store' }).then(r => r.json());
                 appInfo = {...appInfo, ...info};
+                if (appInfo.managed_by_launcher) {
+                    const status = await fetch('/api/launcher/check-update', { cache:'no-store' }).then(r => r.json()).catch(() => null);
+                    if(status?.has_update) showUpdateNotice(status.current_version || appInfo.version || '', status.remote_version || '');
+                    return;
+                }
                 const current = String(appInfo.version || '').trim();
                 const remoteText = await fetch(`${appInfo.version_url || ''}?t=${Date.now()}`, { cache:'no-store' }).then(r => r.ok ? r.text() : '');
                 const remote = String(remoteText || '').trim().split(/\r?\n/)[0].trim();
