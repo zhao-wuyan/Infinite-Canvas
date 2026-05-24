@@ -35,6 +35,7 @@ def run_pyinstaller(
     name: str,
     dist_dir: Path,
     hidden_imports: list[str] | None = None,
+    windowed: bool = False,
 ) -> None:
     command = [
         sys.executable,
@@ -47,6 +48,8 @@ def run_pyinstaller(
         "--distpath",
         str(dist_dir),
     ]
+    if windowed:
+        command.append("--windowed")
     for item in hidden_imports or []:
         if item:
             command.extend(["--hidden-import", item])
@@ -102,7 +105,12 @@ def build_app(dist_dir: Path) -> Path:
     build_bin_dir = dist_dir / "bin"
     build_bin_dir.mkdir(parents=True, exist_ok=True)
 
-    run_pyinstaller(ROOT / "packaging" / "macos" / "launcher" / "launcher_main.py", APP_NAME, build_bin_dir)
+    run_pyinstaller(
+        ROOT / "packaging" / "macos" / "launcher" / "launcher_main.py",
+        APP_NAME,
+        build_bin_dir,
+        windowed=True,
+    )
     run_pyinstaller(
         ROOT / "packaging" / "macos" / "service" / "service_main.py",
         f"{APP_NAME} Service",

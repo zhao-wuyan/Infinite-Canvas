@@ -20,6 +20,16 @@ class MacBuildAppTests(unittest.TestCase):
         self.assertIn("fastapi.staticfiles", args)
         self.assertIn("PIL.Image", args)
 
+    def test_run_pyinstaller_accepts_windowed_mode(self):
+        dist_dir = Path("/tmp/dist")
+        entrypoint = Path("/tmp/launcher_main.py")
+
+        with patch("packaging.macos.build_app.subprocess.run") as mocked_run:
+            run_pyinstaller(entrypoint, APP_NAME, dist_dir, windowed=True)
+
+        args = mocked_run.call_args.args[0]
+        self.assertIn("--windowed", args)
+
 
 if __name__ == "__main__":
     unittest.main()

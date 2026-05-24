@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import subprocess
 import sys
 import tempfile
@@ -160,6 +161,16 @@ def main() -> int:
     if not ok:
         process.terminate()
         return 1
+
+    shutdown_requested = {"value": False}
+
+    def handle_shutdown(_signum: int, _frame: object) -> None:
+        shutdown_requested["value"] = True
+        if process.poll() is None:
+            process.terminate()
+
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    signal.signal(signal.SIGINT, handle_shutdown)
     if port_changed:
         print(
             json.dumps(
@@ -171,7 +182,10 @@ def main() -> int:
                 ensure_ascii=False,
             )
         )
-    return process.wait()
+    exit_code = process.wait()
+    if shutdown_requested["value"]:
+        return 0
+    return exit_code
 
 
 if __name__ == "__main__":
