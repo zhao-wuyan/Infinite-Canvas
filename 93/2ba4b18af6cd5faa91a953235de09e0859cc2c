@@ -1,0 +1,47 @@
+packaging/windows/README.md
+  s_ff538a953c71d2::t_b20b7947031692 9-10,67
+  s_ff538a953c71d2::t_d84bbe476ad1d2 62-66,68,70-71
+  s_ff538a953c71d2::t_32b2a24fd3fb21 69
+packaging/windows/launcher/launcher_main.py
+  s_ff538a953c71d2::t_6e226c9112a48e 6,28-33,36
+requirements.txt
+  s_ff538a953c71d2::t_e9c591b2345dfe 2,7
+packaging/windows/launcher/runtime_manager.py
+  s_ff538a953c71d2::t_3e4a0f1a9eb8ac 167-170,173-179
+packaging/windows/service/service_main.py
+  s_ff538a953c71d2::t_3370ab23f2b422 1-25
+packaging/windows/WINDOWS_RUNBOOK.md
+  s_ff538a953c71d2::t_32b2a24fd3fb21 10,92
+  s_ff538a953c71d2::t_b20b7947031692 8,81,97
+  s_ff538a953c71d2::t_d84bbe476ad1d2 90
+tests/test_runtime_manager.py
+  s_ff538a953c71d2::t_e284d6b8a1b8c4 13,60-89
+packaging/windows/build_launcher.py
+  s_ff538a953c71d2::t_25c8a9da081a0f 33,77-79
+  s_ff538a953c71d2::t_f5d81e19c4a25c 4,7,28,37,52-61,63,67,73,80-82,84,91
+  s_ff538a953c71d2::t_a2027284ea6ae8 12-24,27,29-32,34-36,38-51,83,85-90
+packaging/windows/installer/infinite-canvas.iss
+  s_ff538a953c71d2::t_3dbab3007be651 13
+  s_ff538a953c71d2::t_db8882a20895df 29,63-64,66,77
+  s_ff538a953c71d2::t_9357b42971a7c4 27-28
+  s_ff538a953c71d2::t_c9966d13f92c4d 14,23-25
+packaging/windows/payload/manifest.json
+  s_ff538a953c71d2::t_505521469e11f0 17-68,70
+  s_ff538a953c71d2::t_ae585a4cb5a111 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "932ba4b18af6cd5faa91a953235de09e0859cc2c",
+  "prompts": {},
+  "sessions": {
+    "s_ff538a953c71d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5aaf-a681-7ba1-9e9d-a775c021eca2",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
