@@ -1,3 +1,10 @@
+# ide
+.idea/
+*.iml
+
+# ai
+.claude/
+
 # Python/runtime cache
 __pycache__/
 *.py[cod]
@@ -12,7 +19,7 @@ dist/
 packaging/*/payload/app-base.zip
 
 # Local agent/workflow state
-.workflow/
+#.workflow/
 
 # Local Docker runtime data
 docker-data/
