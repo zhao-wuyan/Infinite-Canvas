@@ -1,0 +1,33 @@
+.github/workflows/release-installers.yml
+  s_ff538a953c71d2::t_0edfddde68a65d 134-136
+  s_ff538a953c71d2::t_f7db753c2606a0 1-133,137-166
+packaging/windows/README.md
+  s_09739900f4c113::t_86a2b0dc21a73f 22-24,28-29,34-35,55-56,59,64,66-67,80-98,105-115,117-120,134,136,140
+  s_09739900f4c113::t_bee81599c365d2 65,68,99-104,116,135
+.github/workflows/docker-publish.yml
+  s_ff538a953c71d2::t_f7db753c2606a0 4-6,54-55,62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "6144cb802c3854be6cf21cd73c296e60bfd2660a",
+  "prompts": {},
+  "sessions": {
+    "s_09739900f4c113": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d35-1b13-7c20-8c64-d9b8319e9014",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_ff538a953c71d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5aaf-a681-7ba1-9e9d-a775c021eca2",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
