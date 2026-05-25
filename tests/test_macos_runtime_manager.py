@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from packaging.macos.launcher.runtime_manager import (
+    build_launch_env,
     create_update_backup,
     current_payload_version,
     current_release_name,
@@ -97,6 +98,18 @@ class MacRuntimeManagerTests(unittest.TestCase):
             self.assertTrue(changed)
             persist_selected_port(layout, port)
             self.assertEqual(load_launcher_state(layout)["last_port"], 3002)
+
+    def test_build_launch_env_exposes_storage_root_for_launcher_commands(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            app_bundle = create_bundle_with_payload(root)
+            layout = compute_layout(app_bundle, storage_root=root / "storage")
+
+            env = build_launch_env(layout, launcher_exe="/Applications/Infinite Canvas.app/Contents/MacOS/Infinite Canvas")
+
+        self.assertEqual(env["INFINITE_CANVAS_DATA_ROOT"], str(layout.storage_root))
+        self.assertEqual(env["INFINITE_CANVAS_STORAGE_ROOT"], str(layout.storage_root))
+        self.assertEqual(env["INFINITE_CANVAS_LAUNCHER_EXE"], "/Applications/Infinite Canvas.app/Contents/MacOS/Infinite Canvas")
 
 
 if __name__ == "__main__":

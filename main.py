@@ -16,6 +16,7 @@ import logging
 import requests
 import zipfile
 import mimetypes
+import shlex
 import textwrap
 from typing import List, Dict, Any, Optional
 from threading import Lock
@@ -1099,6 +1100,24 @@ def write_and_launch_vbs(script_path: str, script: str) -> None:
         stderr=subprocess.DEVNULL,
     )
 
+def macos_app_bundle_from_launcher(launcher_exe: str) -> str:
+    macos_dir = os.path.dirname(os.path.abspath(launcher_exe or ""))
+    contents_dir = os.path.dirname(macos_dir)
+    app_bundle = os.path.dirname(contents_dir)
+    if (
+        os.path.basename(macos_dir) == "MacOS"
+        and os.path.basename(contents_dir) == "Contents"
+        and app_bundle.endswith(".app")
+        and os.path.isdir(app_bundle)
+    ):
+        return app_bundle
+    return ""
+
+def launcher_restart_storage_args() -> str:
+    if sys.platform != "darwin" or not APP_DATA_ROOT:
+        return ""
+    return " --storage-root " + shlex.quote(APP_DATA_ROOT)
+
 def schedule_launcher_restart(delay_seconds: int = 3) -> bool:
     """Restart the packaged backend through the launcher so it picks up current.txt."""
     launcher_exe = launcher_executable_path()
@@ -1147,12 +1166,27 @@ def schedule_launcher_restart(delay_seconds: int = 3) -> bool:
             write_and_launch_vbs(script_path, script)
         else:
             script_path = os.path.join(restart_dir, "_launcher_restart.sh")
+            storage_args = launcher_restart_storage_args()
+            direct_launch = f"nohup {shlex.quote(launcher_exe)} --no-browser{storage_args} >/dev/null 2>&1 &"
+            app_bundle = macos_app_bundle_from_launcher(launcher_exe) if sys.platform == "darwin" else ""
+            open_launch = ""
+            if app_bundle:
+                open_launch = f"/usr/bin/open -n {shlex.quote(app_bundle)} --args --no-browser{storage_args} >/dev/null 2>&1"
+            launch_block = (
+                f"if {open_launch}; then\n"
+                "  :\n"
+                "else\n"
+                f"  {direct_launch}\n"
+                "fi\n"
+                if open_launch
+                else f"{direct_launch}\n"
+            )
             script = (
                 "#!/bin/sh\n"
                 f"sleep {delay}\n"
                 f"kill -TERM {pid} 2>/dev/null\n"
                 "sleep 2\n"
-                f"nohup \"{launcher_exe}\" --no-browser >/dev/null 2>&1 &\n"
+                f"{launch_block}"
                 "rm -- \"$0\"\n"
             )
             with open(script_path, "w", encoding="utf-8") as f:
