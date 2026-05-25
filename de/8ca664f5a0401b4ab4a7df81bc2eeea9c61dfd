@@ -1,0 +1,21 @@
+Dockerfile
+  s_ac9ed84019fc17::t_f7c33c17a0f0f3 15
+tests/test_dockerfile.py
+  s_ac9ed84019fc17::t_f7c33c17a0f0f3 1-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "de8ca664f5a0401b4ab4a7df81bc2eeea9c61dfd",
+  "prompts": {},
+  "sessions": {
+    "s_ac9ed84019fc17": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d73-7656-7c52-a56b-7902e2a7a602",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
