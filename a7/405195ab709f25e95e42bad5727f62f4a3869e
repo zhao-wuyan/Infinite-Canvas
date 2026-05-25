@@ -1,0 +1,22 @@
+tests/test_restart_script_visibility.py
+  s_004abb5f7856ce::t_a011b167726890 36,49-53
+main.py
+  s_004abb5f7856ce::t_deb94e90b7184f 19,1089,1091-1093,1096-1099,1116-1117,1127,1131,1137,1145,1282-1283,1285-1286,1298,1302,1323
+  s_004abb5f7856ce::t_eef8d0f93b91b4 1087-1088,1090,1094-1095,1113,1118-1126,1128-1130,1132-1136,1138-1144,1147,1280,1284,1287-1297,1299-1301,1303-1322,1325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "a7405195ab709f25e95e42bad5727f62f4a3869e",
+  "prompts": {},
+  "sessions": {
+    "s_004abb5f7856ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e6e-a15a-7dd0-965d-592986b0cdc0",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
