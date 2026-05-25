@@ -471,6 +471,8 @@ function nodeScale(node){
 const MEDIA_NODE_DEFAULT_SCALE = 2;
 const MEDIA_GROUP_PREVIOUS_DEFAULT_SCALE = 1.6;
 const MEDIA_GROUP_DEFAULT_SCALE = 0.8;
+const EMPTY_UPLOAD_NODE_WIDTH = 316;
+const EMPTY_UPLOAD_NODE_HEIGHT = 194;
 function mediaNodeDefaultScale(node){
     if((node?.images || []).length > 1 && !Number.isFinite(Number(node?.scale))) return MEDIA_GROUP_DEFAULT_SCALE;
     return Number.isFinite(Number(node?.scale)) && Number(node.scale) > 0 ? Number(node.scale) : MEDIA_NODE_DEFAULT_SCALE;
@@ -550,7 +552,21 @@ function imageLayout(images, scale=1, node=null){
     if(node?.type === 'smart-loop') return {cols:1, rows:1, width:Math.round(Number(node.w) || smartLoopWidth(node)), height:Math.round(Math.max(Number(node.h) || 0, smartLoopHeight(node))), thumb:96, single:true};
     const count = (images || []).length;
     const s = node?.type === 'smart-image' || !node?.type ? mediaNodeDefaultScale(node) : (Number.isFinite(scale) && scale > 0 ? scale : 1);
-    if(count === 0) return {cols:1, rows:1, width:Math.round(Number(node?.w) || 260*s), height:Math.round(Number(node?.h) || 180*s), thumb:Math.round(96*s), single:true};
+    if(count === 0){
+        const explicitW = Number(node?.w);
+        const explicitH = Number(node?.h);
+        const pending = Number(node?.pending) > 0;
+        const fallbackW = pending ? 260 * s : EMPTY_UPLOAD_NODE_WIDTH;
+        const fallbackH = pending ? 180 * s : EMPTY_UPLOAD_NODE_HEIGHT;
+        return {
+            cols:1,
+            rows:1,
+            width:Math.round(Number.isFinite(explicitW) && explicitW > 24 ? explicitW : fallbackW),
+            height:Math.round(Number.isFinite(explicitH) && explicitH > 24 ? explicitH : fallbackH),
+            thumb:Math.round(96*s),
+            single:true
+        };
+    }
     if(count === 1) return singleImageLayout(images[0], node, s);
     const thumb = Math.round(192 * s);
     const cell = thumb + 8;
@@ -4985,58 +5001,19 @@ function renderInputThumbsRow(node){
     if(!dedup.length){ inputThumbsRow.innerHTML = ''; return; }
     inputThumbsRow.innerHTML = dedup.map((img, i) => {
         const isVid = isVideoMediaItem(img);
-        const blocked = node ? isInputRefBlocked(node, img) : false;
-        const title = blocked ? tr('smart.inputClickEnable') : tr('smart.inputClickBlock');
+        const isSelf = node ? isSelfReferenceForNode(node, img) : false;
+        const title = isSelf ? tr('smart.inputSelf') : tr('smart.inputUpstream');
         const inner = isVid ? `<video src="${escapeHtml(img.url)}" muted preload="metadata" playsinline disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"></video>` : `<img src="${escapeHtml(img.url)}" draggable="false">`;
-        return `<div class="input-thumb ${blocked ? 'input-blocked' : ''}" draggable="true" data-thumb-index="${i}" data-node-id="${escapeHtml(img.nodeId || '')}" data-image-index="${img.imageIndex ?? ''}" data-url="${escapeHtml(img.url || '')}" data-blocked-label="${escapeHtml(tr('smart.inputBlocked'))}" title="${escapeHtml(`${img.name || tr('smart.inputNum').replace('{n}', String(i + 1))} · ${title}`)}">${inner}</div>`;
+        return `<div class="input-thumb ${isSelf ? 'input-self' : ''}" draggable="false" data-thumb-index="${i}" data-node-id="${escapeHtml(img.nodeId || '')}" data-image-index="${img.imageIndex ?? ''}" data-url="${escapeHtml(img.url || '')}" title="${escapeHtml(`${img.name || tr('smart.inputNum').replace('{n}', String(i + 1))} · ${title}`)}">${inner}</div>`;
     }).join('') + (dedup.length > 1 ? `<span class="input-thumb-count">${escapeHtml(tr('smart.inputCount').replace('{n}', String(dedup.length)))}</span>` : '');
     bindInputThumbsDrag(node, dedup);
 }
 function bindInputThumbsDrag(node, items){
     if(!inputThumbsRow) return;
-    let dragIndex = -1;
-    let suppressClickUntil = 0;
     inputThumbsRow.querySelectorAll('.input-thumb').forEach(el => {
-        el.addEventListener('dragstart', e => {
-            dragIndex = Number(el.dataset.thumbIndex);
-            el.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-            try { e.dataTransfer.setData('application/x-smart-input-thumb', String(dragIndex)); } catch {}
-            try { e.dataTransfer.setData('text/plain', String(dragIndex)); } catch {}
-        });
-        el.addEventListener('dragend', () => {
-            suppressClickUntil = Date.now() + 160;
-            el.classList.remove('dragging');
-            inputThumbsRow.querySelectorAll('.input-thumb').forEach(x => x.classList.remove('drop-before','drop-after'));
-        });
-        el.addEventListener('dragover', e => {
-            e.preventDefault();
-            if(dragIndex < 0) return;
-            const rect = el.getBoundingClientRect();
-            const before = e.clientX < rect.left + rect.width / 2;
-            inputThumbsRow.querySelectorAll('.input-thumb').forEach(x => x.classList.remove('drop-before','drop-after'));
-            el.classList.add(before ? 'drop-before' : 'drop-after');
-        });
-        el.addEventListener('drop', e => {
-            e.preventDefault();
-            if(dragIndex < 0) return;
-            const toRaw = Number(el.dataset.thumbIndex);
-            const rect = el.getBoundingClientRect();
-            const before = e.clientX < rect.left + rect.width / 2;
-            let to = before ? toRaw : toRaw + 1;
-            if(to > dragIndex) to--;
-            if(to === dragIndex || dragIndex < 0) return;
-            reorderInputThumb(node, items, dragIndex, to);
-            dragIndex = -1;
-        });
         el.addEventListener('click', e => {
-            if(Date.now() < suppressClickUntil) return;
-            const index = Number(el.dataset.thumbIndex);
-            const img = items[index];
-            if(!node || !img?.url) return;
             e.preventDefault();
             e.stopPropagation();
-            toggleInputRefBlocked(node, img);
         });
     });
 }
@@ -5357,26 +5334,72 @@ function expectedOutputSize(){
     }
     return {w:1024, h:1024};
 }
-function pendingBoxSize(count){
-    const expected = expectedOutputSize();
-    const aspect = expected.w / Math.max(1, expected.h);
+function explicitRequestOutputSizeForPending(){
+    if(settings.engine === 'api' && settings.apiKind !== 'video'){
+        const parsed = parseSizeValue(sizeForRun());
+        if(parsed) return {w:Number(parsed.width) || 1024, h:Number(parsed.height) || 1024};
+    }
+    if(settings.engine === 'modelscope'){
+        const sizeStr = apiImageSize(settings.msRatio || 'square', settings.msResolution || '1k', settings.msCustomRatio || '', settings.msCustomSize || '');
+        const parsed = parseSizeValue(sizeStr);
+        if(parsed) return {w:Number(parsed.width) || 1024, h:Number(parsed.height) || 1024};
+    }
+    if(settings.engine === 'comfy' && settings.comfyMode === 'text'){
+        const w = Number(settings.width) || 1024;
+        const h = Number(settings.height) || 1024;
+        return {w, h};
+    }
+    return null;
+}
+function pendingSizeFromImageRef(img){
+    const w = Number(img?.natural_w || img?.width || 0);
+    const h = Number(img?.natural_h || img?.height || 0);
+    return w > 0 && h > 0 ? {w, h} : null;
+}
+function pendingSourceBoxSize(options={}){
+    const sourceNode = options.sourceNode || null;
+    if(sourceNode && (sourceNode.images || []).length){
+        const rect = nodeRect(sourceNode);
+        if(rect.width > 24 && rect.height > 24) return {w:Math.round(rect.width), h:Math.round(rect.height), display:true};
+    }
+    const ref = (options.refs || []).find(img => img?.url);
+    const refSize = pendingSizeFromImageRef(ref);
+    if(refSize) return refSize;
+    const refNode = ref?.nodeId ? nodes.find(n => n.id === ref.nodeId) : null;
+    if(refNode){
+        const rect = nodeRect(refNode);
+        if(rect.width > 24 && rect.height > 24) return {w:Math.round(rect.width), h:Math.round(rect.height), display:true};
+    }
+    return null;
+}
+function displayBoxFromNaturalSize(size){
+    const layout = singleImageLayout(
+        {natural_w:size?.w || size?.width || 1024, natural_h:size?.h || size?.height || 1024},
+        {type:'smart-image', images:[{}]},
+        MEDIA_NODE_DEFAULT_SCALE
+    );
+    return {w:layout.width, h:layout.height};
+}
+function pendingBaseBoxSize(options={}){
+    const requestSize = explicitRequestOutputSizeForPending();
+    if(requestSize) return displayBoxFromNaturalSize(requestSize);
+    const sourceSize = pendingSourceBoxSize(options);
+    if(sourceSize?.display) return {w:sourceSize.w, h:sourceSize.h};
+    if(sourceSize) return displayBoxFromNaturalSize(sourceSize);
+    return displayBoxFromNaturalSize(expectedOutputSize());
+}
+function pendingBoxSize(count, options={}){
+    const base = pendingBaseBoxSize(options);
+    const aspect = base.w / Math.max(1, base.h);
     const c = Math.max(1, Number(count) || 1);
     if(c <= 1){
-        const maxSide = 260 * MEDIA_NODE_DEFAULT_SCALE;
-        if(expected.w >= expected.h){
-            const w = maxSide;
-            const h = Math.max(60 * MEDIA_NODE_DEFAULT_SCALE, Math.round(maxSide / aspect));
-            return {w, h};
-        }
-        const h = maxSide;
-        const w = Math.max(60 * MEDIA_NODE_DEFAULT_SCALE, Math.round(maxSide * aspect));
-        return {w, h};
+        return {w:Math.round(base.w), h:Math.round(base.h)};
     }
     const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(c))));
     const rows = Math.ceil(c / cols);
-    const cellMax = 110 * MEDIA_NODE_DEFAULT_SCALE;
+    const cellMax = Math.max(96, Math.min(220, Math.max(base.w, base.h) * 0.42));
     let cellW, cellH;
-    if(expected.w >= expected.h){
+    if(base.w >= base.h){
         cellW = cellMax;
         cellH = Math.max(40 * MEDIA_NODE_DEFAULT_SCALE, Math.round(cellMax / aspect));
     } else {
@@ -5434,7 +5457,8 @@ function attachRunMeta(targetNode, meta){
     targetNode.runModelPrompt = meta.prompt;
     targetNode.runPromptRefs = meta.promptRefs || [];
     targetNode.runSettings = meta.settings;
-    targetNode.sourceNodeId = meta.sourceNodeId;
+    if(meta.sourceNodeId) targetNode.sourceNodeId = meta.sourceNodeId;
+    else delete targetNode.sourceNodeId;
     targetNode.runAt = meta.createdAt;
     // 保存可编辑的 @-提及表单到草稿字段，方便点输出节点时还原原始可编辑形式
     if(meta.promptHtml != null){
@@ -5444,6 +5468,17 @@ function attachRunMeta(targetNode, meta){
         targetNode.promptDraftText = meta.promptText || '';
     }
     targetNode.images = (targetNode.images || []).map(img => stripImageGenerationMeta(img));
+}
+function stripRunInputMeta(meta){
+    if(!meta) return meta;
+    const cleanPrompt = meta.promptText || meta.displayPrompt || meta.prompt || '';
+    return {
+        ...meta,
+        promptHtml:escapeHtml(cleanPrompt),
+        promptText:cleanPrompt,
+        promptRefs:[],
+        sourceNodeId:''
+    };
 }
 function stripImageGenerationMeta(img){
     if(!img) return img;
@@ -5490,6 +5525,19 @@ function inputNodesFor(node){
 }
 function imagesForNode(node){
     return (node?.images || []).map((img, index) => ({...img, nodeId:node.id, imageIndex:index}));
+}
+function nodeHasReferenceContent(node){
+    return imagesForNode(node).some(img => img?.url);
+}
+function isSelfReferenceForNode(node, img){
+    return Boolean(node?.id && img?.nodeId === node.id);
+}
+function candidateInputImagesFor(node, consume=false, ctx=smartLoopContext){
+    if(nodeHasReferenceContent(node)) return [];
+    return inputImagesFor(node, consume, ctx).filter(img => img?.url);
+}
+function defaultInputImagesFor(node, consume=false, ctx=smartLoopContext){
+    return candidateInputImagesFor(node, consume, ctx);
 }
 function splitSmartPromptItems(text){
     const trimmed = String(text || '').trim();
@@ -5608,9 +5656,10 @@ function toggleInputRefBlocked(node, img){
 }
 function defaultReferenceImagesFor(node, consume=false, ctx=smartLoopContext){
     if(!node) return [];
-    const upstream = activeInputImagesFor(node, consume, ctx).filter(img => img?.url);
-    if(upstream.length) return upstream;
-    return selfReferenceImagesForNode(node, consume, ctx).filter(img => img?.url);
+    const self = selfReferenceImagesForNode(node, consume, ctx).filter(img => img?.url);
+    const upstream = defaultInputImagesFor(node, consume, ctx);
+    if(self.length) return uniqueReferenceImages(self);
+    return upstream;
 }
 function lineConnectionsFor(node){
     if(!node) return [];
@@ -5692,8 +5741,9 @@ function uniqueReferenceImages(images){
     return refs;
 }
 function visibleReferenceImagesFor(node){
-    const upstream = inputImagesFor(node);
-    const base = upstream.length ? upstream : defaultReferenceImagesFor(node);
+    const self = selfReferenceImagesForNode(node).filter(img => img?.url);
+    const upstream = candidateInputImagesFor(node);
+    const base = self.length ? uniqueReferenceImages(self) : upstream;
     return uniqueReferenceImages([...base, ...collectMentionedImagesFromPrompt()]);
 }
 function inputMentionCandidateImages(node){
@@ -5993,15 +6043,19 @@ function buildPromptRequest(node, overrideDefaultImages=null, consumeDefault=fal
         mentioned:false
     };
 }
-function outgoingInputConnectionsFor(node){
+function outgoingConnectionsFor(node, kinds=['input']){
     if(!node) return [];
-    return (canvas?.connections || []).filter(conn => conn.from === node.id && (conn.kind || 'flow') === 'input');
+    const allowed = new Set(kinds);
+    return (canvas?.connections || []).filter(conn => conn.from === node.id && allowed.has(conn.kind || 'flow'));
 }
-function nextOutputPositionForSource(sourceNode, pendingBox){
+function outgoingInputConnectionsFor(node){
+    return outgoingConnectionsFor(node, ['input']);
+}
+function nextOutputPositionForSource(sourceNode, pendingBox, options={}){
     const sourceRect = nodeRect(sourceNode);
     const x = (sourceRect.x || 0) + sourceRect.width + 80;
     const gap = 28;
-    const outputs = outgoingInputConnectionsFor(sourceNode)
+    const outputs = outgoingConnectionsFor(sourceNode, ['input','flow'])
         .map(conn => nodes.find(n => n.id === conn.to))
         .filter(n => n?.type === 'smart-image')
         .map(n => nodeRect(n))
@@ -6015,8 +6069,8 @@ function nextOutputPositionForSource(sourceNode, pendingBox){
     }
     return {x, y};
 }
-function createPendingOutputFromSource(sourceNode, expectedCount, meta){
-    const pendingBox = pendingBoxSize(expectedCount);
+function createPendingOutputFromSource(sourceNode, expectedCount, meta, options={}){
+    const pendingBox = pendingBoxSize(expectedCount, {sourceNode, refs:options.refs || meta?.promptRefs || []});
     const pos = nextOutputPositionForSource(sourceNode, pendingBox);
     const output = {
         id:uid('smart'),
@@ -6033,10 +6087,11 @@ function createPendingOutputFromSource(sourceNode, expectedCount, meta){
         scale:MEDIA_NODE_DEFAULT_SCALE,
         created_at:Date.now()
     };
-    output._selectAfterRunId = sourceNode.id;
+    output._selectAfterRunId = options.selectOutput ? output.id : sourceNode.id;
     nodes.push(output);
-    connectInputNode(sourceNode.id, output.id);
-    attachRunMeta(output, meta);
+    if(options.connectSource === false) addConnection(sourceNode.id, output.id, 'flow');
+    else connectInputNode(sourceNode.id, output.id);
+    attachRunMeta(output, options.stripInputMeta ? stripRunInputMeta(meta) : meta);
     selectedId = sourceNode.id;
     selectedImage = {nodeId:'', index:-1};
     return output;
@@ -6580,8 +6635,9 @@ async function runGeneration(){
     pushUndo();
     let extracted = null;
     let branchNode = null;
+    const pendingMeta = nodeHasImages ? stripRunInputMeta(meta) : meta;
     undoSuppressed = true;
-    if(nodeHasImages) branchNode = createPendingOutputFromSource(node, expectedCount, meta);
+    if(nodeHasImages) branchNode = createPendingOutputFromSource(node, expectedCount, pendingMeta, {connectSource:false, selectOutput:true, refs});
     undoSuppressed = false;
     const pendingNode = branchNode || node;
     if(extracted) pendingNode._runMetaTargetId = extracted.id;
@@ -6591,10 +6647,10 @@ async function runGeneration(){
         delete pendingNode.runFinishedAt;
         delete pendingNode.runElapsedMs;
         pendingNode.runTimerHidden = false;
-        const pendingBox = pendingBoxSize(pendingNode.pending);
+        const pendingBox = pendingBoxSize(pendingNode.pending, {sourceNode:node, refs});
         pendingNode.w = pendingBox.w;
         pendingNode.h = pendingBox.h;
-        attachRunMeta(pendingNode, meta);
+        attachRunMeta(pendingNode, pendingMeta);
     }
     if(apiConcurrentRun){
         coolNodeRunningState(pendingNode, 2000);
@@ -6606,7 +6662,7 @@ async function runGeneration(){
     render();
     try {
         if(settings.engine === 'comfy'){
-            await runComfyGeneration(pendingNode, prompt, refs, pendingNode, meta);
+            await runComfyGeneration(pendingNode, prompt, refs, pendingNode, pendingMeta);
             if(sourceVisualState) restoreSourceVisualState(node, sourceVisualState);
             addSmartGenerationLog({run:runLog, outputs:(pendingNode.images || []).map(img => img.url).filter(Boolean), runMs:nowMs() - runLogStart});
             settings = previousSettings;
@@ -6615,7 +6671,7 @@ async function runGeneration(){
         if(settings.engine === 'api' && settings.apiKind === 'video'){
             const outVideos = await runApiVideoGeneration(prompt, refs);
             if(!outVideos.length) throw new Error(tr('smart.errNoOutVideos'));
-            finalizePendingNode(pendingNode, outVideos, meta, 'video');
+            finalizePendingNode(pendingNode, outVideos, pendingMeta, 'video');
             if(sourceVisualState) restoreSourceVisualState(node, sourceVisualState);
             addSmartGenerationLog({run:runLog, outputs:outVideos, runMs:nowMs() - runLogStart});
             clearPromptInput({preserveDraft:true});
@@ -6630,7 +6686,7 @@ async function runGeneration(){
                 : await runApiGeneration(prompt, refs);
         if(!outImages.length) throw new Error(tr('smart.errNoOutImages'));
         if(outpaintSize) delete node.outpaintSize;
-        finalizePendingNode(pendingNode, outImages, meta);
+        finalizePendingNode(pendingNode, outImages, pendingMeta);
         if(sourceVisualState) restoreSourceVisualState(node, sourceVisualState);
         addSmartGenerationLog({run:runLog, outputs:outImages, runMs:nowMs() - runLogStart});
         clearPromptInput({preserveDraft:true});

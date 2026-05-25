@@ -20,7 +20,7 @@
     <script src="/static/js/theme.js?v=2026.05.25.2"></script>
     <script src="/static/js/i18n.js?v=2026.05.25.2"></script>
     <link rel="stylesheet" href="/static/css/theme.css?v=2026.05.25.2">
-    <link rel="stylesheet" href="/static/css/api-settings.css?v=2026.05.25.2">
+    <link rel="stylesheet" href="/static/css/api-settings.css?v=2026.05.25.4">
 </head>
 <body>
     <div class="page">
@@ -184,11 +184,11 @@
                         <div class="block-head">
                             <div>
                                 <div class="block-title">应用与工作流</div>
-                                <div class="block-desc">粘贴运行路径，自动创建卡片。</div>
+                                <div class="block-desc">粘贴运行路径后，点击右侧创建卡片。</div>
                             </div>
                         </div>
                         <div class="rh-paste-row">
-                            <input id="rhPasteInput" class="rh-paste-input" type="text" placeholder="/run/ai-app/... 或 /run/workflow/..." oninput="handleRhPasteInput(this.value)">
+                            <input id="rhPasteInput" class="rh-paste-input" type="text" placeholder="/run/ai-app/... 或 /run/workflow/...">
                             <button class="action-btn" type="button" onclick="createRhEntryFromPaste()"><i data-lucide="plus" class="w-3.5 h-3.5"></i><span>创建</span></button>
                         </div>
                         <div class="rh-card-columns">
@@ -338,7 +338,7 @@
                 </div>
                 <div class="rh-workflow-editor-actions">
                     <button class="action-btn" type="button" onclick="fetchRhWorkflowEditor(true)"><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i><span>重新拉取</span></button>
-                    <button class="action-btn save-btn" type="button" onclick="saveRhWorkflowEditor()"><i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存</span></button>
+                    <button id="rhWorkflowSaveBtn" class="action-btn save-btn" type="button" onclick="saveRhWorkflowEditor()"><i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存</span></button>
                     <button class="rh-workflow-editor-close" type="button" onclick="closeRhWorkflowEditor()"><i data-lucide="x" class="w-4 h-4"></i></button>
                 </div>
             </div>
@@ -370,6 +370,6 @@
         </div>
     </div>
 
-    <script src="/static/js/api-settings.js?v=2026.05.25.2"></script>
+    <script src="/static/js/api-settings.js?v=2026.05.25.7"></script>
 </body>
 </html>

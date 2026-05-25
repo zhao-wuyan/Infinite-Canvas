@@ -25,6 +25,7 @@ const rhWorkflowsCount = document.getElementById('rhWorkflowsCount');
 const rhWorkflowEditorOverlay = document.getElementById('rhWorkflowEditorOverlay');
 const rhWorkflowEditorTitle = document.getElementById('rhWorkflowEditorTitle');
 const rhWorkflowEditorSub = document.getElementById('rhWorkflowEditorSub');
+const rhWorkflowSaveBtn = document.getElementById('rhWorkflowSaveBtn');
 const rhWorkflowEditName = document.getElementById('rhWorkflowEditName');
 const rhWorkflowEditNote = document.getElementById('rhWorkflowEditNote');
 const rhWorkflowEditorSummary = document.getElementById('rhWorkflowEditorSummary');
@@ -370,7 +371,7 @@ function updateProtocolFromInput(){
 }
 function handleRhPasteInput(value){
     const parsed = parseRunningHubRunRef(value);
-    if(parsed) createRhEntryFromPaste();
+    if(parsed) setStatus('已识别 RunningHub 路径，点击右侧创建卡片');
 }
 function createRhEntryFromPaste(){
     const item = provider();
@@ -402,6 +403,8 @@ function updateRhEntry(kind, index, prop, value){
     ensureRunningHubLists(item);
     if(!item[listKey][index]) return;
     item[listKey][index][prop] = value;
+    if(prop === 'title') setStatus('名称已修改，点保存生效');
+    if(prop === 'note') setStatus('备注已修改，点保存生效');
 }
 function removeRhEntry(kind, index){
     const item = provider();
@@ -796,13 +799,13 @@ function toggleRhWorkflowEditorField(key){
 function updateRhWorkflowEditorField(key, prop, value){
     const config = rhWorkflowEditorState.config;
     if(!config) return;
-    withRhEditorScrollPreserved(() => {
-        config.fields = (config.fields || []).map(field => {
-            if(rhWorkflowFieldKey(field) !== key) return field;
-            const nextValue = prop === 'imageOrder' ? Math.max(1, Number(value) || 1) : prop === 'required' ? Boolean(value) : value;
-            return {...field, [prop]: nextValue};
-        });
-        if(prop === 'random_enabled' || prop === 'fieldType' || prop === 'required' || prop === 'sourceFromUpstream'){
+    config.fields = (config.fields || []).map(field => {
+        if(rhWorkflowFieldKey(field) !== key) return field;
+        const nextValue = prop === 'imageOrder' ? Math.max(1, Number(value) || 1) : prop === 'required' ? Boolean(value) : value;
+        return {...field, [prop]: nextValue};
+    });
+    if(prop === 'random_enabled' || prop === 'fieldType' || prop === 'required' || prop === 'sourceFromUpstream'){
+        withRhEditorScrollPreserved(() => {
             renderRhWorkflowEditor();
             if(rhEditorMode === 'workflow' && rhWorkflowEditorState.activeNodeId) {
                 const active = document.querySelector(`.rh-editor-gnode[data-node-id="${rhWorkflowEditorState.activeNodeId}"]`);
@@ -811,75 +814,83 @@ function updateRhWorkflowEditorField(key, prop, value){
                 const active = findRhAppFieldCard(key);
                 if(active) openRhAppFieldPopover(key, active);
             }
-            return;
-        }
-        withRhEditorScrollPreserved(() => renderRhMappedPreview());
-        renderRhWorkflowEditorSummary();
-        renderRhWorkflowEditorGraph();
-        if(rhEditorMode === 'workflow' && rhWorkflowEditorState.activeNodeId) {
-            const active = document.querySelector(`.rh-editor-gnode[data-node-id="${rhWorkflowEditorState.activeNodeId}"]`);
-            if(active) renderRhNodePopover(rhWorkflowEditorState.activeNodeId, active);
-        } else if(rhEditorMode === 'app') {
-            renderRhAppFieldCards();
-            const active = findRhAppFieldCard(key);
-            if(active) openRhAppFieldPopover(key, active);
-        }
-    });
+        });
+    }
+}
+function setRhWorkflowSaveButtonState(state, text){
+    if(!rhWorkflowSaveBtn) return;
+    const label = rhWorkflowSaveBtn.querySelector('span');
+    rhWorkflowSaveBtn.classList.toggle('is-saved', state === 'saved');
+    rhWorkflowSaveBtn.disabled = state === 'saving';
+    if(label) label.textContent = text || (state === 'saved' ? '已保存' : state === 'saving' ? '保存中...' : '保存');
+    const icon = rhWorkflowSaveBtn.querySelector('i');
+    if(icon) icon.setAttribute('data-lucide', state === 'saved' ? 'check' : 'save');
+    refreshIcons();
 }
 async function saveRhWorkflowEditor(){
     const state = rhWorkflowEditorState;
     const config = state.config;
     if(!config){ alert(rhEditorMode === 'app' ? '请先加载应用参数' : '请先加载工作流'); return; }
+    setRhWorkflowSaveButtonState('saving', '保存中...');
     config.title = rhWorkflowEditName?.value.trim() || config.title || config.workflowId;
     config.description = rhWorkflowEditNote?.value.trim() || config.description || '';
-    if(rhEditorMode === 'app'){
+    try {
+        if(rhEditorMode === 'app'){
+            const item = provider();
+            if(item?.id === 'runninghub' && item.rh_apps?.[state.index]){
+                const entry = item.rh_apps[state.index];
+                entry.title = config.title || entry.title;
+                entry.note = config.description || '';
+                entry.fields = (config.fields || []).map(normalizeRhWorkflowField);
+                entry.raw = config.raw || {};
+                renderRunningHubCards();
+                await saveProviders();
+            }
+            setStatus('应用参数配置已保存');
+            setRhWorkflowSaveButtonState('saved', '已保存');
+            setTimeout(() => setRhWorkflowSaveButtonState('idle', '保存'), 1600);
+            try { new BroadcastChannel('studio-api').postMessage({ type:'providers-changed' }); } catch(e) {}
+            renderRhWorkflowEditor();
+            return;
+        }
+        const res = await fetch(`/api/runninghub/workflows/${encodeURIComponent(config.workflowId)}`, {
+            method:'PUT',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                workflowId:config.workflowId,
+                title:config.title,
+                description:config.description,
+                fields:(config.fields || []).map(normalizeRhWorkflowField),
+                workflowJson:config.workflowJson || {},
+                optionalImageMode:config.optionalImageMode || 'prune-workflow',
+                raw:config.raw || {}
+            })
+        });
+        const data = await res.json();
+        if(!res.ok || data.success === false) throw new Error(data.detail || '保存失败');
+        state.config = normalizeRhWorkflowConfig(data.workflow || config, state.entry);
         const item = provider();
-        if(item?.id === 'runninghub' && item.rh_apps?.[state.index]){
-            const entry = item.rh_apps[state.index];
-            entry.title = config.title || entry.title;
-            entry.note = config.description || '';
-            entry.fields = (config.fields || []).map(normalizeRhWorkflowField);
-            entry.raw = config.raw || {};
+        if(item?.id === 'runninghub' && item.rh_workflows?.[state.index]){
+            const entry = item.rh_workflows[state.index];
+            entry.title = state.config.title;
+            entry.note = state.config.description;
+            entry.fields = (state.config.fields || []).map(normalizeRhWorkflowField);
+            entry.workflowJson = state.config.workflowJson || {};
+            entry.optionalImageMode = state.config.optionalImageMode || 'prune-workflow';
+            entry.raw = state.config.raw || {};
+            entry.updatedAt = Number(data.workflow?.updatedAt || Date.now());
             renderRunningHubCards();
             await saveProviders();
         }
-        setStatus('应用参数配置已保存');
-        try { new BroadcastChannel('studio-api').postMessage({ type:'providers-changed' }); } catch(e) {}
+        setStatus('工作流配置已保存');
+        setRhWorkflowSaveButtonState('saved', '已保存');
+        setTimeout(() => setRhWorkflowSaveButtonState('idle', '保存'), 1600);
+        try { new BroadcastChannel('studio-api').postMessage({ type:'workflows-changed' }); } catch(e) {}
         renderRhWorkflowEditor();
-        return;
+    } catch(err) {
+        setRhWorkflowSaveButtonState('idle', '保存');
+        alert(err.message || '保存失败');
     }
-    const res = await fetch(`/api/runninghub/workflows/${encodeURIComponent(config.workflowId)}`, {
-        method:'PUT',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-            workflowId:config.workflowId,
-            title:config.title,
-            description:config.description,
-            fields:(config.fields || []).map(normalizeRhWorkflowField),
-            workflowJson:config.workflowJson || {},
-            optionalImageMode:config.optionalImageMode || 'prune-workflow',
-            raw:config.raw || {}
-        })
-    });
-    const data = await res.json();
-    if(!res.ok || data.success === false){ alert(data.detail || '保存失败'); return; }
-    state.config = normalizeRhWorkflowConfig(data.workflow || config, state.entry);
-    const item = provider();
-    if(item?.id === 'runninghub' && item.rh_workflows?.[state.index]){
-        const entry = item.rh_workflows[state.index];
-        entry.title = state.config.title;
-        entry.note = state.config.description;
-        entry.fields = (state.config.fields || []).map(normalizeRhWorkflowField);
-        entry.workflowJson = state.config.workflowJson || {};
-        entry.optionalImageMode = state.config.optionalImageMode || 'prune-workflow';
-        entry.raw = state.config.raw || {};
-        entry.updatedAt = Number(data.workflow?.updatedAt || Date.now());
-        renderRunningHubCards();
-        await saveProviders();
-    }
-    setStatus('工作流配置已保存');
-    try { new BroadcastChannel('studio-api').postMessage({ type:'workflows-changed' }); } catch(e) {}
-    renderRhWorkflowEditor();
 }
 function renderRhWorkflowEditor(){
     const config = rhWorkflowEditorState.config;
@@ -1532,19 +1543,60 @@ function renderRunningHubCards(){
     renderRhEntryList(rhWorkflowsList, workflows, 'workflow');
     refreshIcons();
 }
+function rhEntryThumbnailCandidates(kind, entry){
+    const id = String((kind === 'workflow' ? (entry?.workflowId || entry?.id) : (entry?.appId || entry?.id)) || '').trim().replace(/[^0-9A-Za-z_-]/g, '');
+    if(!id) return [];
+    const prefix = kind === 'workflow' ? 'workflow' : 'app';
+    const exts = ['png','jpg','jpeg','webp','gif'];
+    const names = [`${prefix}-${id}`, id];
+    const roots = ['/static/runninghub/thumbnails', '/static/runninghub'];
+    const urls = [];
+    names.forEach(name => {
+        exts.forEach(ext => {
+            roots.forEach(root => urls.push(`${root}/${name}.${ext}`));
+        });
+    });
+    return urls;
+}
+function renderRhEntryThumbnail(kind, entry){
+    const icon = kind === 'app' ? 'sparkles' : 'workflow';
+    const candidates = rhEntryThumbnailCandidates(kind, entry);
+    const thumbnail = String(entry?.thumbnail || '').trim();
+    const src = thumbnail || candidates[0] || '';
+    if(!src) return `<i data-lucide="${icon}" class="w-5 h-5"></i>`;
+    const fallbacks = thumbnail ? candidates : candidates.slice(1);
+    return `<img src="${escapeAttr(src)}" alt="" data-rh-thumb-fallbacks="${escapeAttr(fallbacks.join('|'))}" onerror="fallbackRhEntryThumbnail(this,'${icon}')">`;
+}
+function fallbackRhEntryThumbnail(img, icon){
+    const fallbacks = String(img?.dataset?.rhThumbFallbacks || '').split('|').filter(Boolean);
+    const next = fallbacks.shift();
+    if(next){
+        img.dataset.rhThumbFallbacks = fallbacks.join('|');
+        img.src = next;
+        return;
+    }
+    const parent = img?.parentElement;
+    if(parent){
+        parent.innerHTML = `<i data-lucide="${icon === 'sparkles' ? 'sparkles' : 'workflow'}" class="w-5 h-5"></i>`;
+        refreshIcons();
+    }
+}
 function renderRhEntryList(target, list, kind){
     if(!target) return;
     if(!list.length){
-        target.innerHTML = `<div class="rh-empty">${kind === 'app' ? '粘贴 /run/ai-app/... 自动创建 AI 应用卡片' : '粘贴 /run/workflow/... 自动创建工作流卡片'}</div>`;
+        target.innerHTML = `<div class="rh-empty">${kind === 'app' ? '粘贴 /run/ai-app/... 后点击创建 AI 应用卡片' : '粘贴 /run/workflow/... 后点击创建工作流卡片'}</div>`;
         return;
     }
     target.innerHTML = list.map((entry, index) => `
         <div class="rh-config-card">
             <button class="rh-thumb" type="button" onclick="pickRhThumbnail('${kind}', ${entry._rhIndex ?? index})" title="上传缩略图">
-                ${entry.thumbnail ? `<img src="${escapeAttr(entry.thumbnail)}" alt="">` : `<i data-lucide="${kind === 'app' ? 'sparkles' : 'workflow'}" class="w-5 h-5"></i>`}
+                ${renderRhEntryThumbnail(kind, entry)}
             </button>
             <div class="rh-card-main">
-                <input type="text" value="${escapeAttr(entry.title || '')}" oninput="updateRhEntry('${kind}', ${entry._rhIndex ?? index}, 'title', this.value)" placeholder="${kind === 'app' ? 'AI 应用名称' : '工作流名称'}">
+                <label class="rh-card-title-field">
+                    <span>名称</span>
+                    <input type="text" value="${escapeAttr(entry.title || '')}" oninput="updateRhEntry('${kind}', ${entry._rhIndex ?? index}, 'title', this.value)" placeholder="${kind === 'app' ? 'AI 应用名称' : '工作流名称'}">
+                </label>
                 <div class="rh-id-line"><i data-lucide="hash" class="w-3 h-3"></i><span>${escapeHtml(kind === 'app' ? `/run/ai-app/${entry.id}` : `/run/workflow/${entry.id}`)}</span></div>
                 <textarea oninput="updateRhEntry('${kind}', ${entry._rhIndex ?? index}, 'note', this.value)" placeholder="备注、用途、参数说明">${escapeHtml(entry.note || '')}</textarea>
             </div>
