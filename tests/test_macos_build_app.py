@@ -1,5 +1,6 @@
 import unittest
 import tempfile
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,6 +12,12 @@ from packaging.macos.build_app import (
     run_pyinstaller,
     venv_python,
 )
+
+
+def assert_posix_executable(testcase: unittest.TestCase, path: Path) -> None:
+    if os.name == "nt":
+        return
+    testcase.assertEqual(path.stat().st_mode & 0o777, 0o755)
 
 
 class MacBuildAppTests(unittest.TestCase):
@@ -88,8 +95,8 @@ class MacBuildAppTests(unittest.TestCase):
             wrapper_text = wrapper.read_text(encoding="utf-8")
             self.assertIn(f'exec "$SCRIPT_DIR/{appdir_name(APP_NAME)}/{APP_NAME}"', wrapper_text)
             self.assertIn('--app-bundle "$SCRIPT_DIR/../.."', wrapper_text)
-            self.assertEqual(wrapper.stat().st_mode & 0o777, 0o755)
-            self.assertEqual(installed_executable.stat().st_mode & 0o777, 0o755)
+            assert_posix_executable(self, wrapper)
+            assert_posix_executable(self, installed_executable)
 
     def test_install_pyinstaller_output_installs_onefile_binary(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -105,7 +112,7 @@ class MacBuildAppTests(unittest.TestCase):
 
             target = macos_dir / f"{APP_NAME} Updater"
             self.assertEqual(target.read_text(encoding="utf-8"), "binary\n")
-            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+            assert_posix_executable(self, target)
 
     def test_venv_python_uses_bin_python(self):
         self.assertEqual(venv_python(Path("/tmp/build-venv")), Path("/tmp/build-venv/bin/python"))
