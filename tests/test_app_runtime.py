@@ -12,6 +12,11 @@ class ResolveRuntimePathsTests(unittest.TestCase):
         self.assertEqual(paths["APP_DIR"], expected_app_dir)
         self.assertEqual(paths["APP_DATA_ROOT"], expected_app_dir)
         self.assertEqual(paths["STATIC_DIR"], os.path.join(expected_app_dir, "static"))
+        self.assertEqual(paths["STATIC_RUNNINGHUB_DIR"], os.path.join(expected_app_dir, "static", "runninghub"))
+        self.assertEqual(
+            paths["STATIC_RUNNINGHUB_API_PROVIDERS_FILE"],
+            os.path.join(expected_app_dir, "static", "runninghub", "api_providers.json"),
+        )
         self.assertEqual(paths["API_ENV_FILE"], os.path.join(expected_app_dir, "API", ".env"))
 
     def test_separates_resource_and_data_roots(self):
@@ -21,6 +26,10 @@ class ResolveRuntimePathsTests(unittest.TestCase):
 
         self.assertEqual(paths["WORKFLOW_DIR"], os.path.join(expected_app_dir, "workflows"))
         self.assertEqual(paths["STATIC_DIR"], os.path.join(expected_app_dir, "static"))
+        self.assertEqual(
+            paths["STATIC_RUNNINGHUB_API_PROVIDERS_FILE"],
+            os.path.join(expected_app_dir, "static", "runninghub", "api_providers.json"),
+        )
         self.assertEqual(paths["OUTPUT_DIR"], os.path.join(expected_data_root, "output"))
         self.assertEqual(paths["DATA_DIR"], os.path.join(expected_data_root, "data"))
         self.assertEqual(paths["GLOBAL_CONFIG_FILE"], os.path.join(expected_data_root, "global_config.json"))

@@ -25,6 +25,8 @@ def resolve_runtime_paths(base_dir: str, data_root: Optional[str] = None) -> Dic
         "DATA_DIR": os.path.join(writable_root, "data"),
         "GLOBAL_CONFIG_FILE": os.path.join(writable_root, "global_config.json"),
     }
+    paths["STATIC_RUNNINGHUB_DIR"] = os.path.join(paths["STATIC_DIR"], "runninghub")
+    paths["STATIC_RUNNINGHUB_API_PROVIDERS_FILE"] = os.path.join(paths["STATIC_RUNNINGHUB_DIR"], "api_providers.json")
     paths["OUTPUT_INPUT_DIR"] = os.path.join(paths["ASSETS_DIR"], "input")
     paths["OUTPUT_OUTPUT_DIR"] = os.path.join(paths["ASSETS_DIR"], "output")
     paths["ASSET_LIBRARY_DIR"] = os.path.join(paths["ASSETS_DIR"], "library")
