@@ -1,0 +1,43 @@
+static/js/api-settings.js
+  s_437450135f996c::t_8e7691f4dc64d3 28,374,406-407,802-808,817-828,834,837-871,873-881,885-888,890-892,1546-1583,1587,1593,1596-1599
+app_runtime.py
+  s_437450135f996c::t_d0cfe139a2ca74 29
+static/css/smart-canvas.css
+  s_437450135f996c::t_8e7691f4dc64d3 313-314
+static/js/i18n/smart-canvas.js
+  s_437450135f996c::t_8e7691f4dc64d3 123-124
+tests/test_app_runtime.py
+  s_437450135f996c::t_d0cfe139a2ca74 16-19,37-39
+static/canvas.html
+  s_437450135f996c::t_8e7691f4dc64d3 267
+static/css/api-settings.css
+  s_437450135f996c::t_8e7691f4dc64d3 154,280,282,285-286,289-290
+README.md
+  s_437450135f996c::t_8e7691f4dc64d3 19-22,24,26,28,30
+static/js/smart-canvas.js
+  s_437450135f996c::t_8e7691f4dc64d3 474-475,555-569,5004-5005,5007,5337-5393,5396,5400,5402,5460-5461,5472-5482,5529-5541,5659-5662,5744-5746,6046,6048-6052,6054,6058,6072-6073,6090,6092-6094,6638,6640,6650,6653,6665,6674,6689
+static/api-settings.html
+  s_437450135f996c::t_8e7691f4dc64d3 23,187,191,341,373
+static/runninghub/api_providers.json
+  s_437450135f996c::t_8e7691f4dc64d3 98-2251
+static/js/canvas.js
+  s_437450135f996c::t_8e7691f4dc64d3 2174-2183,4158-4217,4397,4504,6626,7081,7118-7119,7131,7175,7660,7737-7738,8633-8638
+static/smart-canvas.html
+  s_437450135f996c::t_8e7691f4dc64d3 22,265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "4bb36d257a9266404672c7e898d5dc00c7891bea",
+  "prompts": {},
+  "sessions": {
+    "s_437450135f996c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5ed4-a46c-7ec2-bfaa-a5257be74b10",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
