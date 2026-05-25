@@ -1,0 +1,93 @@
+packaging/windows/WINDOWS_RUNBOOK.md
+  s_437450135f996c::t_c9c7f688788382 148,153,244
+packaging/build_local.py
+  s_437450135f996c::t_c9c7f688788382 1-290
+packaging/macos/launcher/runtime_manager.py
+  s_437450135f996c::t_c9c7f688788382 66-84,114,172,197-201
+static/js/i18n/smart-canvas.js
+  s_437450135f996c::t_c9c7f688788382 123-124
+static/js/canvas.js
+  s_437450135f996c::t_c9c7f688788382 2174-2183,4158-4217,4397,4504,6626,7081,7118-7119,7131,7175,7660,7737-7738,8633-8638
+tests/test_macos_build_app.py
+  s_437450135f996c::t_c9c7f688788382 2-3,7-20,28,31,35-36,41-52,56,59,64-137
+tests/test_restart_script_visibility.py
+  s_437450135f996c::t_c9c7f688788382 1-63
+static/smart-canvas.html
+  s_437450135f996c::t_c9c7f688788382 22,265
+tests/test_macos_build_dmg.py
+  s_437450135f996c::t_c9c7f688788382 1-32
+static/index.html
+  s_437450135f996c::t_c9c7f688788382 791-795,966-986,992-995,997-1001,1010-1012,1028-1031,1069-1109,1158-1160,1165-1173,1179-1181
+packaging/macos/launcher/launcher_main.py
+  s_437450135f996c::t_c9c7f688788382 5-6,11-13,17,20,24,27,32,38-52,69-144,154-193,200-211,220-275,280,283,285-290,294-296,313-356,386,394-395,397-401,407,409,411,413,426-427,439
+packaging/windows/launcher/launcher_main.py
+  s_437450135f996c::t_c9c7f688788382 5,9-11,15,21,24,28,35-43,70-109,115-126,135-189,203-220,224,227,229-234,238-240,255-298,325,333-339,343,345,347,349,363
+packaging/macos/README.md
+  s_437450135f996c::t_c9c7f688788382 36,47-49
+tests/test_release_workflow.py
+  s_437450135f996c::t_c9c7f688788382 1-24
+packaging/windows/README.md
+  s_437450135f996c::t_c9c7f688788382 36,97,123,129
+tests/test_build_local.py
+  s_437450135f996c::t_c9c7f688788382 1-109
+tests/test_windows_launcher_update.py
+  s_437450135f996c::t_c9c7f688788382 1-223
+VERSION
+  s_437450135f996c::t_c9c7f688788382 1
+static/api-settings.html
+  s_437450135f996c::t_c9c7f688788382 23,187,191,341,373
+packaging/macos/launcher/layout.py
+  s_437450135f996c::t_c9c7f688788382 34,37
+README.md
+  s_437450135f996c::t_c9c7f688788382 19-22,24,26,28,30
+.github/workflows/release-installers.yml
+  s_437450135f996c::t_c9c7f688788382 88-90,105-107
+packaging/macos/build_dmg.py
+  s_437450135f996c::t_c9c7f688788382 16-19,54,57
+packaging/windows/payload/manifest.json
+  s_437450135f996c::t_c9c7f688788382 6-9,27,29,40,42-50,53,58
+tests/test_macos_launcher_update.py
+  s_437450135f996c::t_c9c7f688788382 1-284
+tests/test_macos_runtime_manager.py
+  s_437450135f996c::t_c9c7f688788382 8,10,13,41-54,103-125
+packaging/macos/payload/manifest.json
+  s_437450135f996c::t_c9c7f688788382 7-10,15-81
+static/css/smart-canvas.css
+  s_437450135f996c::t_c9c7f688788382 313-314
+static/js/smart-canvas.js
+  s_437450135f996c::t_c9c7f688788382 474-475,555-569,5004-5005,5007,5337-5393,5396,5400,5402,5460-5461,5472-5482,5529-5541,5659-5662,5744-5746,6046,6048-6052,6054,6058,6072-6073,6090,6092-6094,6638,6640,6650,6653,6665,6674,6689
+static/canvas.html
+  s_437450135f996c::t_c9c7f688788382 267
+packaging/README.md
+  s_437450135f996c::t_c9c7f688788382 1-25
+static/runninghub/api_providers.json
+  s_437450135f996c::t_c9c7f688788382 98-2251
+tests/test_runtime_manager.py
+  s_437450135f996c::t_c9c7f688788382 9,61-79
+packaging/macos/MACOS_RUNBOOK.md
+  s_437450135f996c::t_c9c7f688788382 30-31,115,123-124
+static/js/api-settings.js
+  s_437450135f996c::t_c9c7f688788382 28,374,406-407,802-808,817-828,834,837-871,873-881,885-888,890-892,1546-1583,1587,1593,1596-1599
+static/css/api-settings.css
+  s_437450135f996c::t_c9c7f688788382 154,280,282,285-286,289-290
+packaging/windows/launcher/runtime_manager.py
+  s_437450135f996c::t_c9c7f688788382 70-94
+packaging/macos/build_app.py
+  s_437450135f996c::t_c9c7f688788382 8,20,36,40-41,46,55,65-80,107-189,207,211,213-214,219-220,226-231,243-248,261,264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "2ad07f0596fe6ba7fd32e13fb5173ece64910bec",
+  "prompts": {},
+  "sessions": {
+    "s_437450135f996c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5ed4-a46c-7ec2-bfaa-a5257be74b10",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
