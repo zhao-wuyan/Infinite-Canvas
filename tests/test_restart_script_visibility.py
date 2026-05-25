@@ -33,6 +33,7 @@ def uses_hidden_restart_flags(node: ast.FunctionDef) -> bool:
 
 def test_windows_restart_scripts_are_launched_without_console_window():
     tree = main_tree()
+    source = (ROOT / "main.py").read_text(encoding="utf-8")
     flags = function_node(tree, "hidden_windows_restart_flags")
     flag_names = {
         node.args[1].value
@@ -45,5 +46,8 @@ def test_windows_restart_scripts_are_launched_without_console_window():
     }
 
     assert "CREATE_NO_WINDOW" in flag_names
-    assert uses_hidden_restart_flags(function_node(tree, "schedule_launcher_restart"))
-    assert uses_hidden_restart_flags(function_node(tree, "schedule_self_restart"))
+    assert uses_hidden_restart_flags(function_node(tree, "write_and_launch_vbs"))
+    assert "_launcher_restart.bat" not in source
+    assert "_self_restart.bat" not in source
+    assert "timeout /t" not in source
+    assert "wscript.exe" in source

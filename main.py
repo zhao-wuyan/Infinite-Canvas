@@ -16,6 +16,7 @@ import logging
 import requests
 import zipfile
 import mimetypes
+import textwrap
 from typing import List, Dict, Any, Optional
 from threading import Lock
 import httpx
@@ -1083,6 +1084,21 @@ def hidden_windows_restart_flags() -> int:
         | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     )
 
+def vbs_string(value: str) -> str:
+    return '"' + str(value).replace('"', '""') + '"'
+
+def write_and_launch_vbs(script_path: str, script: str) -> None:
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(script)
+    subprocess.Popen(
+        ["wscript.exe", "//B", "//Nologo", script_path],
+        creationflags=hidden_windows_restart_flags(),
+        close_fds=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
 def schedule_launcher_restart(delay_seconds: int = 3) -> bool:
     """Restart the packaged backend through the launcher so it picks up current.txt."""
     launcher_exe = launcher_executable_path()
@@ -1094,33 +1110,41 @@ def schedule_launcher_restart(delay_seconds: int = 3) -> bool:
     os.makedirs(restart_dir, exist_ok=True)
     try:
         if os.name == "nt":
-            script_path = os.path.join(restart_dir, "_launcher_restart.bat")
+            script_path = os.path.join(restart_dir, "_launcher_restart.vbs")
             log_path = os.path.join(restart_dir, "_launcher_restart.log")
             launcher_dir = os.path.dirname(launcher_exe)
-            script = (
-                "@echo off\r\n"
-                "chcp 65001 >nul\r\n"
-                "setlocal\r\n"
-                f"set \"LAUNCHER={launcher_exe}\"\r\n"
-                f"set \"LAUNCHER_DIR={launcher_dir}\"\r\n"
-                f"set \"LOG_FILE={log_path}\"\r\n"
-                "echo [%date% %time%] launcher restart scheduled >> \"%LOG_FILE%\"\r\n"
-                f"timeout /t {delay} /nobreak >nul\r\n"
-                f"taskkill /F /PID {pid} >nul 2>&1\r\n"
-                "timeout /t 2 /nobreak >nul\r\n"
-                "start \"Infinite Canvas\" /D \"%LAUNCHER_DIR%\" \"%LAUNCHER%\" --no-browser\r\n"
-                "del \"%~f0\"\r\n"
+            script = textwrap.dedent(
+                f"""
+                On Error Resume Next
+                Set shell = CreateObject("WScript.Shell")
+                Set fso = CreateObject("Scripting.FileSystemObject")
+                scriptPath = {vbs_string(script_path)}
+                logPath = {vbs_string(log_path)}
+                launcher = {vbs_string(launcher_exe)}
+                launcherDir = {vbs_string(launcher_dir)}
+                pid = {vbs_string(str(pid))}
+                delayMs = {delay * 1000}
+
+                Function Q(value)
+                    Q = Chr(34) & value & Chr(34)
+                End Function
+
+                Sub Log(message)
+                    Set file = fso.OpenTextFile(logPath, 8, True)
+                    file.WriteLine "[" & Now & "] " & message
+                    file.Close
+                End Sub
+
+                Log "launcher restart scheduled"
+                WScript.Sleep delayMs
+                shell.Run "taskkill /F /PID " & pid, 0, True
+                WScript.Sleep 2000
+                If launcherDir <> "" Then shell.CurrentDirectory = launcherDir
+                shell.Run Q(launcher) & " --no-browser", 1, False
+                fso.DeleteFile scriptPath, True
+                """
             )
-            with open(script_path, "w", encoding="utf-8") as f:
-                f.write(script)
-            subprocess.Popen(
-                ["cmd", "/c", script_path],
-                creationflags=hidden_windows_restart_flags(),
-                close_fds=True,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            write_and_launch_vbs(script_path, script)
         else:
             script_path = os.path.join(restart_dir, "_launcher_restart.sh")
             script = (
@@ -1253,44 +1277,52 @@ def schedule_self_restart(delay_seconds: int = 3) -> bool:
             launcher = os.path.join(BASE_DIR, "启动服务.bat")
             if not os.path.exists(launcher):
                 launcher = os.path.join(BASE_DIR, "start.bat")
-            bat_path = os.path.join(BASE_DIR, "_self_restart.bat")
+            script_path = os.path.join(BASE_DIR, "_self_restart.vbs")
             log_path = os.path.join(BASE_DIR, "_self_restart.log")
-            script = (
-                "@echo off\r\n"
-                "chcp 65001 >nul\r\n"
-                "setlocal\r\n"
-                f"set \"APP_DIR={BASE_DIR}\"\r\n"
-                f"set \"LAUNCHER={launcher}\"\r\n"
-                f"set \"LOG_FILE={log_path}\"\r\n"
-                "echo [%date% %time%] restart scheduled >> \"%LOG_FILE%\"\r\n"
-                f"timeout /t {delay} /nobreak >nul\r\n"
-                "echo [%date% %time%] stopping old process >> \"%LOG_FILE%\"\r\n"
-                f"taskkill /F /PID {pid} >nul 2>&1\r\n"
-                "timeout /t 2 /nobreak >nul\r\n"
-                "cd /d \"%APP_DIR%\"\r\n"
-                "if exist \"%LAUNCHER%\" (\r\n"
-                "  echo [%date% %time%] starting launcher: %LAUNCHER% >> \"%LOG_FILE%\"\r\n"
-                "  start \"ComfyUI-API-Modelscope\" /D \"%APP_DIR%\" cmd /k call \"%LAUNCHER%\"\r\n"
-                ") else (\r\n"
-                "  echo [%date% %time%] launcher missing, fallback to runpy main.py >> \"%LOG_FILE%\"\r\n"
-                "  if exist \"%APP_DIR%\\python\\python.exe\" (\r\n"
-                "    start \"ComfyUI-API-Modelscope\" /D \"%APP_DIR%\" cmd /k \"\"%APP_DIR%\\python\\python.exe\" -c \"\"import os, runpy, sys; sys.path.insert(0, os.getcwd()); runpy.run_path('main.py', run_name='__main__')\"\"\"\r\n"
-                "  ) else (\r\n"
-                "    start \"ComfyUI-API-Modelscope\" /D \"%APP_DIR%\" cmd /k python -c \"\"import os, runpy, sys; sys.path.insert(0, os.getcwd()); runpy.run_path('main.py', run_name='__main__')\"\"\r\n"
-                "  )\r\n"
-                ")\r\n"
-                "del \"%~f0\"\r\n"
+            fallback_python = os.path.join(BASE_DIR, "python", "python.exe")
+            fallback_python = fallback_python if os.path.exists(fallback_python) else sys.executable
+            fallback_code = "import os, runpy, sys; sys.path.insert(0, os.getcwd()); runpy.run_path('main.py', run_name='__main__')"
+            script = textwrap.dedent(
+                f"""
+                On Error Resume Next
+                Set shell = CreateObject("WScript.Shell")
+                Set fso = CreateObject("Scripting.FileSystemObject")
+                scriptPath = {vbs_string(script_path)}
+                logPath = {vbs_string(log_path)}
+                appDir = {vbs_string(BASE_DIR)}
+                launcher = {vbs_string(launcher)}
+                fallbackPython = {vbs_string(fallback_python)}
+                fallbackCode = {vbs_string(fallback_code)}
+                pid = {vbs_string(str(pid))}
+                delayMs = {delay * 1000}
+
+                Function Q(value)
+                    Q = Chr(34) & value & Chr(34)
+                End Function
+
+                Sub Log(message)
+                    Set file = fso.OpenTextFile(logPath, 8, True)
+                    file.WriteLine "[" & Now & "] " & message
+                    file.Close
+                End Sub
+
+                Log "restart scheduled"
+                WScript.Sleep delayMs
+                Log "stopping old process"
+                shell.Run "taskkill /F /PID " & pid, 0, True
+                WScript.Sleep 2000
+                shell.CurrentDirectory = appDir
+                If fso.FileExists(launcher) Then
+                    Log "starting launcher: " & launcher
+                    shell.Run "cmd /k call " & Q(launcher), 1, False
+                Else
+                    Log "launcher missing, fallback to runpy main.py"
+                    shell.Run Q(fallbackPython) & " -c " & Q(fallbackCode), 1, False
+                End If
+                fso.DeleteFile scriptPath, True
+                """
             )
-            with open(bat_path, "w", encoding="utf-8") as f:
-                f.write(script)
-            subprocess.Popen(
-                ["cmd", "/c", bat_path],
-                creationflags=hidden_windows_restart_flags(),
-                close_fds=True,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            write_and_launch_vbs(script_path, script)
         else:
             launcher = os.path.join(BASE_DIR, "mac-启动服务.command")
             if not os.path.exists(launcher):
