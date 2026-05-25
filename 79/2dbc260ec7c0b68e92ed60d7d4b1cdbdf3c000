@@ -1,0 +1,25 @@
+pytest.ini
+  s_369144b5605b72::t_c3f30c9284a9f8 1-9
+docker-compose.yml
+  s_369144b5605b72::t_15414605a281a8 3
+DOCKER.md
+  s_369144b5605b72::t_15414605a281a8 3,25,28,84
+tests/test_macos_layout.py
+  s_369144b5605b72::t_74b5a3d7dee25a 27,29,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "792dbc260ec7c0b68e92ed60d7d4b1cdbdf3c000",
+  "prompts": {},
+  "sessions": {
+    "s_369144b5605b72": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5db8-0dbc-7b43-8edc-85bbecd6817c",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
