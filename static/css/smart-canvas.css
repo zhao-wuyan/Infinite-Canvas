@@ -310,6 +310,8 @@ video.node-img { object-fit:cover; background:#0f172a; }
 .input-thumb:active { cursor:grabbing; }
 .input-thumb img, .input-thumb video { width:100%; height:100%; object-fit:cover; background:#0f172a; display:block; pointer-events:none; }
 .input-thumb:hover { border-color:var(--text); transform:translateY(-1px); box-shadow:0 6px 14px rgba(15,23,42,.1); }
+.input-thumb.input-self { cursor:default; border-color:var(--strong); box-shadow:inset 0 0 0 1px var(--strong); }
+.input-thumb.input-self:hover { transform:none; box-shadow:inset 0 0 0 1px var(--strong); }
 .input-thumb.input-blocked { border-color:rgba(239,68,68,.62); box-shadow:inset 0 0 0 1px rgba(239,68,68,.22); }
 .input-thumb.input-blocked img, .input-thumb.input-blocked video { filter:grayscale(1); opacity:.36; }
 .input-thumb.input-blocked::after { content:""; position:absolute; left:-8px; right:-8px; top:50%; height:2px; background:rgba(239,68,68,.86); transform:rotate(-35deg); box-shadow:0 0 0 1px rgba(255,255,255,.55); pointer-events:none; }

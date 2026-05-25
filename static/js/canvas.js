@@ -2171,7 +2171,16 @@ async function runMsGenNode(nodeId, opts={}){
     let out = outputForNode(node, 460);
     const pendingIds = Array.from({length:count}, () => uid('p'));
     const run = runSnapshot(node, prompt, refs);
-    if(out) out._pending = [...(out._pending || []), ...pendingIds.map(id => makePending(id, run))];
+    const size = apiImageSize(node.msRatio ?? 'square', node.msResolution || '1k', node.msCustomRatio || '', node.msCustomSize || '');
+    const parsed = parseSizeValue(size);
+    let width = Number(parsed?.width) || 1024;
+    let height = Number(parsed?.height) || 1024;
+    if(!parsed && node.msWidth && node.msHeight){
+        width = Number(node.msWidth) || width;
+        height = Number(node.msHeight) || height;
+    }
+    const requestSize = {width, height};
+    if(out) out._pending = [...(out._pending || []), ...pendingIds.map(id => makePendingForRun(id, run, node, {refs, requestSize}))];
     if(!opts.cascade){
         node.running = true;
         refreshRunNodes(node, out);
@@ -2179,14 +2188,6 @@ async function runMsGenNode(nodeId, opts={}){
     }
     else refreshRunNodes(node, out);
     try {
-        const size = apiImageSize(node.msRatio ?? 'square', node.msResolution || '1k', node.msCustomRatio || '', node.msCustomSize || '');
-        const parsed = parseSizeValue(size);
-        let width = Number(parsed?.width) || 1024;
-        let height = Number(parsed?.height) || 1024;
-        if(!parsed && node.msWidth && node.msHeight){
-            width = Number(node.msWidth) || width;
-            height = Number(node.msHeight) || height;
-        }
         const imageUrls = [];
         if(msModel.supportsImage || msModel.acceptsImage){
             for(const ref of refs.slice(0,3)){
@@ -4154,6 +4155,66 @@ function refreshNodes(ids=[]){
 function refreshRunNodes(node, out=null){
     refreshNodes([node?.id, out?.id]);
 }
+function normalizedPendingPreviewSize(size){
+    const w = Number(size?.w ?? size?.width ?? 0);
+    const h = Number(size?.h ?? size?.height ?? 0);
+    if(w > 0 && h > 0) return {w:Math.round(w), h:Math.round(h)};
+    return null;
+}
+function pendingPreviewSizeFromSizeString(sizeStr){
+    const parsed = parseSizeValue(sizeStr);
+    return parsed ? normalizedPendingPreviewSize(parsed) : null;
+}
+function pendingPreviewSizeFromNode(node){
+    if(!node) return null;
+    const natural = normalizedPendingPreviewSize({w:node.natural_w || node.width, h:node.natural_h || node.height});
+    if(natural) return natural;
+    if(node.type === 'image'){
+        const img = nodesEl?.querySelector?.(`.image-node[data-id="${CSS.escape(node.id)}"] img`);
+        const domSize = normalizedPendingPreviewSize({w:img?.naturalWidth, h:img?.naturalHeight});
+        if(domSize) return domSize;
+    }
+    if(node.type === 'output'){
+        const item = [...(node.images || [])].reverse().find(outputUrlValue);
+        const meta = item && typeof item === 'object' ? item : {};
+        return normalizedPendingPreviewSize(meta);
+    }
+    return null;
+}
+function pendingPreviewSizeFromRefs(refs=[]){
+    for(const ref of refs || []){
+        const direct = normalizedPendingPreviewSize(ref);
+        if(direct) return direct;
+        const url = ref?.url;
+        if(!url) continue;
+        const node = nodes.find(n =>
+            (n.type === 'image' && n.url === url) ||
+            (n.type === 'output' && (n.images || []).some(item => outputUrlValue(item) === url))
+        );
+        const nodeSize = pendingPreviewSizeFromNode(node);
+        if(nodeSize) return nodeSize;
+        const media = nodesEl?.querySelector?.(`[data-url="${CSS.escape(url)}"], [data-output-url="${CSS.escape(url)}"] img, img[src="${CSS.escape(url)}"]`);
+        const domSize = normalizedPendingPreviewSize({w:media?.naturalWidth || media?.videoWidth, h:media?.naturalHeight || media?.videoHeight});
+        if(domSize) return domSize;
+    }
+    return null;
+}
+function pendingPreviewSizeForRun(node, options={}){
+    const requestSize = normalizedPendingPreviewSize(options.requestSize) || pendingPreviewSizeFromSizeString(options.requestSize);
+    if(requestSize) return requestSize;
+    if(node?.type === 'comfy' && (node.mode || 'text') === 'text'){
+        return normalizedPendingPreviewSize({w:Number(node.width || 1024), h:Number(node.height || 1024)});
+    }
+    return pendingPreviewSizeFromRefs(options.refs || []);
+}
+function pendingOutputStyle(pending){
+    const size = normalizedPendingPreviewSize(pending?.previewSize);
+    if(!size) return '';
+    return ` style="aspect-ratio:${Math.max(1, size.w)}/${Math.max(1, size.h)}"`;
+}
+function renderPendingOutput(pending){
+    return `<div class="output-img-wrap loading-wrap" data-pending-id="${escapeAttr(pending.id)}"${pendingOutputStyle(pending)}><span class="output-time-pill running">${formatRunDuration(nowMs() - Number(pending.startedAt || nowMs()))}</span><div class="output-spinner"></div><button class="output-del" title="${tr('common.delete')}">×</button></div>`;
+}
 function captureOutputScrolls(){
     const state = new Map();
     // output 节点滚动位置
@@ -4333,7 +4394,7 @@ function renderNode(node){
     if(node.type === 'ltxDirector') body.appendChild(renderLTXDirectorBody(node));
     if(node.type === 'output') {
         const pendingHtml = (node._pending || []).map(p =>
-            `<div class="output-img-wrap loading-wrap" data-pending-id="${escapeAttr(p.id)}"><span class="output-time-pill running">${formatRunDuration(nowMs() - Number(p.startedAt || nowMs()))}</span><div class="output-spinner"></div><button class="output-del" title="${tr('common.delete')}">×</button></div>`
+            renderPendingOutput(p)
         ).join('');
         body.innerHTML = renderOutputGrid(node, pendingHtml);
         body.onwheel = e => {
@@ -4440,7 +4501,7 @@ function refreshOutputNodeContent(node){
         })),
         ...(node._pending || []).map(p => ({
             key:outputDomKeyForPending(p),
-            html:`<div class="output-img-wrap loading-wrap" data-pending-id="${escapeAttr(p.id)}"><span class="output-time-pill running">${formatRunDuration(nowMs() - Number(p.startedAt || nowMs()))}</span><div class="output-spinner"></div><button class="output-del" title="${tr('common.delete')}">×</button></div>`
+            html:renderPendingOutput(p)
         }))
     ];
     const wanted = new Set(items.map(item => item.key));
@@ -6562,7 +6623,7 @@ async function runRhNode(nodeId, opts={}){
     const pendingId = uid('p');
     const run = runSnapshot(node, media.prompt || 'RunningHub', media.refs);
     run.taskLabel = 'RunningHub';
-    if(out) out._pending = [...(out._pending || []), makePending(pendingId, run)];
+    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs:media.refs})];
     if(!opts.cascade) node.running = true;
     refreshRunNodes(node, out);
     try {
@@ -7017,7 +7078,7 @@ async function runGenerator(genId, opts={}){
         pendingIds = taskInfos.map(() => uid('p'));
         if(out) out._pending = [
             ...(out._pending || []),
-            ...taskInfos.map((task, index) => makePending(pendingIds[index], run, {
+            ...taskInfos.map((task, index) => makePendingForRun(pendingIds[index], run, gen, {refs, requestSize:payload.size}, {
                 canvasTaskId:task.task_id,
                 canvasTaskType:'online-image',
                 appendGenerated:Boolean(opts.cascade)
@@ -7054,7 +7115,8 @@ async function runGeneratorLegacy(genId, opts={}){
     let out = outputForNode(gen, 460);
     const pendingIds = Array.from({length:count}, () => uid('p'));
     const run = runSnapshot(gen, prompt || 'Edit the reference images.', refs);
-    if(out) out._pending = [...(out._pending||[]), ...pendingIds.map(id => makePending(id, run))];
+    const requestSize = await generatorSizeForRun(gen, refs);
+    if(out) out._pending = [...(out._pending||[]), ...pendingIds.map(id => makePendingForRun(id, run, gen, {refs, requestSize}))];
     if(!opts.cascade){
         gen.running = true;
         refreshRunNodes(gen, out);
@@ -7066,7 +7128,7 @@ async function runGeneratorLegacy(genId, opts={}){
             prompt: prompt || 'Edit the reference images.',
             provider_id:resolveImageProviderId(gen.apiProvider || 'comfly'),
             model:resolveImageModel(gen.model),
-            size:await generatorSizeForRun(gen, refs),
+            size:requestSize,
             reference_images:refs
         };
         const quality = normalizedImageQuality(gen.quality);
@@ -7110,7 +7172,7 @@ async function runVideoNode(nodeId, opts={}){
     let out = outputForNode(node, 460);
     const pendingId = uid('p');
     const run = runSnapshot(node, prompt, refs);
-    if(out) out._pending = [...(out._pending || []), makePending(pendingId, run)];
+    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs})];
     if(!opts.cascade){ node.running = true; refreshRunNodes(node, out); }
     else refreshRunNodes(node, out);
     try {
@@ -7595,7 +7657,7 @@ async function runLTXDirectorNode(nodeId, opts={}){
     const refs = sources.flatMap(s => s.refs || []);
     const run = runSnapshot(node, globalPrompt || segments.map(s => s.prompt).join(' | '), refs);
     run.taskLabel = tr('canvas.ltxDirector');
-    if(out) out._pending = [...(out._pending || []), makePending(pendingId, run)];
+    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs})];
     if(!opts.cascade){
         node.running = true;
         refreshRunNodes(node, out);
@@ -7672,7 +7734,8 @@ async function runComfyNode(nodeId, opts={}){
     const pendingId = uid('p');
     const run = runSnapshot(node, prompt, refs);
     run.taskLabel = comfyRunLabel(node);
-    if(out) out._pending = [...(out._pending||[]), makePending(pendingId, run)];
+    const requestSize = mode === 'text' ? {width:Number(node.width || 1024), height:Number(node.height || 1024)} : null;
+    if(out) out._pending = [...(out._pending||[]), makePendingForRun(pendingId, run, node, {refs, requestSize})];
     if(!opts.cascade){
         node.running = true;
         refreshRunNodes(node, out);
@@ -8566,6 +8629,12 @@ function closeCanvasLog(){
 }
 function makePending(id, run, task={}){
     return {id, startedAt:nowMs(), run, ...task};
+}
+function makePendingForRun(id, run, node, options={}, task={}){
+    const pending = makePending(id, run, task);
+    const previewSize = pendingPreviewSizeForRun(node, options);
+    if(previewSize) pending.previewSize = previewSize;
+    return pending;
 }
 function mergeGeneratedOutputs(node, outputs, append=false){
     if(!node) return;

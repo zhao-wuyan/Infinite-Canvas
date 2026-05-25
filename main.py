@@ -181,6 +181,7 @@ WORKFLOW_DIR = RUNTIME_PATHS["WORKFLOW_DIR"]
 WORKFLOW_PATH = RUNTIME_PATHS["WORKFLOW_PATH"]
 STATIC_DIR = RUNTIME_PATHS["STATIC_DIR"]
 STATIC_RUNNINGHUB_DIR = RUNTIME_PATHS["STATIC_RUNNINGHUB_DIR"]
+STATIC_RUNNINGHUB_THUMBNAIL_DIR = RUNTIME_PATHS["STATIC_RUNNINGHUB_THUMBNAIL_DIR"]
 STATIC_RUNNINGHUB_API_PROVIDERS_FILE = RUNTIME_PATHS["STATIC_RUNNINGHUB_API_PROVIDERS_FILE"]
 OUTPUT_DIR = RUNTIME_PATHS["OUTPUT_DIR"]
 ASSETS_DIR = RUNTIME_PATHS["ASSETS_DIR"]
@@ -199,6 +200,7 @@ GLOBAL_CONFIG_FILE = RUNTIME_PATHS["GLOBAL_CONFIG_FILE"]
 CANVAS_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 LOCAL_IMAGE_IMPORT_MAX_BYTES = int(os.getenv("LOCAL_IMAGE_IMPORT_MAX_BYTES", str(50 * 1024 * 1024)))
 LOCAL_IMAGE_IMPORT_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+RUNNINGHUB_THUMBNAIL_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 QUEUE = []
 QUEUE_LOCK = Lock()
@@ -700,17 +702,46 @@ def runninghub_entry_id(entry, kind):
     raw_id = entry.get("workflowId") if kind == "workflow" else entry.get("appId")
     return str(raw_id or entry.get("id") or "").strip()
 
+def static_runninghub_thumbnail_url(entry_id, kind):
+    entry_id = re.sub(r"[^0-9A-Za-z_-]", "", str(entry_id or "").strip())
+    kind_prefix = "workflow" if kind == "workflow" else "app"
+    if not entry_id:
+        return ""
+    candidates = []
+    for name in (f"{kind_prefix}-{entry_id}", entry_id):
+        for ext in RUNNINGHUB_THUMBNAIL_EXTS:
+            candidates.append((STATIC_RUNNINGHUB_THUMBNAIL_DIR, f"{name}{ext}"))
+            candidates.append((STATIC_RUNNINGHUB_DIR, f"{name}{ext}"))
+    for root, filename in candidates:
+        path = os.path.abspath(os.path.join(root, filename))
+        if not path.startswith(os.path.abspath(STATIC_RUNNINGHUB_DIR) + os.sep):
+            continue
+        if os.path.exists(path) and os.path.isfile(path):
+            rel = os.path.relpath(path, STATIC_DIR).replace(os.sep, "/")
+            return f"/static/{urllib.parse.quote(rel, safe='/._-')}?v={int(os.path.getmtime(path))}"
+    return ""
+
+def apply_runninghub_system_thumbnails(entries, kind):
+    result = []
+    for entry in normalize_runninghub_entries(entries or [], kind):
+        if not entry.get("thumbnail"):
+            thumb = static_runninghub_thumbnail_url(runninghub_entry_id(entry, kind), kind)
+            if thumb:
+                entry["thumbnail"] = thumb
+        result.append(entry)
+    return result
+
 def merge_runninghub_system_entries(system_entries, user_entries, kind):
     merged = []
     index = {}
     hidden_ids = set()
-    for entry in normalize_runninghub_entries(system_entries or [], kind):
+    for entry in apply_runninghub_system_thumbnails(system_entries or [], kind):
         entry_id = runninghub_entry_id(entry, kind)
         if not entry_id:
             continue
         index[entry_id] = len(merged)
         merged.append(entry)
-    for entry in normalize_runninghub_entries(user_entries or [], kind):
+    for entry in apply_runninghub_system_thumbnails(user_entries or [], kind):
         entry_id = runninghub_entry_id(entry, kind)
         if not entry_id:
             continue
@@ -738,7 +769,10 @@ def load_static_runninghub_provider():
             candidates = [raw]
         for item in candidates or []:
             if isinstance(item, dict) and str(item.get("id") or "").strip().lower() == "runninghub":
-                return normalize_provider(item)
+                provider = normalize_provider(item)
+                provider["rh_apps"] = apply_runninghub_system_thumbnails(provider.get("rh_apps") or [], "app")
+                provider["rh_workflows"] = apply_runninghub_system_thumbnails(provider.get("rh_workflows") or [], "workflow")
+                return provider
     except Exception as e:
         print(f"加载 static RunningHub 配置失败: {e}")
     return None
@@ -841,7 +875,7 @@ def normalize_provider(item):
 def load_api_providers():
     defaults = default_api_providers()
     if not os.path.exists(API_PROVIDERS_FILE):
-        return defaults
+        return merge_default_api_providers(defaults)
     try:
         with open(API_PROVIDERS_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)

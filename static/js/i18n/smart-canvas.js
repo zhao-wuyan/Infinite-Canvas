@@ -120,6 +120,8 @@
         "smart.inputBlocked": { zh: "已屏蔽", en: "Input blocked" },
         "smart.inputClickBlock": { zh: "点击屏蔽输入", en: "Click to block input" },
         "smart.inputClickEnable": { zh: "点击启用输入", en: "Click to enable input" },
+        "smart.inputSelf": { zh: "自身，默认参与编辑", en: "Self, always used for edit" },
+        "smart.inputUpstream": { zh: "空卡片的上游输入", en: "Upstream input for empty card" },
         "smart.promptPreset": { zh: "预设", en: "Preset" },
         "smart.promptPresetDefault": { zh: "提示词预设", en: "Prompt preset" },
         "smart.promptPresetUnnamed": { zh: "未命名预设", en: "Untitled preset" },

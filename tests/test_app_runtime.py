@@ -14,6 +14,10 @@ class ResolveRuntimePathsTests(unittest.TestCase):
         self.assertEqual(paths["STATIC_DIR"], os.path.join(expected_app_dir, "static"))
         self.assertEqual(paths["STATIC_RUNNINGHUB_DIR"], os.path.join(expected_app_dir, "static", "runninghub"))
         self.assertEqual(
+            paths["STATIC_RUNNINGHUB_THUMBNAIL_DIR"],
+            os.path.join(expected_app_dir, "static", "runninghub", "thumbnails"),
+        )
+        self.assertEqual(
             paths["STATIC_RUNNINGHUB_API_PROVIDERS_FILE"],
             os.path.join(expected_app_dir, "static", "runninghub", "api_providers.json"),
         )
@@ -29,6 +33,10 @@ class ResolveRuntimePathsTests(unittest.TestCase):
         self.assertEqual(
             paths["STATIC_RUNNINGHUB_API_PROVIDERS_FILE"],
             os.path.join(expected_app_dir, "static", "runninghub", "api_providers.json"),
+        )
+        self.assertEqual(
+            paths["STATIC_RUNNINGHUB_THUMBNAIL_DIR"],
+            os.path.join(expected_app_dir, "static", "runninghub", "thumbnails"),
         )
         self.assertEqual(paths["OUTPUT_DIR"], os.path.join(expected_data_root, "output"))
         self.assertEqual(paths["DATA_DIR"], os.path.join(expected_data_root, "data"))
