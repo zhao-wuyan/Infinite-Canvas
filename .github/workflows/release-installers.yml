@@ -31,6 +31,19 @@ jobs:
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
+      - name: Install Inno Setup Chinese language
+        shell: pwsh
+        run: |
+          $languagesDir = "C:\Program Files (x86)\Inno Setup 6\Languages"
+          $languageFile = Join-Path $languagesDir "ChineseSimplified.isl"
+          New-Item -ItemType Directory -Force -Path $languagesDir | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" `
+            -OutFile $languageFile
+          if (-not (Test-Path -LiteralPath $languageFile)) {
+            throw "Failed to install Inno Setup ChineseSimplified.isl"
+          }
+
       - name: Configure update manifest
         shell: pwsh
         run: |
