@@ -1,0 +1,36 @@
+packaging/macos/launcher/launcher_main.py
+  s_004abb5f7856ce::t_6971d89971644a 10-11,16,26,31,39,133-187,198,227,247-249,256-271,299,316
+tests/test_macos_launcher_update.py
+  s_004abb5f7856ce::t_e78d075bbbd14e 10,15,172-206
+tests/test_restart_script_visibility.py
+  s_004abb5f7856ce::t_0a85d6665e5cfc 1-49
+tests/test_windows_launcher_update.py
+  s_004abb5f7856ce::t_528aeebdaadb10 10,14,171-205
+static/index.html
+  s_004abb5f7856ce::t_3993856b2d3786 999,1072-1073,1081-1085,1089-1095,1101
+  s_004abb5f7856ce::t_ea241c50128b23 791-795,966-985,1012,1158-1160,1166,1168-1171,1179-1181
+  s_004abb5f7856ce::t_1dcb3c18a9d0b4 992-995,1010
+  s_004abb5f7856ce::t_35523f3e41f5b2 997-998,1000-1001,1011,1028-1031,1069-1071,1074-1080,1086-1088,1096-1100,1102-1109
+  s_004abb5f7856ce::t_83eeff5fa7b749 986,1165,1167,1172-1173
+packaging/windows/launcher/launcher_main.py
+  s_004abb5f7856ce::t_9ba4b4f9d0799e 9-10,15,24,28,37,131-185,208,235,255-257,264-279,304,321
+main.py
+  s_004abb5f7856ce::t_9dbb0e5c08c29d 1086-1117,1125-1152,1160,1163-1170
+  s_004abb5f7856ce::t_f166c562a82700 1079-1085,1118-1122,1288,1290-1292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "d112d9a1137d1864eedcbb34ae42c901ff8d27f1",
+  "prompts": {},
+  "sessions": {
+    "s_004abb5f7856ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e6e-a15a-7dd0-965d-592986b0cdc0",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
