@@ -14,6 +14,9 @@ from packaging.macos.payload.build_payload import DEFAULT_MANIFEST, build_payloa
 
 
 DEFAULT_RELEASE_DIR = ROOT / "dist" / "macos-release"
+VERSION_ASSET = "macos-VERSION"
+MANIFEST_ASSET = "macos-manifest.json"
+PAYLOAD_ASSET = "macos-app-base.zip"
 
 
 def read_version() -> str:
@@ -32,7 +35,7 @@ def publish_release(output_dir: Path, update_base_url: str = "") -> dict[str, st
     output_dir.mkdir(parents=True, exist_ok=True)
     version = read_version()
 
-    payload_path = output_dir / "app-base.zip"
+    payload_path = output_dir / PAYLOAD_ASSET
     written = build_payload(payload_path)
 
     manifest = json.loads(DEFAULT_MANIFEST.read_text(encoding="utf-8"))
@@ -40,20 +43,21 @@ def publish_release(output_dir: Path, update_base_url: str = "") -> dict[str, st
     if update_base_url:
         manifest["update_base_url"] = update_base_url.rstrip("/")
 
-    manifest_path = output_dir / "manifest.json"
+    manifest_path = output_dir / MANIFEST_ASSET
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (output_dir / "VERSION").write_text(version + "\n", encoding="utf-8")
+    version_path = output_dir / VERSION_ASSET
+    version_path.write_text(version + "\n", encoding="utf-8")
 
     versioned_dir = output_dir / version
     versioned_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(payload_path, versioned_dir / "app-base.zip")
-    shutil.copy2(manifest_path, versioned_dir / "manifest.json")
-    shutil.copy2(output_dir / "VERSION", versioned_dir / "VERSION")
+    shutil.copy2(payload_path, versioned_dir / PAYLOAD_ASSET)
+    shutil.copy2(manifest_path, versioned_dir / MANIFEST_ASSET)
+    shutil.copy2(version_path, versioned_dir / VERSION_ASSET)
 
     version_manifest = dict(manifest)
     if update_base_url:
         version_manifest["update_base_url"] = join_endpoint(update_base_url, version)
-    (versioned_dir / "manifest.json").write_text(
+    (versioned_dir / MANIFEST_ASSET).write_text(
         json.dumps(version_manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )

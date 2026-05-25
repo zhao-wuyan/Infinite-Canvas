@@ -36,7 +36,8 @@ from packaging.macos.launcher.runtime_manager import (
 
 
 AUTO_UPDATE_ENV = "INFINITE_CANVAS_AUTO_UPDATE"
-UPDATE_ASSET_PREFIX = "macos"
+DEFAULT_VERSION_ENDPOINT = "macos-VERSION"
+DEFAULT_PAYLOAD_ENDPOINT = "macos-app-base.zip"
 PENDING_UPDATE_KEY = "pending_update"
 TERMINAL_ATTACHED_ENV = "INFINITE_CANVAS_TERMINAL_ATTACHED"
 TERMINAL_SCRIPT_NAME = "Infinite Canvas.command"
@@ -151,44 +152,27 @@ def fetch_text(url: str) -> str:
         return response.read().decode("utf-8", errors="replace")
 
 
-def update_endpoint_candidates(endpoint: str) -> list[str]:
-    endpoint = str(endpoint or "").strip()
-    if not endpoint:
-        return []
-    candidates = [endpoint]
-    if "/" not in endpoint and not endpoint.startswith(f"{UPDATE_ASSET_PREFIX}-"):
-        candidates.append(f"{UPDATE_ASSET_PREFIX}-{endpoint}")
-    return candidates
-
-
 def fetch_remote_version(base_url: str, endpoint: str) -> str | None:
-    text = None
-    for candidate in update_endpoint_candidates(endpoint):
-        try:
-            text = fetch_text(join_update_url(base_url, candidate))
-            break
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                continue
+    try:
+        text = fetch_text(join_update_url(base_url, endpoint))
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
             raise
-    if text is None:
         return None
     lines = text.strip().splitlines()
     return lines[0].strip() if lines else ""
 
 
 def download_update_payload(base_url: str, endpoint: str, output_path: Path) -> str | None:
-    for candidate in update_endpoint_candidates(endpoint):
-        payload_url = join_update_url(base_url, candidate)
-        try:
-            with urllib.request.urlopen(payload_url, timeout=60) as response:
-                output_path.write_bytes(response.read())
-            return payload_url
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                continue
+    payload_url = join_update_url(base_url, endpoint)
+    try:
+        with urllib.request.urlopen(payload_url, timeout=60) as response:
+            output_path.write_bytes(response.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
             raise
-    return None
+        return None
+    return payload_url
 
 
 def check_for_updates(app_bundle: Path, storage_root: Path | None = None) -> dict[str, str | bool]:
@@ -198,7 +182,7 @@ def check_for_updates(app_bundle: Path, storage_root: Path | None = None) -> dic
     if not base_url:
         return {"ok": False, "detail": "未配置 update_base_url。"}
     current = current_payload_version(app_bundle, storage_root=layout.storage_root)
-    remote = fetch_remote_version(base_url, str(manifest.get("version_endpoint") or "VERSION"))
+    remote = fetch_remote_version(base_url, str(manifest.get("version_endpoint") or DEFAULT_VERSION_ENDPOINT))
     if remote is None:
         return {
             "ok": True,
@@ -291,7 +275,7 @@ def apply_update_result(app_bundle: Path, storage_root: Path | None = None) -> d
 
     with tempfile.TemporaryDirectory() as tempdir:
         payload_file = Path(tempdir) / "app-base.zip"
-        payload_url = download_update_payload(base_url, str(manifest.get("payload_endpoint") or "app-base.zip"), payload_file)
+        payload_url = download_update_payload(base_url, str(manifest.get("payload_endpoint") or DEFAULT_PAYLOAD_ENDPOINT), payload_file)
         if not payload_url:
             return {"ok": False, "detail": "远端 payload 不存在。", **check}
         backup = create_update_backup(app_bundle, str(check["remote_version"]), storage_root=layout.storage_root)

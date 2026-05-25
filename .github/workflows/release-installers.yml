@@ -82,12 +82,9 @@ jobs:
           New-Item -ItemType Directory -Force dist\release-assets | Out-Null
           Copy-Item -LiteralPath "dist\windows\Infinite Canvas 安装程序.exe" -Destination "dist\release-assets\Infinite-Canvas-Windows-Setup.exe"
           Copy-Item -LiteralPath "dist\windows\Infinite-Canvas-Windows-Portable.zip" -Destination "dist\release-assets\Infinite-Canvas-Windows-Portable.zip"
-          Copy-Item -LiteralPath "dist\windows-release\VERSION" -Destination "dist\release-assets\windows-VERSION"
-          Copy-Item -LiteralPath "dist\windows-release\manifest.json" -Destination "dist\release-assets\windows-manifest.json"
-          Copy-Item -LiteralPath "dist\windows-release\app-base.zip" -Destination "dist\release-assets\windows-app-base.zip"
-          Copy-Item -LiteralPath "dist\windows-release\VERSION" -Destination "dist\release-assets\VERSION"
-          Copy-Item -LiteralPath "dist\windows-release\manifest.json" -Destination "dist\release-assets\manifest.json"
-          Copy-Item -LiteralPath "dist\windows-release\app-base.zip" -Destination "dist\release-assets\app-base.zip"
+          Copy-Item -LiteralPath "dist\windows-release\windows-VERSION" -Destination "dist\release-assets\windows-VERSION"
+          Copy-Item -LiteralPath "dist\windows-release\windows-manifest.json" -Destination "dist\release-assets\windows-manifest.json"
+          Copy-Item -LiteralPath "dist\windows-release\windows-app-base.zip" -Destination "dist\release-assets\windows-app-base.zip"
 
       - name: Upload Windows release assets
         if: github.event_name == 'release'
@@ -102,9 +99,6 @@ jobs:
             "dist\release-assets\windows-VERSION" `
             "dist\release-assets\windows-manifest.json" `
             "dist\release-assets\windows-app-base.zip" `
-            "dist\release-assets\VERSION" `
-            "dist\release-assets\manifest.json" `
-            "dist\release-assets\app-base.zip" `
             --clobber
 
       - name: Upload Windows workflow artifacts
@@ -165,9 +159,9 @@ jobs:
           test -n "$dmg_path"
           cp "$dmg_path" dist/release-assets/Infinite-Canvas-macOS.dmg
           cp dist/macos/Infinite-Canvas-macOS-Portable.zip dist/release-assets/Infinite-Canvas-macOS-Portable.zip
-          cp dist/macos-release/VERSION dist/release-assets/macos-VERSION
-          cp dist/macos-release/manifest.json dist/release-assets/macos-manifest.json
-          cp dist/macos-release/app-base.zip dist/release-assets/macos-app-base.zip
+          cp dist/macos-release/macos-VERSION dist/release-assets/macos-VERSION
+          cp dist/macos-release/macos-manifest.json dist/release-assets/macos-manifest.json
+          cp dist/macos-release/macos-app-base.zip dist/release-assets/macos-app-base.zip
 
       - name: Upload macOS release assets
         if: github.event_name == 'release'

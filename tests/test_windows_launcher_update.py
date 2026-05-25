@@ -23,7 +23,11 @@ def create_install_dir(root: Path, version: str = "2026.05.24.1") -> Path:
     install_dir.mkdir()
     (install_dir / "bootstrap").mkdir()
     (install_dir / "bootstrap" / "manifest.json").write_text(
-        '{"update_base_url":"https://example.com/releases","payload_endpoint":"app-base.zip"}\n',
+        (
+            '{"update_base_url":"https://example.com/releases",'
+            '"version_endpoint":"windows-VERSION",'
+            '"payload_endpoint":"windows-app-base.zip"}\n'
+        ),
         encoding="utf-8",
     )
     (install_dir / "install-meta.ini").write_text(
@@ -80,7 +84,7 @@ class WindowsLauncherUpdateTests(unittest.TestCase):
     def test_check_for_updates_skips_missing_remote_version(self):
         with tempfile.TemporaryDirectory() as tempdir:
             install_dir = create_install_dir(Path(tempdir), "2026.05.24.1")
-            error = urllib.error.HTTPError("https://example.com/releases/VERSION", 404, "Not Found", {}, None)
+            error = urllib.error.HTTPError("https://example.com/releases/windows-VERSION", 404, "Not Found", {}, None)
 
             with mock.patch("packaging.windows.launcher.launcher_main.fetch_text", side_effect=error):
                 result = check_for_updates(install_dir)
@@ -89,28 +93,20 @@ class WindowsLauncherUpdateTests(unittest.TestCase):
         self.assertTrue(result["skipped"])
         self.assertFalse(result["has_update"])
 
-    def test_check_for_updates_falls_back_to_prefixed_version_asset(self):
+    def test_check_for_updates_uses_prefixed_version_asset(self):
         with tempfile.TemporaryDirectory() as tempdir:
             install_dir = create_install_dir(Path(tempdir), "2026.05.24.1")
             requested_urls: list[str] = []
 
             def fake_fetch_text(url: str) -> str:
                 requested_urls.append(url)
-                if url.endswith("/VERSION"):
-                    raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
                 return "2026.05.25.3\n"
 
             with mock.patch("packaging.windows.launcher.launcher_main.fetch_text", side_effect=fake_fetch_text):
                 result = check_for_updates(install_dir)
 
         self.assertTrue(result["has_update"])
-        self.assertEqual(
-            requested_urls,
-            [
-                "https://example.com/releases/VERSION",
-                "https://example.com/releases/windows-VERSION",
-            ],
-        )
+        self.assertEqual(requested_urls, ["https://example.com/releases/windows-VERSION"])
 
     def test_apply_update_downloads_payload_and_invokes_updater(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -132,13 +128,13 @@ class WindowsLauncherUpdateTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(result["updated"])
             self.assertTrue(result["backup"]["id"])
-            self.assertEqual(urlopen.call_args.args[0], "https://example.com/releases/app-base.zip")
+            self.assertEqual(urlopen.call_args.args[0], "https://example.com/releases/windows-app-base.zip")
             command = run.call_args.args[0]
             self.assertEqual(command[0], str(updater))
             self.assertIn("--release-name", command)
             self.assertIn("2026.05.25.3", command)
 
-    def test_apply_update_falls_back_to_prefixed_payload_asset(self):
+    def test_apply_update_uses_prefixed_payload_asset(self):
         with tempfile.TemporaryDirectory() as tempdir:
             install_dir = create_install_dir(Path(tempdir), "2026.05.24.1")
             updater = install_dir / "Infinite Canvas Updater.exe"
@@ -151,8 +147,6 @@ class WindowsLauncherUpdateTests(unittest.TestCase):
 
             def fake_urlopen(url: str, timeout: int = 0):
                 requested_urls.append(url)
-                if url.endswith("/app-base.zip"):
-                    raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
                 return fake_response
 
             with mock.patch("packaging.windows.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"), \
@@ -162,13 +156,7 @@ class WindowsLauncherUpdateTests(unittest.TestCase):
                 result = apply_update_result(install_dir)
 
         self.assertTrue(result["updated"])
-        self.assertEqual(
-            requested_urls,
-            [
-                "https://example.com/releases/app-base.zip",
-                "https://example.com/releases/windows-app-base.zip",
-            ],
-        )
+        self.assertEqual(requested_urls, ["https://example.com/releases/windows-app-base.zip"])
 
     def test_auto_update_can_be_disabled(self):
         with tempfile.TemporaryDirectory() as tempdir:

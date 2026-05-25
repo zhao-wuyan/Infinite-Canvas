@@ -61,13 +61,13 @@ py -3 packaging\windows\publish_release.py --update-base-url https://your-domain
 
 ```text
 dist\windows-release\
-  VERSION
-  manifest.json
-  app-base.zip
+  windows-VERSION
+  windows-manifest.json
+  windows-app-base.zip
   <version>\
-    VERSION
-    manifest.json
-    app-base.zip
+    windows-VERSION
+    windows-manifest.json
+    windows-app-base.zip
 ```
 
 ### 4. 构建 launcher / updater

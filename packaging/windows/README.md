@@ -40,13 +40,13 @@ python packaging\windows\publish_release.py --update-base-url https://github.com
 
 ```text
 dist/windows-release/
-  VERSION
-  manifest.json
-  app-base.zip
+  windows-VERSION
+  windows-manifest.json
+  windows-app-base.zip
   2026.05.24.1/
-    VERSION
-    manifest.json
-    app-base.zip
+    windows-VERSION
+    windows-manifest.json
+    windows-app-base.zip
 ```
 
 根目录给已安装客户端检查最新版，版本子目录用于归档和审计。
@@ -96,9 +96,9 @@ python packaging\windows\build_portable.py
   - `manifest.json` 中 `payload_entries` 与当前仓库内容一致，无 Git diff
 - `python packaging\windows\publish_release.py --update-base-url https://github.com/zhao-wuyan/Infinite-Canvas/releases/latest/download`
   - 版本：`2026.05.24.1`
-  - 生成 `dist/windows-release/VERSION`
-  - 生成 `dist/windows-release/manifest.json`
-  - 生成 `dist/windows-release/app-base.zip`
+  - 生成 `dist/windows-release/windows-VERSION`
+  - 生成 `dist/windows-release/windows-manifest.json`
+  - 生成 `dist/windows-release/windows-app-base.zip`
   - 生成 `dist/windows-release/2026.05.24.1/`
 - `python packaging\windows\build_launcher.py`
   - 使用构建 venv：`build/windows-packaging-venv`

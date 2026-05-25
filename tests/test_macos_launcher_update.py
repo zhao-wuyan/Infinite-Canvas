@@ -29,7 +29,11 @@ def create_app_bundle(root: Path, version: str = "2026.05.24.1") -> tuple[Path, 
     bootstrap = app_bundle / "Contents" / "Resources" / "bootstrap"
     bootstrap.mkdir(parents=True)
     (bootstrap / "manifest.json").write_text(
-        '{"update_base_url":"https://example.com/releases","payload_endpoint":"app-base.zip"}\n',
+        (
+            '{"update_base_url":"https://example.com/releases",'
+            '"version_endpoint":"macos-VERSION",'
+            '"payload_endpoint":"macos-app-base.zip"}\n'
+        ),
         encoding="utf-8",
     )
     with zipfile.ZipFile(bootstrap / "app-base.zip", "w") as archive:
@@ -140,7 +144,7 @@ class MacLauncherUpdateTests(unittest.TestCase):
     def test_check_for_updates_skips_missing_remote_version(self):
         with tempfile.TemporaryDirectory() as tempdir:
             app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
-            error = urllib.error.HTTPError("https://example.com/releases/VERSION", 404, "Not Found", {}, None)
+            error = urllib.error.HTTPError("https://example.com/releases/macos-VERSION", 404, "Not Found", {}, None)
 
             with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", side_effect=error):
                 result = check_for_updates(app_bundle, storage_root=storage_root)
@@ -149,28 +153,20 @@ class MacLauncherUpdateTests(unittest.TestCase):
         self.assertTrue(result["skipped"])
         self.assertFalse(result["has_update"])
 
-    def test_check_for_updates_falls_back_to_prefixed_version_asset(self):
+    def test_check_for_updates_uses_prefixed_version_asset(self):
         with tempfile.TemporaryDirectory() as tempdir:
             app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
             requested_urls: list[str] = []
 
             def fake_fetch_text(url: str) -> str:
                 requested_urls.append(url)
-                if url.endswith("/VERSION"):
-                    raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
                 return "2026.05.25.3\n"
 
             with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", side_effect=fake_fetch_text):
                 result = check_for_updates(app_bundle, storage_root=storage_root)
 
         self.assertTrue(result["has_update"])
-        self.assertEqual(
-            requested_urls,
-            [
-                "https://example.com/releases/VERSION",
-                "https://example.com/releases/macos-VERSION",
-            ],
-        )
+        self.assertEqual(requested_urls, ["https://example.com/releases/macos-VERSION"])
 
     def test_apply_update_downloads_payload_and_invokes_updater(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -192,13 +188,13 @@ class MacLauncherUpdateTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(result["updated"])
             self.assertTrue(result["backup"]["id"])
-            self.assertEqual(urlopen.call_args.args[0], "https://example.com/releases/app-base.zip")
+            self.assertEqual(urlopen.call_args.args[0], "https://example.com/releases/macos-app-base.zip")
             command = run.call_args.args[0]
             self.assertEqual(Path(command[0]).resolve(), updater.resolve())
             self.assertIn("--release-name", command)
             self.assertIn("2026.05.25.3", command)
 
-    def test_apply_update_falls_back_to_prefixed_payload_asset(self):
+    def test_apply_update_uses_prefixed_payload_asset(self):
         with tempfile.TemporaryDirectory() as tempdir:
             app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
             updater = app_bundle / "Contents" / "MacOS" / "Infinite Canvas Updater"
@@ -212,8 +208,6 @@ class MacLauncherUpdateTests(unittest.TestCase):
 
             def fake_urlopen(url: str, timeout: int = 0):
                 requested_urls.append(url)
-                if url.endswith("/app-base.zip"):
-                    raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
                 return fake_response
 
             with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"), \
@@ -223,13 +217,7 @@ class MacLauncherUpdateTests(unittest.TestCase):
                 result = apply_update_result(app_bundle, storage_root=storage_root)
 
         self.assertTrue(result["updated"])
-        self.assertEqual(
-            requested_urls,
-            [
-                "https://example.com/releases/app-base.zip",
-                "https://example.com/releases/macos-app-base.zip",
-            ],
-        )
+        self.assertEqual(requested_urls, ["https://example.com/releases/macos-app-base.zip"])
 
     def test_auto_update_can_be_disabled(self):
         with tempfile.TemporaryDirectory() as tempdir:

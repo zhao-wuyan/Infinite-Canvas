@@ -103,21 +103,21 @@ else:
 
 ```text
 windows-release/
-  VERSION
-  manifest.json
-  app-base.zip
+  windows-VERSION
+  windows-manifest.json
+  windows-app-base.zip
   <version>/
-    VERSION
-    manifest.json
-    app-base.zip
+    windows-VERSION
+    windows-manifest.json
+    windows-app-base.zip
 ```
 
 - 根目录：
-  - `VERSION` 表示当前最新版本
-  - `manifest.json` / `app-base.zip` 指向当前最新 payload
+  - `windows-VERSION` 表示当前最新版本
+  - `windows-manifest.json` / `windows-app-base.zip` 指向当前最新 payload
 - 版本子目录：
   - 用于归档、审计、手工回溯
-  - `manifest.json` 中的 `update_base_url` 可指向该子目录
+  - `windows-manifest.json` 中的 `update_base_url` 可指向该子目录
 
 ### 备份与回滚
 

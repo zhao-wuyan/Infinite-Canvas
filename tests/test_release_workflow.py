@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
-    def test_release_workflow_uploads_prefixed_and_legacy_update_assets(self):
+    def test_release_workflow_uploads_only_prefixed_update_assets(self):
         workflow = Path(".github/workflows/release-installers.yml").read_text(encoding="utf-8")
 
         for asset in (
@@ -17,7 +17,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertIn(asset, workflow)
 
         for legacy_asset in ("VERSION", "manifest.json", "app-base.zip"):
-            self.assertIn(f"dist\\release-assets\\{legacy_asset}", workflow)
+            self.assertNotIn(f"dist\\release-assets\\{legacy_asset}", workflow)
+            self.assertNotIn(f"dist/release-assets/{legacy_asset}", workflow)
 
 
 if __name__ == "__main__":

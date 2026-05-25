@@ -95,8 +95,8 @@ macOS 打包版始终使用 runtime 模式：
 第一阶段只更新 app payload，不更新 `.app` 里的 launcher / service / updater。
 
 ```text
-launcher 检查静态更新源 VERSION
-  -> 下载 app-base.zip
+launcher 检查静态更新源 macos-VERSION
+  -> 下载 macos-app-base.zip
   -> 创建 launcher 备份 metadata
   -> updater 解压到 runtime/<new_version>
   -> 写 current.txt

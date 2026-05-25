@@ -50,13 +50,13 @@ python3 packaging/macos/publish_release.py --update-base-url https://your-domain
 
 ```text
 dist/macos-release/
-  VERSION
-  manifest.json
-  app-base.zip
+  macos-VERSION
+  macos-manifest.json
+  macos-app-base.zip
   <version>/
-    VERSION
-    manifest.json
-    app-base.zip
+    macos-VERSION
+    macos-manifest.json
+    macos-app-base.zip
 ```
 
 ### 4. 构建 `.app`

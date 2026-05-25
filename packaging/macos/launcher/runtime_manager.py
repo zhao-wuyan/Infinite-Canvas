@@ -268,9 +268,9 @@ def launcher_status(app_bundle: Path, storage_root: str | Path | None = None) ->
         "storage_root": str(layout.storage_root),
         "work_dir": str(layout.work_dir),
         "update_base_url": str(manifest.get("update_base_url") or "").strip(),
-        "version_endpoint": str(manifest.get("version_endpoint") or "VERSION").strip(),
-        "manifest_endpoint": str(manifest.get("manifest_endpoint") or "manifest.json").strip(),
-        "payload_endpoint": str(manifest.get("payload_endpoint") or "app-base.zip").strip(),
+        "version_endpoint": str(manifest.get("version_endpoint") or "macos-VERSION").strip(),
+        "manifest_endpoint": str(manifest.get("manifest_endpoint") or "macos-manifest.json").strip(),
+        "payload_endpoint": str(manifest.get("payload_endpoint") or "macos-app-base.zip").strip(),
         "last_port": str(resolve_app_port(state.get("last_port"), DEFAULT_APP_PORT)),
     }
 
