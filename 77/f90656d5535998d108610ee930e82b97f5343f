@@ -1,0 +1,21 @@
+packaging/macos/build_portable.py
+  s_341a076531d508::t_3d17363d768d78 5,9-11
+.github/workflows/release-installers.yml
+  s_341a076531d508::t_d9612d0e00d4f8 34-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "77f90656d5535998d108610ee930e82b97f5343f",
+  "prompts": {},
+  "sessions": {
+    "s_341a076531d508": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d62-d14a-7d61-b876-3f92e3671bfa",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
