@@ -731,7 +731,7 @@ function runningHubProvider(){
 function runningHubEntries(kind){
     const provider = runningHubProvider();
     const key = kind === 'workflow' ? 'rh_workflows' : 'rh_apps';
-    return Array.isArray(provider?.[key]) ? provider[key] : [];
+    return Array.isArray(provider?.[key]) ? provider[key].filter(item => item?.enabled !== false && item?.hidden !== true) : [];
 }
 function runningHubEntryId(entry, kind){
     return String(kind === 'workflow' ? (entry?.workflowId || entry?.id || '') : (entry?.appId || entry?.webappId || entry?.id || '')).trim();
@@ -764,6 +764,12 @@ function selectedRunningHubRef(){
 }
 function rhEntryFields(entry){
     return Array.isArray(entry?.fields) ? entry.fields : [];
+}
+function rhWorkflowJsonFromSources(...sources){
+    for(const source of sources){
+        if(source && typeof source === 'object' && Object.keys(source).length) return source;
+    }
+    return {};
 }
 function rhCurrentKind(){
     return selectedRunningHubRef()?.kind || 'app';
@@ -1594,7 +1600,7 @@ async function currentRunningHubWorkflowConfig(){
         workflowId:ref.id,
         fields:Array.isArray(cached?.fields) && cached.fields.length ? cached.fields : rhEntryFields(ref.entry),
         optionalImageMode:ref.entry?.optionalImageMode || cached?.optionalImageMode || 'prune-workflow',
-        workflowJson:cached?.workflowJson || ref.entry?.raw?.workflowJson || ref.entry?.raw?.prompt || {}
+        workflowJson:rhWorkflowJsonFromSources(cached?.workflowJson, ref.entry?.workflowJson, ref.entry?.raw?.workflowJson, ref.entry?.raw?.prompt)
     };
 }
 function rhMediaForRun(prompt, refs){
@@ -2540,17 +2546,69 @@ function isAudioMediaItem(img){
     const url = String(img.url || '').toLowerCase();
     return /\.(mp3|wav|m4a|aac|ogg|flac)(\?|$)/.test(url);
 }
+function isTextMediaItem(img){
+    if(!img) return false;
+    if(img.kind === 'text') return true;
+    const url = String(img.url || '').toLowerCase();
+    return /\.(txt|json|csv|srt|vtt|md)(\?|$)/.test(url);
+}
+function isFileMediaItem(img){
+    if(!img) return false;
+    return img.kind === 'file';
+}
 function mediaKindForFile(file){
     const type = String(file?.type || '').toLowerCase();
     const name = String(file?.name || '').toLowerCase();
     if(type.startsWith('video/') || /\.(mp4|webm|mov|m4v|avi|mkv)(\?|$)/.test(name)) return 'video';
     if(type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|flac)(\?|$)/.test(name)) return 'audio';
+    if(type.startsWith('text/') || /\.(txt|json|csv|srt|vtt|md)(\?|$)/.test(name)) return 'text';
     return 'image';
 }
 function mediaKindForItem(img){
+    if(isFileMediaItem(img)) return 'file';
+    if(isTextMediaItem(img)) return 'text';
     if(isAudioMediaItem(img)) return 'audio';
     if(isVideoMediaItem(img)) return 'video';
     return 'image';
+}
+function resultMediaUrls(result){
+    const urls = [];
+    const add = value => {
+        if(!value) return;
+        if(typeof value === 'string'){
+            urls.push(value);
+            return;
+        }
+        if(Array.isArray(value)){
+            value.forEach(add);
+            return;
+        }
+        if(typeof value === 'object'){
+            if(value.url || value.path || value.src || value.uri){
+                const url = value.url || value.path || value.src || value.uri;
+                if(url) urls.push({url, kind:value.kind || value.type || value.mediaKind || '', name:value.name || value.filename || ''});
+            }
+            ['outputs','videos','images','urls','data','result'].forEach(key => add(value[key]));
+            ['url','path','src','uri','output','output_url','outputUrl','video','video_url','videoUrl','mp4_url','mp4Url','download_url','downloadUrl','preview_url','previewUrl'].forEach(key => add(value[key]));
+        }
+    };
+    ['items','outputs','videos','audios','texts','files','images','urls','data','result','output','url'].forEach(key => add(result?.[key]));
+    const seen = new Set();
+    return urls.map(item => {
+        const url = typeof item === 'string' ? item : item?.url || item?.path || '';
+        if(!url) return null;
+        return typeof item === 'object' ? {...item, url} : url;
+    }).filter(item => {
+        const url = typeof item === 'string' ? item : item?.url || '';
+        return url && !seen.has(url) && seen.add(url);
+    });
+}
+function mediaKindForUrls(urls, fallback='image'){
+    if(fallback && fallback !== 'image') return fallback;
+    if((urls || []).some(url => isVideoMediaItem({url}))) return 'video';
+    if((urls || []).some(url => isAudioMediaItem({url}))) return 'audio';
+    if((urls || []).some(url => isTextMediaItem({url}))) return 'text';
+    return fallback;
 }
 function imageRefsOnly(refs){
     return (refs || []).filter(ref => ref?.url && mediaKindForItem(ref) === 'image');
@@ -2562,6 +2620,7 @@ function audioRefsOnly(refs){
     return (refs || []).filter(ref => ref?.url && mediaKindForItem(ref) === 'audio');
 }
 function thumbMediaHtml(img){
+    if(isFileMediaItem(img) || isTextMediaItem(img)) return `<div class="media-thumb file-thumb" data-media-url="${escapeAttr(img.url || '')}" data-media-kind="${escapeAttr(mediaKindForItem(img))}"><i data-lucide="${isTextMediaItem(img) ? 'file-text' : 'file'}"></i><span>${escapeHtml(img.name || (isTextMediaItem(img) ? 'Text' : 'File'))}</span></div>`;
     if(isAudioMediaItem(img)) return `<div class="media-thumb audio-thumb" data-media-url="${escapeAttr(img.url || '')}" data-media-kind="audio"><i data-lucide="file-audio"></i><span>${escapeHtml(img.name || 'Audio')}</span></div>`;
     if(isVideoMediaItem(img)) return `<div class="media-thumb video-thumb"><video src="${escapeHtml(img.url)}" data-url="${escapeHtml(img.url)}" muted preload="metadata" playsinline disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"></video></div>`;
     return `<img src="${escapeHtml(img.url)}" draggable="false">`;
@@ -2576,6 +2635,7 @@ function imageResolutionBadgeHtml(img){
     return label ? `<span class="image-resolution-badge">${escapeHtml(label)}</span>` : '';
 }
 function singleMediaHtml(img, w, h){
+    if(isFileMediaItem(img) || isTextMediaItem(img)) return `<div class="node-img media-card media-file-card" style="width:${w}px;height:${h}px"><div class="media-card-icon"><i data-lucide="${isTextMediaItem(img) ? 'file-text' : 'file'}"></i></div><div class="media-card-title">${escapeHtml(img.name || (isTextMediaItem(img) ? 'Text' : 'File'))}</div><div class="media-card-sub">${isTextMediaItem(img) ? 'TEXT' : 'FILE'}</div></div>`;
     if(isAudioMediaItem(img)) return `<div class="node-img media-card media-audio-card" style="width:${w}px;height:${h}px"><div class="media-card-icon"><i data-lucide="file-audio"></i></div><div class="media-card-title">${escapeHtml(img.name || 'Audio')}</div><div class="media-card-sub">AUDIO</div><audio src="${escapeAttr(img.url || '')}" data-url="${escapeAttr(img.url || '')}" controls preload="metadata"></audio></div>`;
     if(isVideoMediaItem(img)) return `<div class="node-img media-card media-video-card" style="width:${w}px;height:${h}px"><video src="${escapeHtml(img.url)}" data-url="${escapeHtml(img.url)}" controls muted preload="metadata" playsinline disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"></video></div>`;
     return `<img class="node-img" src="${escapeHtml(img.url)}" draggable="false" style="width:${w}px;height:${h}px">`;
@@ -2688,6 +2748,16 @@ function downloadPreviewImage(){
     const name = image.name || image.url.split('/').pop() || 'image.png';
     const link = document.createElement('a');
     link.href = `/api/download-output?url=${encodeURIComponent(image.url)}&name=${encodeURIComponent(name)}`;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+function downloadPreviewFile(item){
+    if(!item?.url) return;
+    const name = item.name || item.url.split('/').pop() || 'output';
+    const link = document.createElement('a');
+    link.href = `/api/download-output?url=${encodeURIComponent(item.url)}&name=${encodeURIComponent(name)}`;
     link.download = name;
     document.body.appendChild(link);
     link.click();
@@ -3713,11 +3783,13 @@ function bindNodeEvents(){
             port.addEventListener('dblclick', e => { e.stopPropagation(); });
         });
         el.onmousedown = beginNodeDrag;
-        el.ondragover = e => { e.preventDefault(); };
-        el.ondrop = e => {
+        el.ondragover = e => setSmartDropCopyEffect(e);
+        el.ondrop = async e => {
             e.preventDefault();
             e.stopPropagation();
-            uploadFilesFromDataTransfer(e.dataTransfer).then(files => handleFiles(files, id));
+            const payload = await resolveSmartImageDropPayload(e.dataTransfer);
+            if(payload.type === 'none') return;
+            await handleSmartImageDropPayload(payload, id);
         };
     });
 }
@@ -4561,6 +4633,11 @@ function openImageEditor(nodeId, imageIndex=0){
     const node = nodes.find(n => n.id === nodeId);
     const image = node?.images?.[imageIndex];
     if(!image?.url) return;
+    const kind = mediaKindForItem(image);
+    if(kind !== 'image' && kind !== 'video'){
+        downloadPreviewFile(image);
+        return;
+    }
     selectedId = nodeId;
     selectedImage = {nodeId, index:imageIndex};
     previewNavState = {nodeId, index:imageIndex, count:(node.images || []).filter(img => img?.url).length};
@@ -4924,6 +5001,7 @@ function bindInputThumbsDrag(node, items){
             dragIndex = Number(el.dataset.thumbIndex);
             el.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('application/x-smart-input-thumb', String(dragIndex)); } catch {}
             try { e.dataTransfer.setData('text/plain', String(dragIndex)); } catch {}
         });
         el.addEventListener('dragend', () => {
@@ -5038,6 +5116,149 @@ function uploadTitleForItems(items, fallback='Upload'){
     if(kinds.has('audio')) return 'Audio';
     return list.length > 1 ? 'Group' : 'Image';
 }
+const SMART_IMAGE_DROP_EXT_RE = /\.(png|jpe?g|webp|gif)$/i;
+const SMART_IMAGE_DROP_TEXT_TYPES = [
+    'text/uri-list',
+    'text/plain',
+    'text/html',
+    'DownloadURL',
+    'text/x-moz-url',
+    'text/x-file-url',
+    'public.file-url',
+    'public.url',
+    'UniformResourceLocator',
+    'FileName',
+    'FileNameW'
+];
+const SMART_IMAGE_DROP_TYPE_HINT_RE = /^(?:files?|image\/.+|text\/(?:uri-list|html|plain|x-moz-url|x-file-url)|downloadurl|public\.(?:file-url|url)|uniformresourcelocator|filenamew?)$|application\/x-qt-(?:windows-mime|image)|application\/x-moz-file|com\.eagle/i;
+function smartImageFilesFromDataTransfer(dataTransfer){
+    return [...(dataTransfer?.files || [])].filter(isSupportedUploadFile);
+}
+async function smartResponseErrorMessage(response, fallback='请求失败'){
+    try {
+        const data = await response.clone().json();
+        const detail = data.detail ?? data.error ?? data.message;
+        if(typeof detail === 'string') return detail || fallback;
+        if(Array.isArray(detail)) return detail.map(item => item?.msg || item?.message || String(item)).join('\n') || fallback;
+    } catch(_) {}
+    try {
+        const text = await response.text();
+        if(text) return text;
+    } catch(_) {}
+    return fallback;
+}
+function smartDropDataTypes(dataTransfer){
+    return [...(dataTransfer?.types || [])].map(type => String(type || ''));
+}
+function readSmartDropData(dataTransfer, type){
+    try { return dataTransfer?.getData?.(type) || ''; } catch(_) { return ''; }
+}
+function decodeSmartDropText(value){
+    const text = String(value || '').trim();
+    if(!text) return '';
+    try { return decodeURIComponent(text); } catch(_) { return text; }
+}
+function smartDropTextFragments(value){
+    const text = String(value || '').trim();
+    if(!text) return [];
+    const fragments = [];
+    if(/<img|<a\s/i.test(text)){
+        const doc = new DOMParser().parseFromString(text, 'text/html');
+        doc.querySelectorAll('img[src],a[href]').forEach(el => fragments.push(el.getAttribute('src') || el.getAttribute('href') || ''));
+    }
+    text.split(/\r?\n/).forEach(line => {
+        const item = line.trim();
+        if(item) fragments.push(item);
+    });
+    const downloadUrl = text.match(/^image\/[^\s:]+:(.+)$/i);
+    if(downloadUrl) fragments.push(downloadUrl[1]);
+    return fragments;
+}
+function uniqueSmartDropValues(values){
+    const seen = new Set();
+    return values.filter(value => {
+        const key = String(value || '').trim();
+        if(!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
+function smartDropTextCandidates(dataTransfer){
+    if(!dataTransfer) return [];
+    const types = uniqueSmartDropValues([...SMART_IMAGE_DROP_TEXT_TYPES, ...smartDropDataTypes(dataTransfer)]);
+    const values = types.map(type => readSmartDropData(dataTransfer, type)).filter(Boolean);
+    return uniqueSmartDropValues(values.flatMap(smartDropTextFragments).map(decodeSmartDropText))
+        .filter(s => s && !s.startsWith('#'));
+}
+function isRemoteSmartImageDropValue(value){
+    const text = String(value || '').trim();
+    return /^https?:\/\/.+/i.test(text) || /^data:image\//i.test(text) || /^blob:/i.test(text);
+}
+function isLocalSmartImageDropValue(value){
+    const text = String(value || '').trim();
+    if(!text) return false;
+    let path = text;
+    if(/^file:/i.test(path)){
+        try {
+            const url = new URL(path);
+            if(url.protocol !== 'file:') return false;
+            path = decodeURIComponent(url.pathname || path);
+        } catch(_) {
+            return false;
+        }
+    }
+    if(/^\/[a-zA-Z]:[\\/]/.test(path)) path = path.slice(1);
+    const clean = path.split(/[?#]/, 1)[0];
+    const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(clean);
+    const isPosixPath = clean.startsWith('/');
+    return (isWindowsPath || isPosixPath) && SMART_IMAGE_DROP_EXT_RE.test(clean);
+}
+function smartLocalImagePathsFromDataTransfer(dataTransfer){
+    return uniqueSmartDropValues(smartDropTextCandidates(dataTransfer).filter(isLocalSmartImageDropValue));
+}
+function smartImageNameFromUrl(url){
+    try {
+        const clean = String(url || '').split('?', 1)[0].split('#', 1)[0];
+        return decodeURIComponent(clean.split('/').pop() || 'image');
+    } catch(_) {
+        return 'image';
+    }
+}
+function smartImageDropPayload(dataTransfer){
+    const files = smartImageFilesFromDataTransfer(dataTransfer);
+    if(files.length) return {type:'files', files};
+    const localPaths = smartLocalImagePathsFromDataTransfer(dataTransfer);
+    if(localPaths.length) return {type:'localPaths', localPaths};
+    const url = smartDropTextCandidates(dataTransfer).find(isRemoteSmartImageDropValue) || '';
+    if(url) return {type:'url', url};
+    return {type:'none'};
+}
+async function resolveSmartImageDropPayload(dataTransfer){
+    const payload = smartImageDropPayload(dataTransfer);
+    if(payload.type !== 'none') return payload;
+    const files = await uploadFilesFromDataTransfer(dataTransfer);
+    return files.length ? {type:'files', files} : payload;
+}
+function hasSmartImageDropData(dataTransfer){
+    if(!dataTransfer) return false;
+    if(smartImageFilesFromDataTransfer(dataTransfer).length) return true;
+    const types = smartDropDataTypes(dataTransfer);
+    if(types.some(type => SMART_IMAGE_DROP_TYPE_HINT_RE.test(type.toLowerCase()))) return true;
+    return smartImageDropPayload(dataTransfer).type !== 'none';
+}
+function hasSmartAssetDrag(dataTransfer){
+    return smartDropDataTypes(dataTransfer).includes('application/x-smart-asset');
+}
+function hasSmartInputThumbDrag(dataTransfer){
+    return smartDropDataTypes(dataTransfer).includes('application/x-smart-input-thumb');
+}
+function setSmartDropCopyEffect(e, includeAsset=false){
+    e.preventDefault();
+    if(hasSmartInputThumbDrag(e.dataTransfer)) return;
+    if(hasSmartImageDropData(e.dataTransfer) || (includeAsset && hasSmartAssetDrag(e.dataTransfer))){
+        e.dataTransfer.dropEffect = 'copy';
+    }
+}
 async function uploadFiles(files){
     const supported = [...(files || [])].filter(isSupportedUploadFile);
     if(!supported.length) return [];
@@ -5052,6 +5273,33 @@ async function uploadFiles(files){
         kind:file.kind || mediaKindForFile(supported[index])
     }));
 }
+function appendImagesToSmartNode(uploaded, targetId='', opts={}){
+    const images = [...(uploaded || [])].filter(file => file?.url);
+    if(!images.length) return;
+    let node = nodes.find(n => n.id === targetId) || selectedNode();
+    if(node && node.type !== 'smart-image') node = null;
+    if(opts.forceNew) node = null;
+    if(!node){
+        const center = opts.point || viewportCenter();
+        undoSuppressed = true;
+        node = createImageNodeAt(center, []);
+        undoSuppressed = false;
+    }
+    const previousCount = (node.images || []).length;
+    node.images = [...(node.images || []), ...images.map(file => ({...file, kind:file.kind || mediaKindForItem(file)}))];
+    if(node.images.length > 1){
+        node.title = uploadTitleForItems(node.images, 'Group');
+        if(previousCount <= 1 && (!Number.isFinite(Number(node.scale)) || Number(node.scale) === MEDIA_NODE_DEFAULT_SCALE || Number(node.scale) === MEDIA_GROUP_PREVIOUS_DEFAULT_SCALE)){
+            node.scale = MEDIA_GROUP_DEFAULT_SCALE;
+        }
+        delete node.w;
+        delete node.h;
+    }
+    if(node.images.length === 1){ node.title = uploadTitleForItems(node.images, node.title || 'Image'); delete node.w; delete node.h; }
+    selectedId = node.id;
+    render();
+    scheduleSave();
+}
 async function handleFiles(files, targetId='', opts={}){
     try {
         const fileList = [...(files || [])].filter(isSupportedUploadFile);
@@ -5059,29 +5307,33 @@ async function handleFiles(files, targetId='', opts={}){
         const uploaded = await uploadFiles(fileList);
         if(!uploaded.length) return;
         if(!opts.skipUndo) pushUndo();
-        let node = nodes.find(n => n.id === targetId) || selectedNode();
-        if(node && node.type !== 'smart-image') node = null;
-        if(!node){
-            const center = opts.point || viewportCenter();
-            undoSuppressed = true;
-            node = createImageNodeAt(center, []);
-            undoSuppressed = false;
-        }
-        const previousCount = (node.images || []).length;
-        node.images = [...(node.images || []), ...uploaded.map((file, index) => ({...file, kind:file.kind || mediaKindForFile(fileList[index])}))];
-        if(node.images.length > 1){
-            node.title = uploadTitleForItems(node.images, 'Group');
-            if(previousCount <= 1 && (!Number.isFinite(Number(node.scale)) || Number(node.scale) === MEDIA_NODE_DEFAULT_SCALE || Number(node.scale) === MEDIA_GROUP_PREVIOUS_DEFAULT_SCALE)){
-                node.scale = MEDIA_GROUP_DEFAULT_SCALE;
-            }
-            delete node.w;
-            delete node.h;
-        }
-        if(node.images.length === 1){ node.title = uploadTitleForItems(node.images, node.title || 'Image'); delete node.w; delete node.h; }
-        selectedId = node.id;
-        render();
-        scheduleSave();
+        appendImagesToSmartNode(uploaded.map((file, index) => ({...file, kind:file.kind || mediaKindForFile(fileList[index])})), targetId, opts);
     } catch(e) { toast(e.message || tr('smart.toastUploadFail')); }
+}
+async function importSmartLocalImages(paths){
+    if(!paths?.length) return [];
+    const response = await fetch('/api/ai/import-local-image', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({paths})
+    });
+    if(!response.ok) throw new Error(await smartResponseErrorMessage(response, tr('smart.toastUploadFail')));
+    const data = await response.json();
+    return data.files || [];
+}
+async function handleSmartImageDropPayload(payload, targetId='', opts={}){
+    try {
+        if(payload.type === 'files') await handleFiles(payload.files, targetId, opts);
+        else if(payload.type === 'localPaths') {
+            if(!opts.skipUndo) pushUndo();
+            appendImagesToSmartNode(await importSmartLocalImages(payload.localPaths), targetId, opts);
+        } else if(payload.type === 'url') {
+            if(!opts.skipUndo) pushUndo();
+            appendImagesToSmartNode([{url:payload.url, name:smartImageNameFromUrl(payload.url), kind:'image'}], targetId, opts);
+        }
+    } catch(e) {
+        toast(e.message || tr('smart.toastUploadFail'));
+    }
 }
 function sizeForRun(){
     return apiImageSize(settings.ratio || 'square', settings.resolution || '1k', settings.customRatio || '', settings.customSize || '') || '1024x1024';
@@ -5818,8 +6070,12 @@ function extractCurrentImagesToSource(node, meta=null){
 }
 function finalizePendingNode(pendingNode, urls, meta, kind='image'){
     if(!pendingNode) return;
-    const ext = kind === 'video' ? 'mp4' : 'png';
-    const imgs = urls.map((url, i) => ({url, name:`output-${i + 1}.${ext}`, kind, generatedResult:true}));
+    const ext = kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : kind === 'text' ? 'txt' : 'png';
+    const imgs = urls.map((item, i) => {
+        const url = typeof item === 'string' ? item : item?.url || '';
+        const itemKind = (typeof item === 'object' && item.kind) || kind;
+        return {url, name:(typeof item === 'object' && item.name) || `output-${i + 1}.${ext}`, kind:itemKind, generatedResult:true};
+    }).filter(img => img.url);
     pendingNode.images = imgs;
     pendingNode.pending = 0;
     pendingNode.runFinishedAt = nowMs();
@@ -5827,8 +6083,8 @@ function finalizePendingNode(pendingNode, urls, meta, kind='image'){
     pendingNode.runElapsedMs = Math.max(0, pendingNode.runFinishedAt - Number(pendingNode.runStartedAt || pendingNode.runFinishedAt));
     pendingNode.runTimerHidden = false;
     pendingNode.outputKind = kind;
-    if(imgs.length > 1) pendingNode.title = kind === 'video' ? 'Videos' : 'Group';
-    else pendingNode.title = kind === 'video' ? 'Video' : 'Image';
+    if(imgs.length > 1) pendingNode.title = kind === 'video' ? 'Videos' : kind === 'audio' ? 'Audios' : kind === 'text' ? 'Texts' : 'Group';
+    else pendingNode.title = kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : kind === 'text' ? 'Text' : kind === 'file' ? 'File' : 'Image';
     pendingNode.scale = mediaNodeDefaultScale(pendingNode);
     delete pendingNode.w;
     delete pendingNode.h;
@@ -6006,7 +6262,7 @@ function appendOutputsToNode(node, additions, kind='image'){
     node.runElapsedMs = Math.max(0, node.runFinishedAt - Number(node.runStartedAt || node.runFinishedAt));
     node.runTimerHidden = false;
     node.outputKind = kind;
-    node.title = node.images.length > 1 ? (kind === 'video' ? 'Videos' : 'Group') : (kind === 'video' ? 'Video' : 'Image');
+    node.title = node.images.length > 1 ? (kind === 'video' ? 'Videos' : kind === 'audio' ? 'Audios' : kind === 'text' ? 'Texts' : 'Group') : (kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : kind === 'text' ? 'Text' : kind === 'file' ? 'File' : 'Image');
     delete node.w;
     delete node.h;
     const afterRight = (Number(node.x) || 0) + nodeRect(node).width;
@@ -6050,7 +6306,8 @@ async function generateUrlsForCurrentSettings(node, prompt, refs){
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({prompt, width:Number(settings.width || 1024), height:Number(settings.height || 1024), workflow_json:'Z-Image.json', type:'zimage'})
             }).then(async r => { if(!r.ok) throw new Error(await r.text()); return r.json(); });
-            return {urls:data.outputs || data.images || [], kind:'image'};
+            const urls = resultMediaUrls(data);
+            return {urls, kind:mediaKindForUrls(urls, 'image')};
         }
         if(mode === 'enhance'){
             if(!imageRefs.length) throw new Error(tr('smart.errEnhanceNeedRefs'));
@@ -6060,7 +6317,8 @@ async function generateUrlsForCurrentSettings(node, prompt, refs){
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({workflow_json:'Z-Image-Enhance.json', type:'enhance', params:{"15":{image:inputName},"204":{value:Number(settings.enhanceStrength ?? 0.5)}}})
             }).then(async r => { if(!r.ok) throw new Error(await r.text()); return r.json(); });
-            return {urls:data.outputs || data.images || [], kind:'image'};
+            const urls = resultMediaUrls(data);
+            return {urls, kind:mediaKindForUrls(urls, 'image')};
         }
         if(mode === 'edit'){
             if(!imageRefs.length) throw new Error(tr('smart.errEditNeedRefs'));
@@ -6071,7 +6329,8 @@ async function generateUrlsForCurrentSettings(node, prompt, refs){
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({prompt, workflow_json:'Flux2-Klein.json', type:'klein', params:{"168":{text:prompt},"158":{noise_seed:Math.floor(Math.random()*1000000)},"278":{image:names[0] || ""},"270":{image:names[1] || ""},"292":{image:names[2] || ""},"313":{value:Boolean(names[1])},"314":{value:Boolean(names[2])}}})
             }).then(async r => { if(!r.ok) throw new Error(await r.text()); return r.json(); });
-            return {urls:data.outputs || data.images || [], kind:'image'};
+            const urls = resultMediaUrls(data);
+            return {urls, kind:mediaKindForUrls(urls, 'image')};
         }
         const workflowName = settings.comfyWorkflow || comfyWorkflows[0]?.name || '';
         if(!workflowName) throw new Error(tr('smart.errNeedWorkflow'));
@@ -6104,8 +6363,9 @@ async function generateUrlsForCurrentSettings(node, prompt, refs){
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({config:wf.config || {fields:[]}, fields:values})
         }).then(async r => { if(!r.ok) throw new Error(await r.text()); return r.json(); });
-        const urls = (result.images || []).map(img => typeof img === 'string' ? img : (img.url || img.path || '')).filter(Boolean);
-        return {urls, kind:'image'};
+        const urls = resultMediaUrls(result);
+        const fallbackKind = result.videos?.length ? 'video' : result.audios?.length ? 'audio' : result.texts?.length ? 'text' : 'image';
+        return {urls, kind:mediaKindForUrls(urls, fallbackKind)};
     }
     if(settings.engine === 'api' && settings.apiKind === 'video'){
         return {urls:await runApiVideoGeneration(prompt, refs), kind:'video'};
@@ -6158,8 +6418,11 @@ async function runCascadeStepIntoNode(sourceNode, targetNode, inputRefs, ctx=sma
         if(!result.urls?.length) throw new Error(result.kind === 'video' ? tr('smart.errNoOutVideos') : tr('smart.errNoOutImages'));
         if(outpaintSize) delete targetNode.outpaintSize;
         addSmartGenerationLog({run:{...runLog, kind:result.kind || logKind}, outputs:result.urls, runMs:nowMs() - runLogStart});
-        const ext = result.kind === 'video' ? 'mp4' : 'png';
-        const additions = result.urls.map((url, i) => stripImageGenerationMeta({url, name:`output-${i + 1}.${ext}`, kind:result.kind, generatedResult:true}));
+        const ext = result.kind === 'video' ? 'mp4' : result.kind === 'audio' ? 'mp3' : result.kind === 'text' ? 'txt' : 'png';
+        const additions = result.urls.map((item, i) => {
+            const url = typeof item === 'string' ? item : item?.url || '';
+            return stripImageGenerationMeta({url, name:(typeof item === 'object' && item.name) || `output-${i + 1}.${ext}`, kind:(typeof item === 'object' && item.kind) || result.kind, generatedResult:true});
+        }).filter(item => item.url);
         appendOutputsToNode(outputNode, additions, result.kind);
         settings = previousSettings;
         render();
@@ -6529,7 +6792,7 @@ async function runApiVideoGeneration(prompt, refs){
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify(payload)
     }).then(async r => { if(!r.ok) throw new Error(await r.text()); return r.json(); });
-    return (result?.videos || []).filter(Boolean);
+    return resultMediaUrls(result);
 }
 async function runModelscopeGeneration(prompt, refs){
     refs = imageRefsOnly(refs);
@@ -6614,13 +6877,15 @@ async function runComfyGeneration(node, prompt, refs, pendingNode, meta){
         if(!r.ok) throw new Error(await r.text());
         return r.json();
     });
-    const images = result.images || [];
-    if(!images.length) throw new Error(tr('smart.errComfyNoImages'));
-    const out = images.map((img, i) => ({url:typeof img === 'string' ? img : (img.url || img.path || ''), name:`comfy-${i + 1}.png`})).filter(x => x.url);
+    const urls = resultMediaUrls(result);
+    if(!urls.length) throw new Error(tr('smart.errComfyNoImages'));
+    const kind = mediaKindForUrls(urls, result.videos?.length ? 'video' : result.audios?.length ? 'audio' : result.texts?.length ? 'text' : 'image');
+    const ext = kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : 'png';
+    const out = urls.map((url, i) => ({url, name:`comfy-${i + 1}.${ext}`, kind})).filter(x => x.url);
     if(!out.length) throw new Error(tr('smart.errComfyEmpty'));
-    const urls = out.map(o => o.url);
+    const outputUrls = out.map(o => o.url);
     if(pendingNode){
-        finalizePendingNode(pendingNode, urls, meta);
+        finalizePendingNode(pendingNode, outputUrls, meta, kind);
     } else {
         const created = createNode((node.x || 0) + nodeRect(node).width + 40, node.y || 0, out);
         attachRunMeta(created, meta);
@@ -7163,7 +7428,7 @@ shell.addEventListener('wheel', e => {
     applyViewport();
     scheduleSave();
 }, {passive:false});
-shell.ondragover = e => e.preventDefault();
+shell.ondragover = e => setSmartDropCopyEffect(e, true);
 shell.ondrop = async e => {
     e.preventDefault();
     if(e.target.closest('.image-node')) return;
@@ -7176,8 +7441,9 @@ shell.ondrop = async e => {
             return;
         } catch {}
     }
-    const files = await uploadFilesFromDataTransfer(e.dataTransfer);
-    handleFiles(files, '', {point:p});
+    const payload = await resolveSmartImageDropPayload(e.dataTransfer);
+    if(payload.type === 'none') return;
+    await handleSmartImageDropPayload(payload, '', {point:p, forceNew:true});
 };
 window.addEventListener('paste', e => {
     const files = [...(e.clipboardData?.files || [])].filter(isSupportedUploadFile);
@@ -7407,7 +7673,7 @@ function setAssetDragOver(active){
     assetPanel.classList.toggle('drag-over', !!active);
 }
 function handleAssetPanelDragOver(e){
-    if(hasCanvasImageDrag(e)){
+    if(hasCanvasImageDrag(e) || hasSmartImageDropData(e.dataTransfer)){
         e.preventDefault();
         e.stopPropagation();
         e.dataTransfer.dropEffect = 'copy';
@@ -7415,21 +7681,38 @@ function handleAssetPanelDragOver(e){
     }
 }
 async function handleAssetPanelDrop(e){
-    if(!hasCanvasImageDrag(e)) return;
+    if(!hasCanvasImageDrag(e) && !hasSmartImageDropData(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     setAssetDragOver(false);
     const raw = e.dataTransfer.getData('application/x-smart-canvas-image');
-    if(!raw) return;
+    if(raw){
+        try {
+            const payload = JSON.parse(raw);
+            if(payload?.url) await addUrlToAssetLibrary(payload.url, payload.name || '');
+            return;
+        } catch(e) {
+            toast(tr('smart.assetAddFail'));
+            return;
+        }
+    }
     try {
-        const payload = JSON.parse(raw);
-        if(payload?.url) await addUrlToAssetLibrary(payload.url, payload.name || '');
-    } catch(e) {
-        toast(tr('smart.assetAddFail'));
+        const payload = await resolveSmartImageDropPayload(e.dataTransfer);
+        if(payload.type === 'files') {
+            const uploaded = await uploadFiles(payload.files);
+            for(const file of uploaded) if(file?.url) await addUrlToAssetLibrary(file.url, file.name || '');
+        } else if(payload.type === 'localPaths') {
+            const imported = await importSmartLocalImages(payload.localPaths);
+            for(const file of imported) if(file?.url) await addUrlToAssetLibrary(file.url, file.name || '');
+        } else if(payload.type === 'url') {
+            await addUrlToAssetLibrary(payload.url, smartImageNameFromUrl(payload.url));
+        }
+    } catch(err) {
+        toast(err.message || tr('smart.assetAddFail'));
     }
 }
 assetDropZone.addEventListener('dragover', e => {
-    if(hasCanvasImageDrag(e)){
+    if(hasCanvasImageDrag(e) || hasSmartImageDropData(e.dataTransfer)){
         e.preventDefault();
         e.stopPropagation();
         assetDropZone.classList.add('drag-over');

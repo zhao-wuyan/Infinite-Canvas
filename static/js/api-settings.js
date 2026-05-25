@@ -170,8 +170,12 @@ function normalizeRhEntries(values, kind){
             thumbnail:String(raw?.thumbnail || '').trim(),
             enabled:raw?.enabled !== false
         };
+        if(raw?.hidden === true) entry.hidden = true;
         if(Array.isArray(raw?.fields)) entry.fields = raw.fields.map(normalizeRhWorkflowField);
+        if(raw?.workflowJson && typeof raw.workflowJson === 'object') entry.workflowJson = raw.workflowJson;
         if(raw?.raw && typeof raw.raw === 'object') entry.raw = raw.raw;
+        const updatedAt = Number(raw?.updatedAt || 0);
+        if(updatedAt > 0) entry.updatedAt = updatedAt;
         if(kind === 'app') entry.appId = id;
         else {
             entry.workflowId = id;
@@ -862,9 +866,14 @@ async function saveRhWorkflowEditor(){
     state.config = normalizeRhWorkflowConfig(data.workflow || config, state.entry);
     const item = provider();
     if(item?.id === 'runninghub' && item.rh_workflows?.[state.index]){
-        item.rh_workflows[state.index].title = state.config.title;
-        item.rh_workflows[state.index].note = state.config.description;
-        item.rh_workflows[state.index].optionalImageMode = state.config.optionalImageMode || 'prune-workflow';
+        const entry = item.rh_workflows[state.index];
+        entry.title = state.config.title;
+        entry.note = state.config.description;
+        entry.fields = (state.config.fields || []).map(normalizeRhWorkflowField);
+        entry.workflowJson = state.config.workflowJson || {};
+        entry.optionalImageMode = state.config.optionalImageMode || 'prune-workflow';
+        entry.raw = state.config.raw || {};
+        entry.updatedAt = Number(data.workflow?.updatedAt || Date.now());
         renderRunningHubCards();
         await saveProviders();
     }
@@ -1515,10 +1524,12 @@ function renderRunningHubCards(){
         return;
     }
     ensureRunningHubLists(item);
-    if(rhAppsCount) rhAppsCount.textContent = item.rh_apps.length;
-    if(rhWorkflowsCount) rhWorkflowsCount.textContent = item.rh_workflows.length;
-    renderRhEntryList(rhAppsList, item.rh_apps, 'app');
-    renderRhEntryList(rhWorkflowsList, item.rh_workflows, 'workflow');
+    const apps = item.rh_apps.map((entry, index) => ({...entry, _rhIndex:index})).filter(entry => entry?.hidden !== true);
+    const workflows = item.rh_workflows.map((entry, index) => ({...entry, _rhIndex:index})).filter(entry => entry?.hidden !== true);
+    if(rhAppsCount) rhAppsCount.textContent = apps.length;
+    if(rhWorkflowsCount) rhWorkflowsCount.textContent = workflows.length;
+    renderRhEntryList(rhAppsList, apps, 'app');
+    renderRhEntryList(rhWorkflowsList, workflows, 'workflow');
     refreshIcons();
 }
 function renderRhEntryList(target, list, kind){
@@ -1529,19 +1540,19 @@ function renderRhEntryList(target, list, kind){
     }
     target.innerHTML = list.map((entry, index) => `
         <div class="rh-config-card">
-            <button class="rh-thumb" type="button" onclick="pickRhThumbnail('${kind}', ${index})" title="上传缩略图">
+            <button class="rh-thumb" type="button" onclick="pickRhThumbnail('${kind}', ${entry._rhIndex ?? index})" title="上传缩略图">
                 ${entry.thumbnail ? `<img src="${escapeAttr(entry.thumbnail)}" alt="">` : `<i data-lucide="${kind === 'app' ? 'sparkles' : 'workflow'}" class="w-5 h-5"></i>`}
             </button>
             <div class="rh-card-main">
-                <input type="text" value="${escapeAttr(entry.title || '')}" oninput="updateRhEntry('${kind}', ${index}, 'title', this.value)" placeholder="${kind === 'app' ? 'AI 应用名称' : '工作流名称'}">
+                <input type="text" value="${escapeAttr(entry.title || '')}" oninput="updateRhEntry('${kind}', ${entry._rhIndex ?? index}, 'title', this.value)" placeholder="${kind === 'app' ? 'AI 应用名称' : '工作流名称'}">
                 <div class="rh-id-line"><i data-lucide="hash" class="w-3 h-3"></i><span>${escapeHtml(kind === 'app' ? `/run/ai-app/${entry.id}` : `/run/workflow/${entry.id}`)}</span></div>
-                <textarea oninput="updateRhEntry('${kind}', ${index}, 'note', this.value)" placeholder="备注、用途、参数说明">${escapeHtml(entry.note || '')}</textarea>
+                <textarea oninput="updateRhEntry('${kind}', ${entry._rhIndex ?? index}, 'note', this.value)" placeholder="备注、用途、参数说明">${escapeHtml(entry.note || '')}</textarea>
             </div>
             <div class="rh-card-actions">
                 ${kind === 'workflow'
-                    ? `<button class="rh-card-action" type="button" onclick="openRhWorkflowEditor(${index})" title="编辑工作流"><i data-lucide="settings-2" class="w-3.5 h-3.5"></i></button>`
-                    : `<button class="rh-card-action" type="button" onclick="openRhAppEditor(${index})" title="编辑应用参数"><i data-lucide="settings-2" class="w-3.5 h-3.5"></i></button>`}
-                <button class="rh-card-action danger" type="button" onclick="removeRhEntry('${kind}', ${index})" title="删除"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                    ? `<button class="rh-card-action" type="button" onclick="openRhWorkflowEditor(${entry._rhIndex ?? index})" title="编辑工作流"><i data-lucide="settings-2" class="w-3.5 h-3.5"></i></button>`
+                    : `<button class="rh-card-action" type="button" onclick="openRhAppEditor(${entry._rhIndex ?? index})" title="编辑应用参数"><i data-lucide="settings-2" class="w-3.5 h-3.5"></i></button>`}
+                <button class="rh-card-action danger" type="button" onclick="removeRhEntry('${kind}', ${entry._rhIndex ?? index})" title="删除"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
             </div>
         </div>
     `).join('');
