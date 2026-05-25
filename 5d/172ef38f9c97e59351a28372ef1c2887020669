@@ -1,0 +1,19 @@
+tests/test_macos_build_app.py
+  s_437450135f996c::t_be0fc326d8f040 3,17-22,98-99,115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "5d172ef38f9c97e59351a28372ef1c2887020669",
+  "prompts": {},
+  "sessions": {
+    "s_437450135f996c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5ed4-a46c-7ec2-bfaa-a5257be74b10",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
