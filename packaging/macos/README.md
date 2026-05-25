@@ -44,6 +44,8 @@ python3 packaging/macos/publish_release.py --update-base-url https://github.com/
 python3 packaging/macos/build_app.py
 ```
 
+脚本会自动创建 `build/macos-packaging-venv`，并在其中安装 `requirements.txt` 与 `PyInstaller`，避免依赖当前全局 Python 环境。
+
 4. 构建 `.dmg`：
 
 ```bash

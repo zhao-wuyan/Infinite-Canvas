@@ -9,6 +9,11 @@ from packaging.macos.launcher.launcher_main import (
     apply_update_result,
     check_for_updates_and_remember,
     check_for_updates,
+    has_management_action,
+    launch_in_terminal,
+    should_spawn_terminal,
+    terminal_script_path,
+    write_terminal_launcher_script,
     try_auto_update_before_launch,
 )
 from packaging.macos.launcher.layout import compute_layout
@@ -39,6 +44,61 @@ def create_app_bundle(root: Path, version: str = "2026.05.24.1") -> tuple[Path, 
 
 
 class MacLauncherUpdateTests(unittest.TestCase):
+    def test_has_management_action_detects_control_flags(self):
+        args = mock.Mock(check_update=False, apply_update=False, list_backups=True, rollback_backup="")
+
+        self.assertTrue(has_management_action(args))
+
+    def test_should_spawn_terminal_when_not_attached_to_tty(self):
+        args = mock.Mock(check_update=False, apply_update=False, list_backups=False, rollback_backup="")
+
+        with mock.patch("packaging.macos.launcher.launcher_main.running_in_terminal", return_value=False), \
+            mock.patch.dict("os.environ", {}, clear=False):
+            self.assertTrue(should_spawn_terminal(args))
+
+    def test_should_not_spawn_terminal_when_already_attached(self):
+        args = mock.Mock(check_update=False, apply_update=False, list_backups=False, rollback_backup="")
+
+        with mock.patch.dict("os.environ", {"INFINITE_CANVAS_TERMINAL_ATTACHED": "1"}, clear=False):
+            self.assertFalse(should_spawn_terminal(args))
+
+    def test_write_terminal_launcher_script_exports_terminal_flag(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
+
+            with mock.patch("packaging.macos.launcher.launcher_main.sys.executable", "/Applications/Infinite Canvas.app/Contents/MacOS/Infinite Canvas"):
+                script_path = write_terminal_launcher_script(app_bundle, storage_root=storage_root, no_browser=True)
+
+            content = script_path.read_text(encoding="utf-8")
+
+        self.assertEqual(script_path.name, "Infinite Canvas.command")
+        self.assertIn("export INFINITE_CANVAS_TERMINAL_ATTACHED=1", content)
+        self.assertIn("printf '\\033]0;Infinite Canvas\\007'", content)
+        self.assertIn("请不要关闭此终端窗口", content)
+        self.assertIn("--no-browser", content)
+        self.assertIn("--app-bundle", content)
+
+    def test_terminal_script_path_uses_app_name_for_terminal_title(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
+
+            script_path = terminal_script_path(app_bundle, storage_root=storage_root)
+
+        self.assertEqual(script_path.name, "Infinite Canvas.command")
+
+    def test_launch_in_terminal_uses_open_terminal(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
+            fake_script = storage_root / "data" / "Infinite Canvas.command"
+
+            with mock.patch("packaging.macos.launcher.launcher_main.write_terminal_launcher_script", return_value=fake_script), \
+                mock.patch("packaging.macos.launcher.launcher_main.subprocess.run") as run:
+                run.return_value.returncode = 0
+                ok = launch_in_terminal(app_bundle, storage_root=storage_root, no_browser=False)
+
+        self.assertTrue(ok)
+        self.assertEqual(run.call_args.args[0], ["open", "-a", "Terminal", str(fake_script)])
+
     def test_check_for_updates_detects_remote_newer_version(self):
         with tempfile.TemporaryDirectory() as tempdir:
             app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")

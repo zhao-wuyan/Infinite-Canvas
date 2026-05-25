@@ -57,7 +57,11 @@ class BuildLocalTests(unittest.TestCase):
         self.assertEqual(outputs["installer"], "skipped")
 
     def test_build_macos_runs_full_local_package_chain(self):
-        options = build_local.BuildOptions(dist_dir=Path("dist/mac-test"), release_dir=Path("dist/mac-release-test"))
+        options = build_local.BuildOptions(
+            dist_dir=Path("dist/mac-test"),
+            release_dir=Path("dist/mac-release-test"),
+            venv_dir=Path("build/mac-venv-test"),
+        )
 
         with (
             patch("packaging.build_local.run_command") as run_command,
@@ -82,6 +86,10 @@ class BuildLocalTests(unittest.TestCase):
         self.assertIn(Path("dist/mac-test/Infinite Canvas.app"), dmg_command)
         self.assertEqual(Path(outputs["release_dir"]), Path("dist/mac-release-test"))
         self.assertEqual(Path(outputs["portable_zip"]), Path("dist/mac-test/Infinite-Canvas-macOS-Portable.zip"))
+
+        build_app_command = run_command.call_args_list[2].args[1]
+        self.assertIn("--venv-dir", build_app_command)
+        self.assertIn(Path("build/mac-venv-test"), build_app_command)
 
     def test_build_macos_skips_missing_dmg_tool_by_default(self):
         options = build_local.BuildOptions(skip_release=True, skip_portable=True)

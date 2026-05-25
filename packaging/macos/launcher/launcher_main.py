@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from app_runtime import DEFAULT_APP_PORT, app_base_url
-from packaging.macos.launcher.layout import app_bundle_from_executable
+from packaging.macos.launcher.layout import app_bundle_from_executable, compute_layout
 from packaging.macos.launcher.runtime_manager import (
     compare_versions,
     create_update_backup,
@@ -37,6 +38,12 @@ from packaging.macos.launcher.runtime_manager import (
 AUTO_UPDATE_ENV = "INFINITE_CANVAS_AUTO_UPDATE"
 UPDATE_ASSET_PREFIX = "macos"
 PENDING_UPDATE_KEY = "pending_update"
+TERMINAL_ATTACHED_ENV = "INFINITE_CANVAS_TERMINAL_ATTACHED"
+TERMINAL_SCRIPT_NAME = "Infinite Canvas.command"
+TERMINAL_TITLE = "Infinite Canvas"
+TERMINAL_STARTUP_NOTICE = (
+    "Infinite Canvas 正在此终端中运行。请不要关闭此终端窗口，关闭后程序会退出。"
+)
 
 
 def default_app_bundle() -> Path:
@@ -53,6 +60,65 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--list-backups", action="store_true")
     parser.add_argument("--rollback-backup", default="")
     return parser.parse_args()
+
+
+def has_management_action(args: argparse.Namespace) -> bool:
+    return bool(args.check_update or args.apply_update or args.list_backups or args.rollback_backup)
+
+
+def running_in_terminal() -> bool:
+    try:
+        return sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def should_spawn_terminal(args: argparse.Namespace) -> bool:
+    if has_management_action(args):
+        return False
+    if str(os.environ.get(TERMINAL_ATTACHED_ENV, "")).strip() == "1":
+        return False
+    return not running_in_terminal()
+
+
+def terminal_script_path(app_bundle: Path, storage_root: Path | None = None) -> Path:
+    layout = compute_layout(app_bundle, storage_root=storage_root)
+    layout.data_root.mkdir(parents=True, exist_ok=True)
+    return layout.data_root / TERMINAL_SCRIPT_NAME
+
+
+def write_terminal_launcher_script(app_bundle: Path, storage_root: Path | None = None, no_browser: bool = False) -> Path:
+    script_path = terminal_script_path(app_bundle, storage_root=storage_root)
+    command_parts = [
+        str(Path(sys.executable).resolve()),
+        "--app-bundle",
+        str(app_bundle),
+    ]
+    if storage_root is not None:
+        command_parts.extend(["--storage-root", str(storage_root)])
+    if no_browser:
+        command_parts.append("--no-browser")
+    command = " ".join(shlex.quote(part) for part in command_parts)
+    script = (
+        "#!/bin/sh\n"
+        f"printf '\\033]0;{TERMINAL_TITLE}\\007'\n"
+        f"printf '%s\\n' {shlex.quote(TERMINAL_STARTUP_NOTICE)}\n"
+        "printf '%s\\n\\n' '----------------------------------------'\n"
+        f"export {TERMINAL_ATTACHED_ENV}=1\n"
+        f"exec {command}\n"
+    )
+    script_path.write_text(script, encoding="utf-8")
+    script_path.chmod(0o755)
+    return script_path
+
+
+def launch_in_terminal(app_bundle: Path, storage_root: Path | None = None, no_browser: bool = False) -> bool:
+    script_path = write_terminal_launcher_script(app_bundle, storage_root=storage_root, no_browser=no_browser)
+    result = subprocess.run(
+        ["open", "-a", "Terminal", str(script_path)],
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def join_update_url(base_url: str, endpoint: str) -> str:
@@ -304,6 +370,8 @@ def main() -> int:
         return list_backups(app_bundle, storage_root=storage_root)
     if args.rollback_backup:
         return rollback_backup(app_bundle, str(args.rollback_backup).strip(), storage_root=storage_root)
+    if should_spawn_terminal(args):
+        return 0 if launch_in_terminal(app_bundle, storage_root=storage_root, no_browser=args.no_browser) else 1
 
     update_result = try_auto_update_before_launch(app_bundle, storage_root=storage_root)
     if update_result.get("updated") or not update_result.get("ok", True):
@@ -330,6 +398,8 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, handle_shutdown)
     if port_changed:
         print(
             json.dumps(

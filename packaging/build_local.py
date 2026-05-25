@@ -19,6 +19,7 @@ WINDOWS_RELEASE_DIR = ROOT / "dist" / "windows-release"
 WINDOWS_VENV_DIR = ROOT / "build" / "windows-packaging-venv"
 MACOS_DIST_DIR = ROOT / "dist" / "macos"
 MACOS_RELEASE_DIR = ROOT / "dist" / "macos-release"
+MACOS_VENV_DIR = ROOT / "build" / "macos-packaging-venv"
 
 APP_NAME = "Infinite Canvas"
 
@@ -28,7 +29,7 @@ class BuildOptions:
     update_base_url: str = DEFAULT_UPDATE_BASE_URL
     dist_dir: Path | None = None
     release_dir: Path | None = None
-    venv_dir: Path = WINDOWS_VENV_DIR
+    venv_dir: Path | None = None
     inno_compiler: Path | None = None
     skip_release: bool = False
     skip_portable: bool = False
@@ -102,6 +103,7 @@ def find_inno_compiler(explicit_path: Path | None = None) -> Path | None:
 def build_windows(options: BuildOptions) -> dict[str, str]:
     dist_dir = options.dist_dir or WINDOWS_DIST_DIR
     release_dir = options.release_dir or WINDOWS_RELEASE_DIR
+    venv_dir = options.venv_dir or WINDOWS_VENV_DIR
     outputs: dict[str, str] = {
         "dist_dir": str(dist_dir),
         "payload": str(ROOT / "packaging" / "windows" / "payload" / "app-base.zip"),
@@ -134,7 +136,7 @@ def build_windows(options: BuildOptions) -> dict[str, str]:
             "--dist-dir",
             dist_dir,
             "--venv-dir",
-            options.venv_dir,
+            venv_dir,
         ],
     )
 
@@ -166,6 +168,7 @@ def build_windows(options: BuildOptions) -> dict[str, str]:
 def build_macos(options: BuildOptions) -> dict[str, str]:
     dist_dir = options.dist_dir or MACOS_DIST_DIR
     release_dir = options.release_dir or MACOS_RELEASE_DIR
+    venv_dir = options.venv_dir or MACOS_VENV_DIR
     app_bundle = dist_dir / f"{APP_NAME}.app"
     outputs: dict[str, str] = {
         "dist_dir": str(dist_dir),
@@ -194,7 +197,14 @@ def build_macos(options: BuildOptions) -> dict[str, str]:
 
     run_command(
         "Build macOS app bundle",
-        [sys.executable, ROOT / "packaging" / "macos" / "build_app.py", "--dist-dir", dist_dir],
+        [
+            sys.executable,
+            ROOT / "packaging" / "macos" / "build_app.py",
+            "--dist-dir",
+            dist_dir,
+            "--venv-dir",
+            venv_dir,
+        ],
     )
 
     if not options.skip_portable:
@@ -241,7 +251,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dist-dir", type=Path, default=None)
     parser.add_argument("--release-dir", type=Path, default=None)
     parser.add_argument("--update-base-url", default=DEFAULT_UPDATE_BASE_URL)
-    parser.add_argument("--venv-dir", type=Path, default=WINDOWS_VENV_DIR)
+    parser.add_argument("--venv-dir", type=Path, default=None)
     parser.add_argument("--inno-compiler", type=Path, default=None)
     parser.add_argument("--skip-release", action="store_true")
     parser.add_argument("--skip-portable", action="store_true")

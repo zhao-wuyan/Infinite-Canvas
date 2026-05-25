@@ -9,6 +9,7 @@ from packaging.macos.launcher.runtime_manager import (
     current_payload_version,
     current_release_name,
     ensure_runtime_release,
+    is_port_available,
     list_launcher_backups,
     load_launcher_state,
     persist_selected_port,
@@ -97,6 +98,17 @@ class MacRuntimeManagerTests(unittest.TestCase):
             self.assertTrue(changed)
             persist_selected_port(layout, port)
             self.assertEqual(load_launcher_state(layout)["last_port"], 3002)
+
+    def test_is_port_available_detects_wildcard_listener_conflict(self):
+        with mock.patch("packaging.macos.launcher.runtime_manager.socket.socket") as socket_factory:
+            fake_sock = mock.MagicMock()
+            socket_factory.return_value.__enter__.return_value = fake_sock
+            fake_sock.bind.side_effect = OSError("in use")
+
+            available = is_port_available(3000)
+
+        self.assertFalse(available)
+        fake_sock.bind.assert_called_once_with(("0.0.0.0", 3000))
 
 
 if __name__ == "__main__":

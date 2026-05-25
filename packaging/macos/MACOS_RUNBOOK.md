@@ -8,7 +8,6 @@
 
 - Python 3.11+
 - `pip`
-- `PyInstaller`
 - Xcode Command Line Tools
 - `hdiutil`
 
@@ -16,7 +15,6 @@
 
 ```bash
 python3 --version
-python3 -m PyInstaller --version
 xcode-select -p
 hdiutil help >/dev/null
 ```
@@ -27,8 +25,9 @@ hdiutil help >/dev/null
 
 ```bash
 python3 -m pip install -r requirements.txt
-python3 -m pip install pyinstaller
 ```
+
+`packaging/macos/build_app.py` 会自动创建 `build/macos-packaging-venv` 并安装 `PyInstaller`，不要求当前全局 Python 预装该模块。
 
 ### 2. 构建 payload
 

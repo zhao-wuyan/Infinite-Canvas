@@ -5,6 +5,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import venv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +17,7 @@ from packaging.macos.payload.build_payload import DEFAULT_MANIFEST, DEFAULT_OUTP
 
 APP_NAME = "Infinite Canvas"
 DEFAULT_DIST_DIR = ROOT / "dist" / "macos"
+DEFAULT_VENV_DIR = ROOT / "build" / "macos-packaging-venv"
 MAC_SERVICE_HIDDEN_IMPORTS = [
     "fastapi.staticfiles",
     "fastapi.responses",
@@ -31,6 +33,7 @@ MAC_SERVICE_HIDDEN_IMPORTS = [
 
 
 def run_pyinstaller(
+    python_exe: Path,
     entrypoint: Path,
     name: str,
     dist_dir: Path,
@@ -38,7 +41,7 @@ def run_pyinstaller(
     windowed: bool = False,
 ) -> None:
     command = [
-        sys.executable,
+        str(python_exe),
         "-m",
         "PyInstaller",
         "--noconfirm",
@@ -55,6 +58,22 @@ def run_pyinstaller(
             command.extend(["--hidden-import", item])
     command.append(str(entrypoint))
     subprocess.run(command, cwd=str(ROOT), check=True)
+
+
+def venv_python(venv_dir: Path) -> Path:
+    return venv_dir / "bin" / "python"
+
+
+def prepare_build_venv(venv_dir: Path) -> Path:
+    python_exe = venv_python(venv_dir)
+    if not python_exe.exists():
+        venv.EnvBuilder(with_pip=True, clear=True).create(venv_dir)
+    subprocess.run(
+        [str(python_exe), "-m", "pip", "install", "-r", str(ROOT / "requirements.txt"), "PyInstaller"],
+        cwd=str(ROOT),
+        check=True,
+    )
+    return python_exe
 
 
 def read_version() -> str:
@@ -100,24 +119,31 @@ def sign_app_bundle(app_bundle: Path) -> None:
     )
 
 
-def build_app(dist_dir: Path) -> Path:
+def build_app(dist_dir: Path, venv_dir: Path = DEFAULT_VENV_DIR) -> Path:
     dist_dir.mkdir(parents=True, exist_ok=True)
     build_bin_dir = dist_dir / "bin"
     build_bin_dir.mkdir(parents=True, exist_ok=True)
+    python_exe = prepare_build_venv(venv_dir)
 
     run_pyinstaller(
+        python_exe,
         ROOT / "packaging" / "macos" / "launcher" / "launcher_main.py",
         APP_NAME,
         build_bin_dir,
-        windowed=True,
     )
     run_pyinstaller(
+        python_exe,
         ROOT / "packaging" / "macos" / "service" / "service_main.py",
         f"{APP_NAME} Service",
         build_bin_dir,
         hidden_imports=MAC_SERVICE_HIDDEN_IMPORTS,
     )
-    run_pyinstaller(ROOT / "packaging" / "macos" / "updater" / "updater_main.py", f"{APP_NAME} Updater", build_bin_dir)
+    run_pyinstaller(
+        python_exe,
+        ROOT / "packaging" / "macos" / "updater" / "updater_main.py",
+        f"{APP_NAME} Updater",
+        build_bin_dir,
+    )
 
     app_bundle = dist_dir / f"{APP_NAME}.app"
     if app_bundle.exists():
@@ -143,9 +169,10 @@ def build_app(dist_dir: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build macOS .app bundle for Infinite Canvas.")
     parser.add_argument("--dist-dir", type=Path, default=DEFAULT_DIST_DIR)
+    parser.add_argument("--venv-dir", type=Path, default=DEFAULT_VENV_DIR)
     args = parser.parse_args()
 
-    app_bundle = build_app(args.dist_dir)
+    app_bundle = build_app(args.dist_dir, args.venv_dir)
     print(app_bundle)
     return 0
 

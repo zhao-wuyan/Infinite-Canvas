@@ -111,7 +111,7 @@ def save_launcher_state(layout: MacLaunchLayout, state: dict[str, Any]) -> None:
     path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+def is_port_available(port: int, host: str = DEFAULT_APP_HOST) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -193,7 +193,11 @@ def service_runner_script(layout: MacLaunchLayout) -> Path:
     return script
 
 
-def launch_server(layout: MacLaunchLayout, launcher_exe: str = "", port: int = DEFAULT_APP_PORT) -> subprocess.Popen[str]:
+def launch_server(
+    layout: MacLaunchLayout,
+    launcher_exe: str = "",
+    port: int = DEFAULT_APP_PORT,
+) -> subprocess.Popen[str]:
     env = build_launch_env(layout, launcher_exe=launcher_exe, port=port)
     service = service_executable(layout)
     command = [str(service)] if service.exists() else [sys.executable, str(service_runner_script(layout))]
