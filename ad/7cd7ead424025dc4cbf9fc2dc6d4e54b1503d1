@@ -1,0 +1,76 @@
+static/css/smart-canvas.css
+  s_ee6fdd2f142ac0::t_e39e551a99381f 448-451
+static/js/i18n.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 2-15,17-23
+static/js/smart-canvas.js
+  s_ee6fdd2f142ac0::t_1daa42d62199e0 1046,1095,1724,1787,1940-1941,3544,5031,6500
+  s_ee6fdd2f142ac0::t_e39e551a99381f 59,91,100,207-211,258,261,468,472-473,728-793,976,985,1028-1045,1047-1094,1460-1723,1754,1784-1786,1885-1939,1949-1954,3529-3543,3562-3568,3571-3574,3576-3578,3717-3721,5005-5030,5065,5070,5072-5079,5098,6113-6117,6302-6304,6307,6363-6367,6460-6499,6575,6802,7167,7179-7180,7298-7306
+static/js/i18n/smart-canvas.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-194
+static/api-settings.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 18-23,78,82-90,93-136,183-208,332-366,369-371,373
+  s_ee6fdd2f142ac0::t_1daa42d62199e0 209-211
+static/css/canvas.css
+  s_ee6fdd2f142ac0::t_e39e551a99381f 115,244,248-291
+static/canvas.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 19-24,47,104,264
+static/enhance.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 20-25,27,270
+static/gpt-chat.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 19-22,24,107
+static/klein.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 20-25,27,186
+static/css/api-settings.css
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-482
+static/js/i18n/api-settings.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-86
+static/js/api-settings.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-2265
+static/smart-canvas.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 19-22,34,265
+static/comfyui-settings.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 6,18-23,30-31,38,52,125
+static/js/canvas.js
+  s_ee6fdd2f142ac0::t_1daa42d62199e0 1736-1739,2594,2698,5450,5865,6085,6292,6401,9299
+  s_ee6fdd2f142ac0::t_e39e551a99381f 144,925-930,1636-1645,1719-1735,2249,2537,2551,2562-2593,2627-2659,2665,2670,2673,2681-2683,2685-2688,2691,2696-2697,2721,2725-2753,2769,2793,3932,3956,3959,4022,4073,4122,4143-4144,4160,4193,4230,4255,5431-5449,5597-5864,5866-6084,6086-6291,6293-6400,6563-6564,6608-6612,6732,6735,6747-6752,7266,7292,7567,7867,7995-7997,8079,8107,9178,9191-9194,9210,9294-9298
+static/css/comfyui-settings.css
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-240
+static/js/i18n/studio.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-105
+static/js/i18n/canvas.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-278
+static/online.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 19-24,26,64
+static/js/i18n/comfyui-settings.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-72
+static/angle.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 20-25,29,34,228
+static/js/i18n/validate-i18n.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-85
+static/js/i18n-core.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-69
+static/zimage.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 20-25,178
+static/js/i18n/common.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-31
+static/index.html
+  s_ee6fdd2f142ac0::t_e39e551a99381f 26-28,30,674,683,748-756
+static/js/comfyui-settings.js
+  s_ee6fdd2f142ac0::t_e39e551a99381f 1-1395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "ad7cd7ead424025dc4cbf9fc2dc6d4e54b1503d1",
+  "prompts": {},
+  "sessions": {
+    "s_ee6fdd2f142ac0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d45-3a06-7a22-aee7-7e81cba47c7b",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
