@@ -788,6 +788,11 @@
         const PAGE_IDS = ['zimage','enhance','klein','angle','online','gpt-chat','canvas','api-settings','comfyui-settings'];
         const PROJECT_URL = 'https://github.com/hero8152/Infinite-Canvas';
         let appInfo = { version:'', repo_url:PROJECT_URL, version_url:'https://raw.githubusercontent.com/hero8152/Infinite-Canvas/main/VERSION' };
+        const LAUNCHER_UPDATE_RECHECK_INTERVAL_MS = 10000;
+        const LAUNCHER_UPDATE_RECHECK_LIMIT = 12;
+        let launcherUpdateRecheckTimer = 0;
+        let launcherUpdateRecheckCount = 0;
+        let updateCheckInFlight = false;
 
         function switchUI(el, id, options = {}) {
             if(!PAGE_IDS.includes(id)) id = DEFAULT_PAGE_ID;
@@ -958,14 +963,42 @@
             return String(a || '').trim() === String(b || '').trim() ? 0 : 1;
         }
 
+        function updateNoticeVisible() {
+            return !!document.getElementById('github-entry-btn')?.classList.contains('update-available');
+        }
+
+        function stopLauncherUpdateRechecks() {
+            if(launcherUpdateRecheckTimer) {
+                window.clearTimeout(launcherUpdateRecheckTimer);
+                launcherUpdateRecheckTimer = 0;
+            }
+        }
+
+        function scheduleLauncherUpdateRecheck() {
+            if(!appInfo.managed_by_launcher || updateNoticeVisible() || launcherUpdateRecheckCount >= LAUNCHER_UPDATE_RECHECK_LIMIT) return;
+            if(launcherUpdateRecheckTimer) return;
+            launcherUpdateRecheckCount += 1;
+            launcherUpdateRecheckTimer = window.setTimeout(() => {
+                launcherUpdateRecheckTimer = 0;
+                checkForUpdates();
+            }, LAUNCHER_UPDATE_RECHECK_INTERVAL_MS);
+        }
+
         function updateProjectUpdateTitle() {
             const gitBtn = document.getElementById('github-entry-btn');
             if(!gitBtn?.classList.contains('update-available')) return;
             const remoteVersion = gitBtn.dataset.remoteVersion || '';
             const isEn = window.StudioI18n?.lang?.() === 'en';
-            gitBtn.title = isEn ? `New version available: ${remoteVersion || '-'}` : `发现新版本：${remoteVersion || '-'}`;
+            const launcherManaged = !!appInfo.managed_by_launcher;
+            gitBtn.title = launcherManaged
+                ? (isEn ? `New version available: ${remoteVersion || '-'}, it will install on next launch.` : `发现新版本：${remoteVersion || '-'}，下次启动时会自动更新。`)
+                : (isEn ? `New version available: ${remoteVersion || '-'}` : `发现新版本：${remoteVersion || '-'}`);
             const updateBtn = document.getElementById('update-now-btn');
-            if(updateBtn) updateBtn.title = isEn ? 'Update main.py and static files from GitHub' : '从 GitHub 更新 main.py 和 static 文件';
+            if(updateBtn) {
+                updateBtn.title = launcherManaged
+                    ? (isEn ? 'Download, install, and restart the backend now.' : '立即下载、安装并重启后端。')
+                    : (isEn ? 'Update main.py and static files from GitHub' : '从 GitHub 更新 main.py 和 static 文件');
+            }
         }
 
         function showUpdateNotice(localVersion, remoteVersion) {
@@ -974,7 +1007,9 @@
             gitBtn.classList.add('update-available');
             gitBtn.dataset.localVersion = localVersion || '';
             gitBtn.dataset.remoteVersion = remoteVersion || '';
-            document.getElementById('update-now-btn')?.classList.add('show');
+            const updateBtn = document.getElementById('update-now-btn');
+            updateBtn?.classList.add('show');
+            stopLauncherUpdateRechecks();
             updateProjectUpdateTitle();
         }
 
@@ -990,6 +1025,10 @@
         }
 
         async function runProjectUpdate() {
+            if(appInfo.managed_by_launcher) {
+                await runLauncherUpdate();
+                return;
+            }
             const isEn = window.StudioI18n?.lang?.() === 'en';
             const askMessage = isEn
                 ? 'Update main.py, VERSION, and static files from GitHub now? A backup will be created. Click OK to update and auto-restart the backend. Requires an internet connection (github.com).'
@@ -1020,6 +1059,47 @@
                 document.getElementById('github-entry-btn')?.classList.remove('update-available');
                 btn?.classList.remove('show');
                 if(restarting) waitForBackendAndReload();
+            } catch(e) {
+                alert((isEn ? 'Update failed: ' : '更新失败：') + describeNetworkError(e, isEn));
+            } finally {
+                if(btn) btn.disabled = false;
+                if(text) text.textContent = oldText || (isEn ? 'Update' : '一键更新');
+            }
+        }
+        async function runLauncherUpdate() {
+            const isEn = window.StudioI18n?.lang?.() === 'en';
+            const askMessage = isEn
+                ? 'Download and install the packaged update now? The backend will restart and this page will reload when it is back.'
+                : '现在下载并安装打包版更新吗？后端会自动重启，本页面会在恢复后自动刷新。';
+            if(!confirm(askMessage)) return;
+            const btn = document.getElementById('update-now-btn');
+            const text = document.getElementById('update-now-text');
+            const oldText = text?.textContent || '';
+            if(btn) btn.disabled = true;
+            if(text) text.textContent = isEn ? 'Updating...' : '更新中...';
+            try {
+                const res = await fetch('/api/launcher/apply-update', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({ auto_restart:true, restart_delay:3 })
+                });
+                const data = await res.json().catch(() => ({}));
+                if(!res.ok || data.ok === false) throw new Error(data.detail || (isEn ? 'Update failed' : '更新失败'));
+                const done = data.updated
+                    ? (data.restart_scheduled
+                        ? (isEn
+                            ? `Update ${data.remote_version || ''} installed. The backend is restarting.`
+                            : `已安装更新 ${data.remote_version || ''}。后端正在重启。`)
+                        : (isEn
+                            ? `Update ${data.remote_version || ''} installed. Restart the app to use it.`
+                            : `已安装更新 ${data.remote_version || ''}。重启应用后生效。`))
+                    : (isEn ? 'No update is available.' : '当前没有可用更新。');
+                alert(done);
+                if(data.updated) {
+                    document.getElementById('github-entry-btn')?.classList.remove('update-available');
+                    btn?.classList.remove('show');
+                    if(data.restart_scheduled) waitForBackendAndReload();
+                }
             } catch(e) {
                 alert((isEn ? 'Update failed: ' : '更新失败：') + describeNetworkError(e, isEn));
             } finally {
@@ -1075,15 +1155,30 @@
         window.rollbackProjectUpdate = rollbackProjectUpdate;
 
         async function checkForUpdates() {
+            if(updateCheckInFlight) return;
+            updateCheckInFlight = true;
+            let shouldRecheckLauncher = false;
             try {
                 const info = await fetch('/api/app-info', { cache:'no-store' }).then(r => r.json());
                 appInfo = {...appInfo, ...info};
                 const current = String(appInfo.version || '').trim();
+                if(appInfo.managed_by_launcher) {
+                    shouldRecheckLauncher = true;
+                    const launcher = await fetch('/api/launcher/check-update', { cache:'no-store' }).then(r => r.ok ? r.json() : null);
+                    if(launcher?.has_update) {
+                        showUpdateNotice(launcher.current_version || current, launcher.remote_version || '');
+                        shouldRecheckLauncher = false;
+                    }
+                    return;
+                }
                 const remoteText = await fetch(`${appInfo.version_url || ''}?t=${Date.now()}`, { cache:'no-store' }).then(r => r.ok ? r.text() : '');
                 const remote = String(remoteText || '').trim().split(/\r?\n/)[0].trim();
                 if(current && remote && compareVersions(remote, current) > 0) showUpdateNotice(current, remote);
             } catch(e) {
                 // 离线包里没有网络时保持安静，不影响本地使用。
+            } finally {
+                updateCheckInFlight = false;
+                if(shouldRecheckLauncher) scheduleLauncherUpdateRecheck();
             }
         }
     </script>

@@ -6,10 +6,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 from app_runtime import DEFAULT_APP_PORT, app_base_url
 from packaging.windows.launcher.runtime_manager import (
@@ -18,9 +21,11 @@ from packaging.windows.launcher.runtime_manager import (
     current_payload_version,
     launch_server,
     list_launcher_backups,
+    load_launcher_state,
     read_manifest,
     rollback_launcher_backup,
     select_launch_port,
+    save_launcher_state,
     persist_selected_port,
     resolve_runtime_context,
     wait_for_server,
@@ -29,6 +34,7 @@ from packaging.windows.launcher.runtime_manager import (
 
 AUTO_UPDATE_ENV = "INFINITE_CANVAS_AUTO_UPDATE"
 UPDATE_ASSET_PREFIX = "windows"
+PENDING_UPDATE_KEY = "pending_update"
 
 
 def default_install_dir() -> Path:
@@ -122,6 +128,61 @@ def check_for_updates(install_dir: Path) -> dict[str, str | bool]:
     }
 
 
+def pending_update_from_state(install_dir: Path) -> dict[str, object] | None:
+    layout = resolve_runtime_context(install_dir)
+    state = load_launcher_state(layout)
+    pending = state.get(PENDING_UPDATE_KEY)
+    if not isinstance(pending, dict):
+        return None
+    remote = str(pending.get("remote_version") or "").strip()
+    current = current_payload_version(install_dir)
+    if remote and compare_versions(remote, current) > 0:
+        return {
+            "ok": True,
+            "current_version": current,
+            "remote_version": remote,
+            "has_update": True,
+            "pending_update": True,
+        }
+    if pending:
+        state.pop(PENDING_UPDATE_KEY, None)
+        save_launcher_state(layout, state)
+    return None
+
+
+def remember_update_check(install_dir: Path, check: dict[str, Any]) -> dict[str, Any]:
+    if not check.get("ok"):
+        return check
+    layout = resolve_runtime_context(install_dir)
+    state = load_launcher_state(layout)
+    if check.get("has_update"):
+        state[PENDING_UPDATE_KEY] = {
+            "current_version": str(check.get("current_version") or "").strip(),
+            "remote_version": str(check.get("remote_version") or "").strip(),
+            "detected_at": int(time.time()),
+        }
+        save_launcher_state(layout, state)
+        return {**check, "pending_update": True}
+    state.pop(PENDING_UPDATE_KEY, None)
+    save_launcher_state(layout, state)
+    return {**check, "pending_update": False}
+
+
+def clear_pending_update(install_dir: Path) -> None:
+    layout = resolve_runtime_context(install_dir)
+    state = load_launcher_state(layout)
+    if PENDING_UPDATE_KEY in state:
+        state.pop(PENDING_UPDATE_KEY, None)
+        save_launcher_state(layout, state)
+
+
+def check_for_updates_and_remember(install_dir: Path) -> dict[str, Any]:
+    pending = pending_update_from_state(install_dir)
+    if pending:
+        return pending
+    return remember_update_check(install_dir, dict(check_for_updates(install_dir)))
+
+
 def launcher_runtime_status(install_dir: Path) -> dict[str, str | bool]:
     layout = resolve_runtime_context(install_dir)
     selected_port, port_changed = select_launch_port(layout)
@@ -144,6 +205,7 @@ def apply_update_result(install_dir: Path) -> dict[str, object]:
     if not check.get("ok"):
         return dict(check)
     if not check.get("has_update"):
+        clear_pending_update(install_dir)
         return {"ok": True, "updated": False, **check}
 
     updater = install_dir / "Infinite Canvas Updater.exe"
@@ -170,6 +232,7 @@ def apply_update_result(install_dir: Path) -> dict[str, object]:
         )
         if result.returncode != 0:
             return {"ok": False, "detail": f"更新器退出码 {result.returncode}", "returncode": result.returncode, **check}
+    clear_pending_update(install_dir)
     return {"ok": True, "updated": True, "backup": backup, **check}
 
 
@@ -189,10 +252,29 @@ def auto_update_enabled() -> bool:
 def try_auto_update_before_launch(install_dir: Path) -> dict[str, object]:
     if not auto_update_enabled():
         return {"ok": True, "updated": False, "skipped": True, "detail": "auto update disabled"}
+    pending = pending_update_from_state(install_dir)
+    if not pending:
+        return {"ok": True, "updated": False, "skipped": True, "detail": "no pending update"}
     try:
         return apply_update_result(install_dir)
     except Exception as exc:
         return {"ok": False, "updated": False, "detail": f"自动更新检查失败：{exc}"}
+
+
+def check_for_updates_in_background(install_dir: Path) -> None:
+    if not auto_update_enabled():
+        return
+
+    def worker() -> None:
+        try:
+            result = check_for_updates_and_remember(install_dir)
+        except Exception as exc:
+            print(json.dumps({"auto_update": {"ok": False, "updated": False, "detail": f"异步更新检查失败：{exc}"}}, ensure_ascii=False), flush=True)
+            return
+        if result.get("has_update"):
+            print(json.dumps({"auto_update": result}, ensure_ascii=False), flush=True)
+
+    threading.Thread(target=worker, name="infinite-canvas-update-check", daemon=True).start()
 
 
 def list_backups(install_dir: Path) -> int:
@@ -219,7 +301,7 @@ def rollback_backup(install_dir: Path, backup_id: str) -> int:
 def main() -> int:
     args = parse_args()
     if args.check_update:
-        print(json.dumps(check_for_updates(args.install_dir.resolve()), ensure_ascii=False))
+        print(json.dumps(check_for_updates_and_remember(args.install_dir.resolve()), ensure_ascii=False))
         return 0
     if args.apply_update:
         return apply_update(args.install_dir.resolve())
@@ -236,6 +318,7 @@ def main() -> int:
     selected_port, port_changed = select_launch_port(layout)
     persist_selected_port(layout, selected_port)
     process = launch_server(layout, launcher_exe=launcher_exe, port=selected_port)
+    check_for_updates_in_background(install_dir)
     ok = wait_for_server(selected_port)
     if ok and not args.no_browser:
         webbrowser.open(app_base_url(selected_port) + "/")

@@ -7,10 +7,13 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 from app_runtime import DEFAULT_APP_PORT, app_base_url
 from packaging.macos.launcher.layout import app_bundle_from_executable
@@ -20,10 +23,12 @@ from packaging.macos.launcher.runtime_manager import (
     current_payload_version,
     launch_server,
     list_launcher_backups,
+    load_launcher_state,
     persist_selected_port,
     read_manifest,
     resolve_runtime_context,
     rollback_launcher_backup,
+    save_launcher_state,
     select_launch_port,
     wait_for_server,
 )
@@ -31,6 +36,7 @@ from packaging.macos.launcher.runtime_manager import (
 
 AUTO_UPDATE_ENV = "INFINITE_CANVAS_AUTO_UPDATE"
 UPDATE_ASSET_PREFIX = "macos"
+PENDING_UPDATE_KEY = "pending_update"
 
 
 def default_app_bundle() -> Path:
@@ -124,6 +130,61 @@ def check_for_updates(app_bundle: Path, storage_root: Path | None = None) -> dic
     }
 
 
+def pending_update_from_state(app_bundle: Path, storage_root: Path | None = None) -> dict[str, object] | None:
+    layout = resolve_runtime_context(app_bundle, storage_root=storage_root)
+    state = load_launcher_state(layout)
+    pending = state.get(PENDING_UPDATE_KEY)
+    if not isinstance(pending, dict):
+        return None
+    remote = str(pending.get("remote_version") or "").strip()
+    current = current_payload_version(app_bundle, storage_root=layout.storage_root)
+    if remote and compare_versions(remote, current) > 0:
+        return {
+            "ok": True,
+            "current_version": current,
+            "remote_version": remote,
+            "has_update": True,
+            "pending_update": True,
+        }
+    if pending:
+        state.pop(PENDING_UPDATE_KEY, None)
+        save_launcher_state(layout, state)
+    return None
+
+
+def remember_update_check(app_bundle: Path, check: dict[str, Any], storage_root: Path | None = None) -> dict[str, Any]:
+    if not check.get("ok"):
+        return check
+    layout = resolve_runtime_context(app_bundle, storage_root=storage_root)
+    state = load_launcher_state(layout)
+    if check.get("has_update"):
+        state[PENDING_UPDATE_KEY] = {
+            "current_version": str(check.get("current_version") or "").strip(),
+            "remote_version": str(check.get("remote_version") or "").strip(),
+            "detected_at": int(time.time()),
+        }
+        save_launcher_state(layout, state)
+        return {**check, "pending_update": True}
+    state.pop(PENDING_UPDATE_KEY, None)
+    save_launcher_state(layout, state)
+    return {**check, "pending_update": False}
+
+
+def clear_pending_update(app_bundle: Path, storage_root: Path | None = None) -> None:
+    layout = resolve_runtime_context(app_bundle, storage_root=storage_root)
+    state = load_launcher_state(layout)
+    if PENDING_UPDATE_KEY in state:
+        state.pop(PENDING_UPDATE_KEY, None)
+        save_launcher_state(layout, state)
+
+
+def check_for_updates_and_remember(app_bundle: Path, storage_root: Path | None = None) -> dict[str, Any]:
+    pending = pending_update_from_state(app_bundle, storage_root=storage_root)
+    if pending:
+        return pending
+    return remember_update_check(app_bundle, dict(check_for_updates(app_bundle, storage_root=storage_root)), storage_root=storage_root)
+
+
 def apply_update_result(app_bundle: Path, storage_root: Path | None = None) -> dict[str, object]:
     layout = resolve_runtime_context(app_bundle, storage_root=storage_root)
     manifest = read_manifest(layout)
@@ -134,6 +195,7 @@ def apply_update_result(app_bundle: Path, storage_root: Path | None = None) -> d
     if not check.get("ok"):
         return dict(check)
     if not check.get("has_update"):
+        clear_pending_update(app_bundle, storage_root=layout.storage_root)
         return {"ok": True, "updated": False, **check}
 
     updater = layout.contents_dir / "MacOS" / "Infinite Canvas Updater"
@@ -162,6 +224,7 @@ def apply_update_result(app_bundle: Path, storage_root: Path | None = None) -> d
         )
         if result.returncode != 0:
             return {"ok": False, "detail": f"更新器退出码 {result.returncode}", "returncode": result.returncode, **check}
+    clear_pending_update(app_bundle, storage_root=layout.storage_root)
     return {"ok": True, "updated": True, "backup": backup, **check}
 
 
@@ -181,10 +244,29 @@ def auto_update_enabled() -> bool:
 def try_auto_update_before_launch(app_bundle: Path, storage_root: Path | None = None) -> dict[str, object]:
     if not auto_update_enabled():
         return {"ok": True, "updated": False, "skipped": True, "detail": "auto update disabled"}
+    pending = pending_update_from_state(app_bundle, storage_root=storage_root)
+    if not pending:
+        return {"ok": True, "updated": False, "skipped": True, "detail": "no pending update"}
     try:
         return apply_update_result(app_bundle, storage_root=storage_root)
     except Exception as exc:
         return {"ok": False, "updated": False, "detail": f"自动更新检查失败：{exc}"}
+
+
+def check_for_updates_in_background(app_bundle: Path, storage_root: Path | None = None) -> None:
+    if not auto_update_enabled():
+        return
+
+    def worker() -> None:
+        try:
+            result = check_for_updates_and_remember(app_bundle, storage_root=storage_root)
+        except Exception as exc:
+            print(json.dumps({"auto_update": {"ok": False, "updated": False, "detail": f"异步更新检查失败：{exc}"}}, ensure_ascii=False), flush=True)
+            return
+        if result.get("has_update"):
+            print(json.dumps({"auto_update": result}, ensure_ascii=False), flush=True)
+
+    threading.Thread(target=worker, name="infinite-canvas-update-check", daemon=True).start()
 
 
 def list_backups(app_bundle: Path, storage_root: Path | None = None) -> int:
@@ -214,7 +296,7 @@ def main() -> int:
     app_bundle = args.app_bundle.resolve()
     storage_root = args.storage_root.resolve() if args.storage_root else None
     if args.check_update:
-        print(json.dumps(check_for_updates(app_bundle, storage_root=storage_root), ensure_ascii=False))
+        print(json.dumps(check_for_updates_and_remember(app_bundle, storage_root=storage_root), ensure_ascii=False))
         return 0
     if args.apply_update:
         return apply_update(app_bundle, storage_root=storage_root)
@@ -231,6 +313,7 @@ def main() -> int:
     selected_port, port_changed = select_launch_port(layout)
     persist_selected_port(layout, selected_port)
     process = launch_server(layout, launcher_exe=launcher_exe, port=selected_port)
+    check_for_updates_in_background(app_bundle, storage_root=storage_root)
     ok = wait_for_server(selected_port)
     if ok and not args.no_browser:
         webbrowser.open(app_base_url(selected_port) + "/")

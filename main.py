@@ -1076,6 +1076,80 @@ def call_launcher_command(*args: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=detail or "launcher command failed")
     return payload if isinstance(payload, dict) else {"raw": stdout}
 
+def hidden_windows_restart_flags() -> int:
+    return (
+        getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
+
+def schedule_launcher_restart(delay_seconds: int = 3) -> bool:
+    """Restart the packaged backend through the launcher so it picks up current.txt."""
+    launcher_exe = launcher_executable_path()
+    if not launcher_exe or not os.path.exists(launcher_exe):
+        return False
+    delay = max(1, int(delay_seconds or 3))
+    pid = os.getpid()
+    restart_dir = DATA_DIR or BASE_DIR
+    os.makedirs(restart_dir, exist_ok=True)
+    try:
+        if os.name == "nt":
+            script_path = os.path.join(restart_dir, "_launcher_restart.bat")
+            log_path = os.path.join(restart_dir, "_launcher_restart.log")
+            launcher_dir = os.path.dirname(launcher_exe)
+            script = (
+                "@echo off\r\n"
+                "chcp 65001 >nul\r\n"
+                "setlocal\r\n"
+                f"set \"LAUNCHER={launcher_exe}\"\r\n"
+                f"set \"LAUNCHER_DIR={launcher_dir}\"\r\n"
+                f"set \"LOG_FILE={log_path}\"\r\n"
+                "echo [%date% %time%] launcher restart scheduled >> \"%LOG_FILE%\"\r\n"
+                f"timeout /t {delay} /nobreak >nul\r\n"
+                f"taskkill /F /PID {pid} >nul 2>&1\r\n"
+                "timeout /t 2 /nobreak >nul\r\n"
+                "start \"Infinite Canvas\" /D \"%LAUNCHER_DIR%\" \"%LAUNCHER%\" --no-browser\r\n"
+                "del \"%~f0\"\r\n"
+            )
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script)
+            subprocess.Popen(
+                ["cmd", "/c", script_path],
+                creationflags=hidden_windows_restart_flags(),
+                close_fds=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            script_path = os.path.join(restart_dir, "_launcher_restart.sh")
+            script = (
+                "#!/bin/sh\n"
+                f"sleep {delay}\n"
+                f"kill -TERM {pid} 2>/dev/null\n"
+                "sleep 2\n"
+                f"nohup \"{launcher_exe}\" --no-browser >/dev/null 2>&1 &\n"
+                "rm -- \"$0\"\n"
+            )
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script)
+            os.chmod(script_path, 0o755)
+            subprocess.Popen(
+                ["/bin/sh", script_path],
+                start_new_session=True,
+                close_fds=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        return True
+    except Exception as exc:
+        logging.exception("schedule_launcher_restart failed: %s", exc)
+        return False
+
+class LauncherUpdateRequest(BaseModel):
+    auto_restart: bool = False
+    restart_delay: int = 3
+
 @app.get("/api/launcher/check-update")
 def launcher_check_update_api():
     if not LAUNCHER_MANAGED:
@@ -1083,10 +1157,17 @@ def launcher_check_update_api():
     return call_launcher_command("--check-update")
 
 @app.post("/api/launcher/apply-update")
-def launcher_apply_update_api():
+def launcher_apply_update_api(req: LauncherUpdateRequest = LauncherUpdateRequest()):
     if not LAUNCHER_MANAGED:
         raise HTTPException(status_code=404, detail="launcher unavailable")
-    return call_launcher_command("--apply-update")
+    result = call_launcher_command("--apply-update")
+    updated = bool(result.get("updated"))
+    restart_scheduled = False
+    if req.auto_restart and updated:
+        restart_scheduled = schedule_launcher_restart(req.restart_delay)
+    result["restart_required"] = updated
+    result["restart_scheduled"] = restart_scheduled
+    return result
 
 def update_allowed_file(path: str) -> bool:
     path = str(path or "").replace("\\", "/").lstrip("/")
@@ -1204,8 +1285,11 @@ def schedule_self_restart(delay_seconds: int = 3) -> bool:
                 f.write(script)
             subprocess.Popen(
                 ["cmd", "/c", bat_path],
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                creationflags=hidden_windows_restart_flags(),
                 close_fds=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         else:
             launcher = os.path.join(BASE_DIR, "mac-启动服务.command")

@@ -7,9 +7,11 @@ from unittest import mock
 
 from packaging.windows.launcher.launcher_main import (
     apply_update_result,
+    check_for_updates_and_remember,
     check_for_updates,
     try_auto_update_before_launch,
 )
+from packaging.windows.launcher.runtime_manager import load_launcher_state, resolve_runtime_context
 
 
 def create_install_dir(root: Path, version: str = "2026.05.24.1") -> Path:
@@ -165,6 +167,42 @@ class WindowsLauncherUpdateTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["skipped"])
         apply_update.assert_not_called()
+
+    def test_auto_update_does_not_check_network_without_pending_update(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            install_dir = create_install_dir(Path(tempdir), "2026.05.24.1")
+
+            with mock.patch("packaging.windows.launcher.launcher_main.apply_update_result") as apply_update:
+                result = try_auto_update_before_launch(install_dir)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["skipped"])
+        self.assertEqual(result["detail"], "no pending update")
+        apply_update.assert_not_called()
+
+    def test_check_for_updates_records_pending_update_for_next_launch(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            install_dir = create_install_dir(Path(tempdir), "2026.05.24.1")
+
+            with mock.patch("packaging.windows.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"):
+                result = check_for_updates_and_remember(install_dir)
+            state = load_launcher_state(resolve_runtime_context(install_dir))
+
+        self.assertTrue(result["has_update"])
+        self.assertTrue(result["pending_update"])
+        self.assertEqual(state["pending_update"]["remote_version"], "2026.05.25.3")
+
+    def test_auto_update_applies_pending_update_on_next_launch(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            install_dir = create_install_dir(Path(tempdir), "2026.05.24.1")
+            with mock.patch("packaging.windows.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"):
+                check_for_updates_and_remember(install_dir)
+
+            with mock.patch("packaging.windows.launcher.launcher_main.apply_update_result", return_value={"ok": True, "updated": True}) as apply_update:
+                result = try_auto_update_before_launch(install_dir)
+
+        self.assertTrue(result["updated"])
+        apply_update.assert_called_once_with(install_dir)
 
 
 if __name__ == "__main__":
