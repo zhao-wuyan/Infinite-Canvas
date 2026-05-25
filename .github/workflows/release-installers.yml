@@ -57,6 +57,7 @@ jobs:
         run: |
           python packaging/windows/payload/build_payload.py
           python packaging/windows/build_launcher.py
+          python packaging/windows/build_portable.py
 
       - name: Compile Windows installer
         shell: pwsh
@@ -67,6 +68,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist\release-assets | Out-Null
           Copy-Item -LiteralPath "dist\windows\Infinite Canvas 安装程序.exe" -Destination "dist\release-assets\Infinite-Canvas-Windows-Setup.exe"
+          Copy-Item -LiteralPath "dist\windows\Infinite-Canvas-Windows-Portable.zip" -Destination "dist\release-assets\Infinite-Canvas-Windows-Portable.zip"
           Copy-Item -LiteralPath "dist\windows-release\VERSION" -Destination "dist\release-assets\windows-VERSION"
           Copy-Item -LiteralPath "dist\windows-release\manifest.json" -Destination "dist\release-assets\windows-manifest.json"
           Copy-Item -LiteralPath "dist\windows-release\app-base.zip" -Destination "dist\release-assets\windows-app-base.zip"
@@ -80,6 +82,7 @@ jobs:
         run: |
           gh release upload "$env:TAG_NAME" `
             "dist\release-assets\Infinite-Canvas-Windows-Setup.exe" `
+            "dist\release-assets\Infinite-Canvas-Windows-Portable.zip" `
             "dist\release-assets\windows-VERSION" `
             "dist\release-assets\windows-manifest.json" `
             "dist\release-assets\windows-app-base.zip" `
@@ -134,6 +137,7 @@ jobs:
         run: |
           python3 packaging/macos/payload/build_payload.py
           python3 packaging/macos/build_dmg.py
+          python3 packaging/macos/build_portable.py
 
       - name: Stage macOS release assets
         run: |
@@ -141,6 +145,7 @@ jobs:
           dmg_path="$(find dist/macos -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$dmg_path"
           cp "$dmg_path" dist/release-assets/Infinite-Canvas-macOS.dmg
+          cp dist/macos/Infinite-Canvas-macOS-Portable.zip dist/release-assets/Infinite-Canvas-macOS-Portable.zip
           cp dist/macos-release/VERSION dist/release-assets/macos-VERSION
           cp dist/macos-release/manifest.json dist/release-assets/macos-manifest.json
           cp dist/macos-release/app-base.zip dist/release-assets/macos-app-base.zip
@@ -153,6 +158,7 @@ jobs:
         run: |
           gh release upload "$TAG_NAME" \
             dist/release-assets/Infinite-Canvas-macOS.dmg \
+            dist/release-assets/Infinite-Canvas-macOS-Portable.zip \
             dist/release-assets/macos-VERSION \
             dist/release-assets/macos-manifest.json \
             dist/release-assets/macos-app-base.zip \

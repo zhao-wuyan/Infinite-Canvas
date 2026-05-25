@@ -8,6 +8,7 @@
 - `updater/`：更新器实现
 - `service/`：真正运行 FastAPI 服务的后台可执行入口
 - `build_launcher.py`：使用 `PyInstaller` 构建 `launcher.exe` / `service/` / `updater.exe`
+- `build_portable.py`：生成无需安装的 Windows 便携 zip
 - `publish_release.py`：生成静态更新源目录
 - `WINDOWS_RUNBOOK.md`：Windows 实机构建、安装、更新、回滚、卸载联调手册
 
@@ -75,7 +76,16 @@ dist/windows/
   Infinite Canvas Service/
   Infinite Canvas Updater.exe
   Infinite Canvas 安装程序.exe
+  Infinite-Canvas-Windows-Portable.zip
 ```
+
+5. 生成便携包：
+
+```powershell
+python packaging\windows\build_portable.py
+```
+
+便携包内容以 `Infinite Canvas Portable/` 为根目录，包含 launcher、service、updater 与 `bootstrap/app-base.zip`。
 
 ## 2026-05-25 实测记录
 

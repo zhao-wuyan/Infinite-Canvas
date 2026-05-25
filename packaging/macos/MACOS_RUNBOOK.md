@@ -1,6 +1,6 @@
 # macOS 实机构建与联调 Runbook
 
-这个 runbook 只解决一件事：在 macOS 主机上构建 `.app` / `.dmg`，并完成启动、更新、回滚、局域网访问联调。
+这个 runbook 只解决一件事：在 macOS 主机上构建 `.app` / `.dmg` / 便携 zip，并完成启动、更新、回滚、局域网访问联调。
 
 ## 环境前提
 
@@ -82,6 +82,18 @@ python3 packaging/macos/build_dmg.py
 检查：
 
 - `dist/macos/Infinite Canvas-<version>.dmg`
+
+### 6. 构建便携 zip
+
+```bash
+python3 packaging/macos/build_portable.py
+```
+
+检查：
+
+- `dist/macos/Infinite-Canvas-macOS-Portable.zip`
+- zip 内包含 `Infinite Canvas.app/Contents/MacOS/Infinite Canvas`
+- zip 内包含 `Infinite Canvas.app/Contents/Resources/bootstrap/app-base.zip`
 
 ## 启动联调
 

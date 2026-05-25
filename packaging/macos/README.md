@@ -18,6 +18,7 @@
 - `payload/`：macOS payload manifest 与构建脚本
 - `build_app.py`：构建 `Infinite Canvas.app`
 - `build_dmg.py`：构建 DMG
+- `build_portable.py`：生成包含 `.app` 的便携 zip
 - `publish_release.py`：生成静态更新源目录
 - `MACOS_RUNBOOK.md`：macOS 实机构建、安装、更新、回滚联调手册
 
@@ -49,12 +50,19 @@ python3 packaging/macos/build_app.py
 python3 packaging/macos/build_dmg.py
 ```
 
+5. 构建便携 zip：
+
+```bash
+python3 packaging/macos/build_portable.py
+```
+
 输出示例：
 
 ```text
 dist/macos/
   Infinite Canvas.app
   Infinite Canvas-2026.05.24.1.dmg
+  Infinite-Canvas-macOS-Portable.zip
 ```
 
 ## 当前状态

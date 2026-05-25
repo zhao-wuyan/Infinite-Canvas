@@ -8,6 +8,7 @@
 - `dist/windows/Infinite Canvas Service/Infinite Canvas Service.exe`
 - `dist/windows/Infinite Canvas Updater.exe`
 - `dist/windows/Infinite Canvas 安装程序.exe`
+- `dist/windows/Infinite-Canvas-Windows-Portable.zip`
 - `dist/windows-release/`
 
 ## 环境前提
@@ -90,6 +91,19 @@ py -3 packaging\windows\build_launcher.py
 检查：
 
 - `dist\windows\Infinite Canvas 安装程序.exe`
+
+### 6. 构建便携包
+
+```powershell
+py -3 packaging\windows\build_portable.py
+```
+
+检查：
+
+- `dist\windows\Infinite-Canvas-Windows-Portable.zip`
+- zip 内包含 `Infinite Canvas Portable\Infinite Canvas.exe`
+- zip 内包含 `Infinite Canvas Portable\Infinite Canvas Service\Infinite Canvas Service.exe`
+- zip 内包含 `Infinite Canvas Portable\bootstrap\app-base.zip`
 
 联调前先确认脚本引用的文件都存在：
 
