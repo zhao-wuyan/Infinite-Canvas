@@ -1090,11 +1090,11 @@ def schedule_self_restart(delay_seconds: int = 3) -> bool:
                 "  echo [%date% %time%] starting launcher: %LAUNCHER% >> \"%LOG_FILE%\"\r\n"
                 "  start \"ComfyUI-API-Modelscope\" /D \"%APP_DIR%\" cmd /k call \"%LAUNCHER%\"\r\n"
                 ") else (\r\n"
-                "  echo [%date% %time%] launcher missing, fallback to python main.py >> \"%LOG_FILE%\"\r\n"
+                "  echo [%date% %time%] launcher missing, fallback to runpy main.py >> \"%LOG_FILE%\"\r\n"
                 "  if exist \"%APP_DIR%\\python\\python.exe\" (\r\n"
-                "    start \"ComfyUI-API-Modelscope\" /D \"%APP_DIR%\" cmd /k \"\"%APP_DIR%\\python\\python.exe\" main.py\"\r\n"
+                "    start \"ComfyUI-API-Modelscope\" /D \"%APP_DIR%\" cmd /k \"\"%APP_DIR%\\python\\python.exe\" -c \"\"import os, runpy, sys; sys.path.insert(0, os.getcwd()); runpy.run_path('main.py', run_name='__main__')\"\"\"\r\n"
                 "  ) else (\r\n"
-                "    start \"ComfyUI-API-Modelscope\" /D \"%APP_DIR%\" cmd /k python main.py\r\n"
+                "    start \"ComfyUI-API-Modelscope\" /D \"%APP_DIR%\" cmd /k python -c \"\"import os, runpy, sys; sys.path.insert(0, os.getcwd()); runpy.run_path('main.py', run_name='__main__')\"\"\r\n"
                 "  )\r\n"
                 ")\r\n"
                 "del \"%~f0\"\r\n"
@@ -1109,7 +1109,8 @@ def schedule_self_restart(delay_seconds: int = 3) -> bool:
         else:
             launcher = os.path.join(BASE_DIR, "mac-启动服务.command")
             if not os.path.exists(launcher):
-                launcher = os.path.join(BASE_DIR, "start.sh")
+                launcher = os.path.join(BASE_DIR, "mac-启动服务.sh")
+            fallback = "python3 -c \"import os, runpy, sys; sys.path.insert(0, os.getcwd()); runpy.run_path('main.py', run_name='__main__')\""
             sh_path = os.path.join(BASE_DIR, "_self_restart.sh")
             script = (
                 "#!/bin/sh\n"
@@ -1118,6 +1119,7 @@ def schedule_self_restart(delay_seconds: int = 3) -> bool:
                 f"cd \"{BASE_DIR}\"\n"
                 f"if [ -x \"{launcher}\" ]; then nohup \"{launcher}\" >/dev/null 2>&1 &\n"
                 f"elif [ -f \"{launcher}\" ]; then nohup /bin/sh \"{launcher}\" >/dev/null 2>&1 &\n"
+                f"else nohup /bin/sh -c '{fallback}' >/dev/null 2>&1 &\n"
                 "fi\n"
                 "rm -- \"$0\"\n"
             )

@@ -12,8 +12,7 @@ echo ""
 # 移除下载文件的 quarantine 属性（这是阻止运行的主要原因）
 echo "正在移除安全限制..."
 
-xattr -r -d com.apple.quarantine 启动服务.command 2>/dev/null
-xattr -r -d com.apple.quarantine 启动服务.py 2>/dev/null
+xattr -r -d com.apple.quarantine mac-启动服务.command 2>/dev/null
 xattr -r -d com.apple.quarantine mac-安装依赖.sh 2>/dev/null
 xattr -r -d com.apple.quarantine mac-启动服务.sh 2>/dev/null
 
@@ -21,8 +20,7 @@ echo "✓ 已移除安全限制"
 echo ""
 
 # 设置执行权限
-chmod +x 启动服务.command
-chmod +x 启动服务.py
+chmod +x mac-启动服务.command
 chmod +x mac-安装依赖.sh 2>/dev/null
 chmod +x mac-启动服务.sh 2>/dev/null
 
@@ -33,7 +31,7 @@ echo "============================================"
 echo "   修复完成！"
 echo "============================================"
 echo ""
-echo "现在可以正常双击 '启动服务.command' 了。"
+echo "现在可以正常双击 'mac-启动服务.command' 了。"
 echo ""
 echo "如果仍然提示权限问题，请到："
 echo "系统设置 → 隐私与安全性 → 点击'仍要打开'"
