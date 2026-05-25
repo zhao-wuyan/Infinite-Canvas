@@ -1,0 +1,51 @@
+packaging/macos/MACOS_RUNBOOK.md
+  s_6266632cfcc2d7::t_f84a9e9fc78425 53-55,57-59
+packaging/macos/publish_release.py
+  s_6266632cfcc2d7::t_da0e2d31d0619b 17-19,38,46,48-49,53-55,60
+packaging/macos/launcher/launcher_main.py
+  s_6266632cfcc2d7::t_5556414d3cd506 39-40,156-159,167-172,174-175,185,278
+packaging/windows/README.md
+  s_6266632cfcc2d7::t_b25622284a2ec2 43-45,47-49,99-101
+tests/test_publish_release.py
+  s_6266632cfcc2d7::t_1406e12f5d212e 19-30,33-35,38
+.github/workflows/release-installers.yml
+  s_6266632cfcc2d7::t_d15228fc6d4f1e 85-87,162-164
+tests/test_windows_launcher_update.py
+  s_6266632cfcc2d7::t_805b296d6a606d 26-30,87,96,109,131,137,159
+packaging/windows/launcher/launcher_main.py
+  s_6266632cfcc2d7::t_00b9d68f65dc6b 36-37,72-75,83-88,90-91,100,222
+tests/test_macos_launcher_update.py
+  s_6266632cfcc2d7::t_c5f02b325f205f 32-36,147,156,169,191,197,220
+packaging/macos/DESIGN.md
+  s_6266632cfcc2d7::t_866ae778e48bed 98-99
+packaging/windows/WINDOWS_RUNBOOK.md
+  s_6266632cfcc2d7::t_37961ae8bce7b6 64-66,68-70
+packaging/windows/DESIGN.md
+  s_6266632cfcc2d7::t_e603caed801e30 106-108,110-112,116-117,120
+packaging/windows/publish_release.py
+  s_6266632cfcc2d7::t_05f565c719c855 13,17-19,38,46,48-49,53-55,60
+packaging/macos/launcher/runtime_manager.py
+  s_6266632cfcc2d7::t_f6eac8618a4fb9 271-273
+tests/test_macos_publish_release.py
+  s_6266632cfcc2d7::t_5573f5c4816a11 19-29,32-34,37
+packaging/windows/launcher/runtime_manager.py
+  s_6266632cfcc2d7::t_ad8b6c12fd42a3 314-316
+tests/test_release_workflow.py
+  s_6266632cfcc2d7::t_da75595a1069d6 6,20-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "a3b493a7e41e4d8a5e3dd42028c759a43e19dc69",
+  "prompts": {},
+  "sessions": {
+    "s_6266632cfcc2d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5efc-eb39-7712-82c7-0637cf70d795",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
