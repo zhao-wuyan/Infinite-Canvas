@@ -41,8 +41,12 @@ PENDING_UPDATE_KEY = "pending_update"
 TERMINAL_ATTACHED_ENV = "INFINITE_CANVAS_TERMINAL_ATTACHED"
 TERMINAL_SCRIPT_NAME = "Infinite Canvas.command"
 TERMINAL_TITLE = "Infinite Canvas"
+LAUNCH_STARTING_NOTICE = (
+    "Infinite Canvas 启动中。请不要关闭此终端窗口，关闭后程序会退出。"
+)
+LAUNCH_COMPLETE_NOTICE = "Infinite Canvas 启动完成。"
 TERMINAL_STARTUP_NOTICE = (
-    "Infinite Canvas 正在此终端中运行。请不要关闭此终端窗口，关闭后程序会退出。"
+    LAUNCH_STARTING_NOTICE
 )
 
 
@@ -119,6 +123,23 @@ def launch_in_terminal(app_bundle: Path, storage_root: Path | None = None, no_br
         check=False,
     )
     return result.returncode == 0
+
+
+def print_startup_notice() -> None:
+    print(LAUNCH_STARTING_NOTICE, flush=True)
+    print("----------------------------------------", flush=True)
+
+
+def print_launch_complete(port: int, browser_opened: bool) -> None:
+    url = app_base_url(port) + "/"
+    if browser_opened:
+        print(f"{LAUNCH_COMPLETE_NOTICE}已打开网页：{url}", flush=True)
+        return
+    print(f"{LAUNCH_COMPLETE_NOTICE}访问地址：{url}", flush=True)
+
+
+def print_launch_failed(port: int) -> None:
+    print(f"Infinite Canvas 启动失败：服务未在端口 {port} 上按时就绪。", flush=True)
 
 
 def join_update_url(base_url: str, endpoint: str) -> str:
@@ -373,6 +394,8 @@ def main() -> int:
     if should_spawn_terminal(args):
         return 0 if launch_in_terminal(app_bundle, storage_root=storage_root, no_browser=args.no_browser) else 1
 
+    if str(os.environ.get(TERMINAL_ATTACHED_ENV, "")).strip() != "1":
+        print_startup_notice()
     update_result = try_auto_update_before_launch(app_bundle, storage_root=storage_root)
     if update_result.get("updated") or not update_result.get("ok", True):
         print(json.dumps({"auto_update": update_result}, ensure_ascii=False))
@@ -383,9 +406,11 @@ def main() -> int:
     process = launch_server(layout, launcher_exe=launcher_exe, port=selected_port)
     check_for_updates_in_background(app_bundle, storage_root=storage_root)
     ok = wait_for_server(selected_port)
+    browser_opened = False
     if ok and not args.no_browser:
-        webbrowser.open(app_base_url(selected_port) + "/")
+        browser_opened = webbrowser.open(app_base_url(selected_port) + "/")
     if not ok:
+        print_launch_failed(selected_port)
         process.terminate()
         return 1
 
@@ -411,6 +436,7 @@ def main() -> int:
                 ensure_ascii=False,
             )
         )
+    print_launch_complete(selected_port, browser_opened=browser_opened)
     exit_code = process.wait()
     if shutdown_requested["value"]:
         return 0

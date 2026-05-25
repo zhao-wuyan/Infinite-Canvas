@@ -11,6 +11,9 @@ from packaging.macos.launcher.launcher_main import (
     check_for_updates,
     has_management_action,
     launch_in_terminal,
+    print_launch_complete,
+    print_launch_failed,
+    print_startup_notice,
     should_spawn_terminal,
     terminal_script_path,
     write_terminal_launcher_script,
@@ -74,9 +77,20 @@ class MacLauncherUpdateTests(unittest.TestCase):
         self.assertEqual(script_path.name, "Infinite Canvas.command")
         self.assertIn("export INFINITE_CANVAS_TERMINAL_ATTACHED=1", content)
         self.assertIn("printf '\\033]0;Infinite Canvas\\007'", content)
-        self.assertIn("请不要关闭此终端窗口", content)
+        self.assertIn("Infinite Canvas 启动中。请不要关闭此终端窗口", content)
         self.assertIn("--no-browser", content)
         self.assertIn("--app-bundle", content)
+
+    def test_launch_status_messages_are_user_visible(self):
+        with mock.patch("builtins.print") as mocked_print:
+            print_startup_notice()
+            print_launch_complete(3003, browser_opened=True)
+            print_launch_failed(3004)
+
+        messages = [call.args[0] for call in mocked_print.call_args_list]
+        self.assertIn("Infinite Canvas 启动中。请不要关闭此终端窗口，关闭后程序会退出。", messages)
+        self.assertIn("Infinite Canvas 启动完成。已打开网页：http://127.0.0.1:3003/", messages)
+        self.assertIn("Infinite Canvas 启动失败：服务未在端口 3004 上按时就绪。", messages)
 
     def test_terminal_script_path_uses_app_name_for_terminal_title(self):
         with tempfile.TemporaryDirectory() as tempdir:

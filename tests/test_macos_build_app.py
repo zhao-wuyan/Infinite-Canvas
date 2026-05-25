@@ -1,8 +1,16 @@
 import unittest
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from packaging.macos.build_app import APP_NAME, prepare_build_venv, run_pyinstaller, venv_python
+from packaging.macos.build_app import (
+    APP_NAME,
+    appdir_name,
+    install_pyinstaller_output,
+    prepare_build_venv,
+    run_pyinstaller,
+    venv_python,
+)
 
 
 class MacBuildAppTests(unittest.TestCase):
@@ -18,9 +26,22 @@ class MacBuildAppTests(unittest.TestCase):
         self.assertEqual(mocked_run.call_count, 1)
         args = mocked_run.call_args.args[0]
         self.assertEqual(args[0], str(python_exe))
+        self.assertIn("--onedir", args)
         self.assertIn("--hidden-import", args)
         self.assertIn("fastapi.staticfiles", args)
         self.assertIn("PIL.Image", args)
+
+    def test_run_pyinstaller_accepts_onefile_mode(self):
+        dist_dir = Path("/tmp/dist")
+        entrypoint = Path("/tmp/launcher_main.py")
+        python_exe = Path("/tmp/venv/bin/python")
+
+        with patch("packaging.macos.build_app.subprocess.run") as mocked_run:
+            run_pyinstaller(python_exe, entrypoint, APP_NAME, dist_dir, onefile=True)
+
+        args = mocked_run.call_args.args[0]
+        self.assertIn("--onefile", args)
+        self.assertNotIn("--onedir", args)
 
     def test_run_pyinstaller_accepts_windowed_mode(self):
         dist_dir = Path("/tmp/dist")
@@ -43,6 +64,48 @@ class MacBuildAppTests(unittest.TestCase):
 
         args = mocked_run.call_args.args[0]
         self.assertNotIn("--windowed", args)
+
+    def test_install_pyinstaller_output_installs_appdir_with_wrapper(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            build_bin_dir = root / "bin"
+            macos_dir = root / "Infinite Canvas.app" / "Contents" / "MacOS"
+            source_dir = build_bin_dir / APP_NAME
+            source_dir.mkdir(parents=True)
+            source_executable = source_dir / APP_NAME
+            source_executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (source_dir / "_internal").mkdir()
+            (source_dir / "_internal" / "lib.txt").write_text("runtime\n", encoding="utf-8")
+            macos_dir.mkdir(parents=True)
+
+            install_pyinstaller_output(build_bin_dir, macos_dir, APP_NAME, pass_app_bundle=True)
+
+            wrapper = macos_dir / APP_NAME
+            installed_executable = macos_dir / appdir_name(APP_NAME) / APP_NAME
+            self.assertTrue(wrapper.exists())
+            self.assertTrue(installed_executable.exists())
+            self.assertTrue((macos_dir / appdir_name(APP_NAME) / "_internal" / "lib.txt").exists())
+            wrapper_text = wrapper.read_text(encoding="utf-8")
+            self.assertIn(f'exec "$SCRIPT_DIR/{appdir_name(APP_NAME)}/{APP_NAME}"', wrapper_text)
+            self.assertIn('--app-bundle "$SCRIPT_DIR/../.."', wrapper_text)
+            self.assertEqual(wrapper.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(installed_executable.stat().st_mode & 0o777, 0o755)
+
+    def test_install_pyinstaller_output_installs_onefile_binary(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            build_bin_dir = root / "bin"
+            macos_dir = root / "MacOS"
+            build_bin_dir.mkdir(parents=True)
+            macos_dir.mkdir()
+            source = build_bin_dir / f"{APP_NAME} Updater"
+            source.write_text("binary\n", encoding="utf-8")
+
+            install_pyinstaller_output(build_bin_dir, macos_dir, f"{APP_NAME} Updater", onefile=True)
+
+            target = macos_dir / f"{APP_NAME} Updater"
+            self.assertEqual(target.read_text(encoding="utf-8"), "binary\n")
+            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
 
     def test_venv_python_uses_bin_python(self):
         self.assertEqual(venv_python(Path("/tmp/build-venv")), Path("/tmp/build-venv/bin/python"))

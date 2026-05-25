@@ -9,6 +9,9 @@ from packaging.windows.launcher.launcher_main import (
     apply_update_result,
     check_for_updates_and_remember,
     check_for_updates,
+    print_launch_complete,
+    print_launch_failed,
+    print_startup_notice,
     try_auto_update_before_launch,
 )
 from packaging.windows.launcher.runtime_manager import load_launcher_state, resolve_runtime_context
@@ -39,6 +42,17 @@ def create_install_dir(root: Path, version: str = "2026.05.24.1") -> Path:
 
 
 class WindowsLauncherUpdateTests(unittest.TestCase):
+    def test_launch_status_messages_are_user_visible(self):
+        with mock.patch("builtins.print") as mocked_print:
+            print_startup_notice()
+            print_launch_complete(3003, browser_opened=True)
+            print_launch_failed(3004)
+
+        messages = [call.args[0] for call in mocked_print.call_args_list]
+        self.assertIn("Infinite Canvas 启动中。请不要关闭此终端窗口，关闭后程序会退出。", messages)
+        self.assertIn("Infinite Canvas 启动完成。已打开网页：http://127.0.0.1:3003/", messages)
+        self.assertIn("Infinite Canvas 启动失败：服务未在端口 3004 上按时就绪。", messages)
+
     def test_check_for_updates_detects_remote_newer_version(self):
         with tempfile.TemporaryDirectory() as tempdir:
             install_dir = create_install_dir(Path(tempdir), "2026.05.24.1")

@@ -45,6 +45,7 @@ python3 packaging/macos/build_app.py
 ```
 
 脚本会自动创建 `build/macos-packaging-venv`，并在其中安装 `requirements.txt` 与 `PyInstaller`，避免依赖当前全局 Python 环境。
+构建产物使用 PyInstaller `--onedir`，安装到 `Contents/MacOS/*.appdir/`，并保留 `Contents/MacOS/Infinite Canvas` 等同名 wrapper 作为 `.app` 入口；这样可以避免 `--onefile` 每次启动自解压导致的额外等待。
 
 4. 构建 `.dmg`：
 
