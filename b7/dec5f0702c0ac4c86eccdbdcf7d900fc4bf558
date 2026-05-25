@@ -1,0 +1,29 @@
+packaging/README.md
+  s_437450135f996c::t_0f4f7eb4ca06d0 14
+packaging/windows/payload/manifest.json
+  s_437450135f996c::t_0f4f7eb4ca06d0 6
+packaging/macos/payload/manifest.json
+  s_437450135f996c::t_0f4f7eb4ca06d0 7
+packaging/macos/README.md
+  s_437450135f996c::t_0f4f7eb4ca06d0 36
+packaging/windows/README.md
+  s_437450135f996c::t_0f4f7eb4ca06d0 36,97
+packaging/build_local.py
+  s_437450135f996c::t_0f4f7eb4ca06d0 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "b7dec5f0702c0ac4c86eccdbdcf7d900fc4bf558",
+  "prompts": {},
+  "sessions": {
+    "s_437450135f996c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5ed4-a46c-7ec2-bfaa-a5257be74b10",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
