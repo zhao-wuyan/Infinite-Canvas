@@ -169,6 +169,7 @@ def build_launch_env(layout: MacLaunchLayout, launcher_exe: str = "", port: int 
     env = os.environ.copy()
     manifest = read_manifest(layout)
     env["INFINITE_CANVAS_DATA_ROOT"] = str(layout.storage_root)
+    env["INFINITE_CANVAS_STORAGE_ROOT"] = str(layout.storage_root)
     env["INFINITE_CANVAS_MANAGED_BY_LAUNCHER"] = "1"
     env["INFINITE_CANVAS_LAUNCHER_MODE"] = layout.mode
     env["INFINITE_CANVAS_UPDATE_BASE_URL"] = str(manifest.get("update_base_url") or "").strip()

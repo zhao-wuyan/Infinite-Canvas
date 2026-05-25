@@ -51,3 +51,13 @@ def test_windows_restart_scripts_are_launched_without_console_window():
     assert "_self_restart.bat" not in source
     assert "timeout /t" not in source
     assert "wscript.exe" in source
+
+
+def test_macos_launcher_restart_uses_app_bundle_open_with_binary_fallback():
+    source = (ROOT / "main.py").read_text(encoding="utf-8")
+
+    assert "macos_app_bundle_from_launcher" in source
+    assert "/usr/bin/open -n" in source
+    assert "--args --no-browser" in source
+    assert "--storage-root" in source
+    assert "direct_launch" in source

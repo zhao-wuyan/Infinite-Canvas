@@ -120,6 +120,8 @@ dist/macos/Infinite Canvas.app
 - `/api/launcher/apply-update` 成功
 - `~/Library/Application Support/InfiniteCanvas/backups/launcher/` 下新增备份
 - `current.txt` 指向新版本
+- 页面“立即更新”会安装更新并自动重启后端；浏览器窗口保持打开，后端恢复后页面自动刷新
+- macOS 重启优先通过 `open -n "Infinite Canvas.app" --args --no-browser` 重新拉起 `.app`，确保按 App Bundle 方式启动；失败时回退到直接执行 `Contents/MacOS/Infinite Canvas`
 
 ## 回滚联调
 
