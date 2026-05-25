@@ -1,0 +1,36 @@
+packaging/windows/build_portable.py
+  s_ee6fdd2f142ac0::t_a9f789ac06ce01 1-73
+.github/workflows/release-installers.yml
+  s_ee6fdd2f142ac0::t_dace73cc17f832 60,71,85,140,148,161
+packaging/macos/README.md
+  s_ee6fdd2f142ac0::t_8067eafba4594a 21,53-58,65
+packaging/windows/README.md
+  s_ee6fdd2f142ac0::t_8067eafba4594a 11,79,82-89
+packaging/macos/MACOS_RUNBOOK.md
+  s_ee6fdd2f142ac0::t_8067eafba4594a 3,86-97
+tests/test_macos_build_portable.py
+  s_ee6fdd2f142ac0::t_a9f789ac06ce01 1-38
+packaging/windows/WINDOWS_RUNBOOK.md
+  s_ee6fdd2f142ac0::t_8067eafba4594a 11,95-106
+packaging/macos/build_portable.py
+  s_ee6fdd2f142ac0::t_a9f789ac06ce01 1-3,5-13,22-25,28-70
+  s_ee6fdd2f142ac0::t_4e94bd6545b73a 4,14-21,26-27
+tests/test_windows_build_portable.py
+  s_ee6fdd2f142ac0::t_a9f789ac06ce01 1-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "5204072b39d19e9d10e3abc374c0ad0b9a78715a",
+  "prompts": {},
+  "sessions": {
+    "s_ee6fdd2f142ac0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d45-3a06-7a22-aee7-7e81cba47c7b",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
