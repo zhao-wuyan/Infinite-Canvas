@@ -1,0 +1,78 @@
+tests/test_macos_runtime_manager.py
+  s_9f02f1ec6fa482::t_8c21a73ba74c2c 9,39-52
+packaging/windows/launcher/runtime_manager.py
+  s_9f02f1ec6fa482::t_4955bd8f2cc3ee 70-92
+packaging/macos/payload/manifest.json
+  s_9f02f1ec6fa482::t_bb8e73e2d71929 8-10
+  s_9f02f1ec6fa482::t_299b592faf2ce2 7
+tests/test_macos_launcher_update.py
+  s_9f02f1ec6fa482::t_8cb645c2908a13 121
+  s_9f02f1ec6fa482::t_bb8e73e2d71929 76-98,124-156
+  s_9f02f1ec6fa482::t_e5bc9c0d77a59a 1-2,4-61,74-75,99-120,122-123,157-172
+  s_9f02f1ec6fa482::t_ef65e2a5fa9b03 3,62-73
+tests/test_macos_build_dmg.py
+  s_9f02f1ec6fa482::t_b1e548c5964e06 21
+  s_9f02f1ec6fa482::t_04b827c1574cc9 1-20,22-32
+packaging/macos/launcher/layout.py
+  s_9f02f1ec6fa482::t_6529523e54c71a 34,37
+packaging/macos/launcher/launcher_main.py
+  s_9f02f1ec6fa482::t_8450d0cb58de9b 5,20,32,34-35,107,127,132,135,137-141,164-187,226-228
+  s_9f02f1ec6fa482::t_ef65e2a5fa9b03 10,71,83-84,99-100,108-118
+  s_9f02f1ec6fa482::t_bb8e73e2d71929 33,61-70,72-82,85-98,145-147
+packaging/windows/README.md
+  s_9f02f1ec6fa482::t_51f265f1235712 36,97,123,129
+packaging/macos/launcher/runtime_manager.py
+  s_9f02f1ec6fa482::t_7d95058ba3b38a 66-82
+tests/test_build_local.py
+  s_9f02f1ec6fa482::t_b1e548c5964e06 43-44,83-84
+  s_9f02f1ec6fa482::t_04b827c1574cc9 1-42,45-82,85-101
+packaging/README.md
+  s_9f02f1ec6fa482::t_04b827c1574cc9 1-24
+packaging/macos/README.md
+  s_9f02f1ec6fa482::t_ea8d3788582baa 36
+packaging/windows/payload/manifest.json
+  s_9f02f1ec6fa482::t_4ae6fa2f5664b9 6
+  s_9f02f1ec6fa482::t_bb8e73e2d71929 7-9
+tests/test_windows_launcher_update.py
+  s_9f02f1ec6fa482::t_ef65e2a5fa9b03 3,62-73
+  s_9f02f1ec6fa482::t_e335f409314f39 1-2,4-61,74-75,99-123,156-171
+  s_9f02f1ec6fa482::t_bb8e73e2d71929 76-98,124-155
+packaging/windows/WINDOWS_RUNBOOK.md
+  s_9f02f1ec6fa482::t_a01f0dfca310ce 148,153,244
+packaging/build_local.py
+  s_9f02f1ec6fa482::t_b1e548c5964e06 74-79,233
+  s_9f02f1ec6fa482::t_04b827c1574cc9 1-73,80-232,234-280
+packaging/macos/build_dmg.py
+  s_9f02f1ec6fa482::t_04b827c1574cc9 16-19,54,57
+.github/workflows/release-installers.yml
+  s_9f02f1ec6fa482::t_bb8e73e2d71929 88-90,105-107
+tests/test_release_workflow.py
+  s_9f02f1ec6fa482::t_2684b6cb4c1833 1-24
+pytest.ini
+  s_9f02f1ec6fa482::t_4eb9e4c0474bdc 1-9
+tests/test_runtime_manager.py
+  s_9f02f1ec6fa482::t_15d316a595647a 9,61-79
+packaging/windows/launcher/launcher_main.py
+  s_9f02f1ec6fa482::t_cc242fd4321cfc 18,30,105,138,142,145,147-151,172-195,230-235
+  s_9f02f1ec6fa482::t_ef65e2a5fa9b03 9,70,82-83,98-99,106-116
+  s_9f02f1ec6fa482::t_bb8e73e2d71929 31-33,60-69,71-81,84-97,155-157
+  s_9f02f1ec6fa482::t_79db9d92ad1b5e 5
+packaging/macos/MACOS_RUNBOOK.md
+  s_9f02f1ec6fa482::t_0bf635bc225f7f 116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "91e567ab268002a9b69fefd1ab841a655b5f4d1c",
+  "prompts": {},
+  "sessions": {
+    "s_9f02f1ec6fa482": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e39-1a16-7792-8e6c-d292e1161271",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
