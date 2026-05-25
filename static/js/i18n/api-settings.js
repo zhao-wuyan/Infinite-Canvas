@@ -38,6 +38,7 @@
         "api.noModels": { zh: "暂无模型", en: "No models" },
         "api.modelsTitle": { zh: "模型列表", en: "Model List" },
         "api.modelsDesc": { zh: "从上游 API 自动拉取所有可用模型并按类型分类（image / chat / video）", en: "Fetch all available upstream models and classify them by type (image / chat / video)." },
+        "api.volcengineEndpointTip": { zh: "火山聊天模型建议填写方舟控制台中的推理接入点 ID（ep-...）。", en: "For Volcengine chat, prefer the Ark inference endpoint ID (ep-...)." },
         "api.selectModels": { zh: "选择模型", en: "Select Models" },
         "api.loraManager": { zh: "LoRA 管理", en: "LoRA Manager" },
         "api.loraManagerDesc": { zh: "为 ModelScope 生图模型绑定可用 LoRA。无限画布 MS 节点会按当前模型自动筛选。", en: "Bind available LoRAs to ModelScope image models. Canvas MS nodes will filter them by the current model." },

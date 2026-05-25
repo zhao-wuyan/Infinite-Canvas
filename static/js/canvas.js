@@ -174,6 +174,7 @@ const UNDO_MAX = 30;
 const cascadeRunningIds = new Set();
 const cascadeStopIds = new Set();
 const cascadeSerialIds = new Set(); // 记录以串行循环模式启动的运行，用于停止按钮
+const cascadeContexts = new Map();
 let cropState = null;
 let cropDrag = null;
 let imageEditMode = 'crop';
@@ -853,6 +854,10 @@ function serializableCanvasNode(node){
     const copy = {...(node || {})};
     delete copy._ltxEditor;
     delete copy.running;
+    delete copy.runStatus;
+    delete copy.runError;
+    delete copy._cascadeIdx;
+    delete copy._cascadeFailed;
     return copy;
 }
 function serializableCanvasNodes(list=nodes){
@@ -1150,11 +1155,13 @@ async function createCanvas(){
             openSmartCanvasPage(data.canvas?.id);
             return;
         }
+        resetCascadeRuntimeState();
         canvas = data.canvas;
         canvas.logs = canvas.logs || [];
         nodes = canvas.nodes || [];
         connections = canvas.connections || [];
         viewport = canvas.viewport || {x:0, y:0, scale:1};
+        resetTransientRunState(nodes);
         sanitizeConnections();
         selected.clear();
         setCanvasMode(true);
@@ -1285,6 +1292,7 @@ async function openCanvas(id){
         const res = await fetch(`/api/canvases/${id}`);
         if(!res.ok) throw new Error(tr('canvas.openFailed'));
         const data = await res.json();
+        resetCascadeRuntimeState();
         canvas = data.canvas;
         if((canvas.kind || 'classic') === 'smart'){
             openSmartCanvasPage(canvas.id);
@@ -1296,7 +1304,7 @@ async function openCanvas(id){
         viewport = canvas.viewport || {x:0, y:0, scale:1};
         lastCanvasUpdatedAt = Number(canvas.updated_at || 0);
         localCanvasDirty = false;
-        nodes.forEach(n => { if(n.running) n.running = false; });
+        resetTransientRunState(nodes);
         sanitizeConnections();
         pruneMissingComfyWorkflows();
         await refreshMissingCanvasAssets();
@@ -1321,6 +1329,7 @@ function applyRemoteCanvasData(remote){
     }
     applyingRemoteCanvas = true;
     try {
+        resetCascadeRuntimeState();
         canvas = remote;
         canvas.logs = canvas.logs || [];
         nodes = canvas.nodes || [];
@@ -1328,7 +1337,7 @@ function applyRemoteCanvasData(remote){
         viewport = canvas.viewport || {x:0, y:0, scale:1};
         lastCanvasUpdatedAt = Number(canvas.updated_at || Date.now());
         localCanvasDirty = false;
-        nodes.forEach(n => { if(n.running) n.running = false; });
+        resetTransientRunState(nodes);
         sanitizeConnections();
         pruneMissingComfyWorkflows();
         refreshMissingCanvasAssets().then(() => render());
@@ -1342,6 +1351,16 @@ function applyRemoteCanvasData(remote){
     } finally {
         applyingRemoteCanvas = false;
     }
+}
+function resetTransientRunState(list=nodes){
+    (list || []).forEach(node => {
+        if(!node) return;
+        if(node.running) node.running = false;
+        if(node.runStatus) node.runStatus = '';
+        if(node.runError) node.runError = '';
+        if(node._cascadeIdx) node._cascadeIdx = '';
+        if(node._cascadeFailed) node._cascadeFailed = false;
+    });
 }
 function canvasLocalAssetUrls(){
     const urls = new Set();
@@ -2157,6 +2176,7 @@ function renderMsGenBody(node){
 async function runMsGenNode(nodeId, opts={}){
     const node = nodes.find(n => n.id === nodeId);
     if(!node || (node.running && !opts.cascade)) return;
+    const cascadeTargetId = cascadeTargetIdFromOptions(opts);
     const sources = orderedSources(node, generatorSources(node));
     const prompt = sources.map(s => s.prompt).filter(Boolean).join('\n\n');
     const refs = imageRefsOnly(sources.flatMap(s => s.refs || []));
@@ -2180,7 +2200,7 @@ async function runMsGenNode(nodeId, opts={}){
         height = Number(node.msHeight) || height;
     }
     const requestSize = {width, height};
-    if(out) out._pending = [...(out._pending || []), ...pendingIds.map(id => makePendingForRun(id, run, node, {refs, requestSize}))];
+    if(out) out._pending = [...(out._pending || []), ...pendingIds.map(id => makePendingForRun(id, run, node, {refs, requestSize, cascadeTargetId}))];
     if(!opts.cascade){
         node.running = true;
         refreshRunNodes(node, out);
@@ -2222,10 +2242,10 @@ async function runMsGenNode(nodeId, opts={}){
                 if(!loraId) throw new Error(tr('canvas.noLoraBoundError'));
                 apiBody.loras = { [loraId]: Number(node.msLoraStrength ?? selected?.strength ?? 0.8) };
             }
-            const res = await fetch(msModel.endpoint, {
+            const res = await cascadeFetch(msModel.endpoint, {
                 method:'POST', headers:{'Content-Type':'application/json'},
                 body:JSON.stringify(apiBody)
-            });
+            }, {cascadeTargetId});
             if(!res.ok) throw new Error(await responseErrorMessage(res, tr('canvas.msFailed')));
             return await res.json();
         };
@@ -2244,6 +2264,10 @@ async function runMsGenNode(nodeId, opts={}){
         const metas = collectRunMetas(out, pendingIds);
         addGenerationLog({run, outputs:[], runMs:Math.max(...metas.map(m => m.runMs || 0), 0), error:err.message || String(err)});
         if(out) out._pending = (out._pending || []).filter(p => !pendingIds.includes(p.id));
+        if(isCascadeAbortError(err)){
+            if(opts.cascade) throw err;
+            return;
+        }
         node.runStatus = 'failed'; node.runError = err.message || String(err);
         refreshRunNodes(node, out);
         if(opts.cascade) throw err;
@@ -4280,7 +4304,7 @@ function renderNode(node){
         refreshSelectionVisuals();
     };
     el.oncontextmenu = e => {
-        if(!CANVAS_GENERATOR_TYPES.includes(node.type) && node.type !== 'output') return;
+    if(!CANVAS_GENERATOR_TYPES.includes(node.type) && node.type !== 'output') return;
         e.preventDefault();
         e.stopPropagation();
         if(node.type === 'output') openOutputNodeMenu(node.id, e.clientX, e.clientY);
@@ -4289,7 +4313,7 @@ function renderNode(node){
     const title = node.type === 'image' ? 'Image' : node.type === 'prompt' ? 'Prompt' : node.type === 'loop' ? tr('canvas.loopNode') : node.type === 'promptGroup' ? 'Prompts' : node.type === 'group' ? 'Group' : node.type === 'output' ? 'Output' : node.type === 'llm' ? 'LLM' : node.type === 'comfy' ? 'ComfyUI' : node.type === 'ltxDirector' ? tr('canvas.ltxDirector') : node.type === 'rh' ? 'RunningHub' : node.type === 'msgen' ? tr('canvas.modelscopeGenerate') : node.type === 'video' ? tr('canvas.videoGenerateNode') : tr('canvas.apiGenerate');
     const displayTitle = node.type === 'image' && node.url ? nodeTitleForMedia(node) : title;
     // 失败徽章只在一键运行模式中显示，单节点失败已通过 alert 提示
-    const showStatus = ['generator','msgen','comfy','ltxDirector','llm','rh'].includes(node.type) && node.runStatus
+    const showStatus = ['generator','msgen','comfy','ltxDirector','llm','video','rh'].includes(node.type) && node.runStatus
         && (node.runStatus !== 'failed' || node._cascadeFailed);
     const statusHtml = showStatus ? (() => {
         const label = { queued:'排队中', running:'运行中', done:'完成', failed:'失败' }[node.runStatus] || '';
@@ -4729,8 +4753,8 @@ function renderLoopBody(node){
     const hasUpstreamPrompt = promptItemCount > 0;
     const loopTargetId = findLoopCascadeTarget(node.id);
     const loopTargetOrder = loopTargetId ? computeCascadeOrder(loopTargetId) : [];
-    const loopRunHtml = loopTargetId ? (cascadeSerialIds.has(loopTargetId)
-        ? `<div class="gen-run-row"><button class="gen-cascade-btn gen-cascade-stop" type="button" data-loop-cascade-stop="${loopTargetId}" ${cascadeStopIds.has(loopTargetId) ? 'disabled' : ''}><i data-lucide="square" class="w-4 h-4"></i><span>${cascadeStopIds.has(loopTargetId) ? '停止中…' : '停止循环'}</span></button></div>`
+    const loopRunHtml = loopTargetId ? (isCascadeActive(loopTargetId)
+        ? `<div class="gen-run-row"><button class="gen-cascade-btn gen-cascade-stop" type="button" data-loop-cascade-stop="${loopTargetId}" ${isCascadeStopping(loopTargetId) ? 'disabled' : ''}><i data-lucide="square" class="w-4 h-4"></i><span>${isCascadeStopping(loopTargetId) ? '停止中…' : '停止运行'}</span></button></div>`
         : `<div class="gen-run-row"><button class="gen-cascade-btn" type="button" data-loop-cascade="${loopTargetId}" title="从当前循环节点启动整条工作流"><i data-lucide="play-circle" class="w-4 h-4"></i><span>开始 ${loopTargetOrder.length || 1} 个节点 × ${node.count} ${tr('canvas.loopRounds')}</span></button></div>`)
         : '';
     wrap.innerHTML = `
@@ -6103,7 +6127,7 @@ function rhPaymentOptions(node){
     const provider = runningHubProvider();
     const selected = node.rhPayment === 'wallet' ? 'wallet' : 'free';
     return `
-        <option value="free" ${selected === 'free' ? 'selected' : ''}>免费积分 Key${provider?.has_key ? '' : '（未配置）'}</option>
+        <option value="free" ${selected === 'free' ? 'selected' : ''}>RH币 Key${provider?.has_key ? '' : '（未配置）'}</option>
         <option value="wallet" ${selected === 'wallet' ? 'selected' : ''}>账户余额 Key${provider?.has_wallet_key ? '' : '（未配置）'}</option>
     `;
 }
@@ -6603,6 +6627,7 @@ async function rhBuildNodeInfoList(node, media){
 async function runRhNode(nodeId, opts={}){
     const node = nodes.find(n => n.id === nodeId);
     if(!node || (node.running && !opts.cascade)) return;
+    const cascadeTargetId = cascadeTargetIdFromOptions(opts);
     ensureRhNodeSelection(node);
     const mode = rhCurrentKind(node);
     node.rhRandomValues = {};
@@ -6623,7 +6648,7 @@ async function runRhNode(nodeId, opts={}){
     const pendingId = uid('p');
     const run = runSnapshot(node, media.prompt || 'RunningHub', media.refs);
     run.taskLabel = 'RunningHub';
-    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs:media.refs})];
+    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs:media.refs, cascadeTargetId})];
     if(!opts.cascade) node.running = true;
     refreshRunNodes(node, out);
     try {
@@ -6633,11 +6658,11 @@ async function runRhNode(nodeId, opts={}){
         const body = mode === 'workflow'
             ? {workflowId:node.workflowId.trim(), nodeInfoList, useWallet:rhUseWallet(node), ...workflowExtras}
             : {webappId:node.webappId.trim(), nodeInfoList, instanceType:node.instanceType || '', useWallet:rhUseWallet(node)};
-        const submit = await fetch(endpoint, {
+        const submit = await cascadeFetch(endpoint, {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify(body)
-        }).then(async r => {
+        }, {cascadeTargetId}).then(async r => {
             const data = await r.json();
             if(!r.ok || data.success === false) throw new Error(data.detail || data.error || tr('canvas.rhFailed'));
             return data.data || data;
@@ -6647,8 +6672,9 @@ async function runRhNode(nodeId, opts={}){
         run.request = {task_id:taskId, webappId:node.webappId, workflowId:node.workflowId, backend:'runninghub', mode};
         let result = null;
         for(let i = 0; i < 720; i++){
+            if(cascadeTargetId) ensureCascadeActive(cascadeTargetId);
             await sleep(2500);
-            const data = await fetch(`/api/runninghub/query?taskId=${encodeURIComponent(taskId)}`).then(async r => {
+            const data = await cascadeFetch(`/api/runninghub/query?taskId=${encodeURIComponent(taskId)}`, {}, {cascadeTargetId}).then(async r => {
                 const json = await r.json();
                 if(!r.ok || json.success === false) throw new Error(json.detail || json.error || tr('canvas.rhFailed'));
                 return json.data || json;
@@ -6675,6 +6701,10 @@ async function runRhNode(nodeId, opts={}){
         const meta = collectRunMeta(out, pendingId);
         addGenerationLog({run, outputs:[], runMs:meta.runMs || 0, error:err.message || String(err)});
         if(out) out._pending = (out._pending || []).filter(p => p.id !== pendingId);
+        if(isCascadeAbortError(err)){
+            if(opts.cascade) throw err;
+            return;
+        }
         node.runStatus = 'failed';
         node.runError = err.message || String(err);
         refreshRunNodes(node, out);
@@ -7055,6 +7085,7 @@ function refreshGeneratorInputViews(){
 async function runGenerator(genId, opts={}){
     const gen = nodes.find(n => n.id === genId);
     if(!gen || (gen.running && !opts.cascade)) return;
+    const cascadeTargetId = cascadeTargetIdFromOptions(opts);
     const sources = orderedSources(gen, generatorSources(gen));
     const prompt = sources.map(s => s.prompt).filter(Boolean).join('\n\n');
     const refs = imageRefsOnly(sources.flatMap(s => s.refs || []));
@@ -7072,13 +7103,31 @@ async function runGenerator(genId, opts={}){
     const quality = normalizedImageQuality(gen.quality);
     if(quality) payload.quality = quality;
     let pendingIds = [];
+    const startedAt = nowMs();
     if(!opts.cascade){ gen.running = true; }
     try {
-        const taskInfos = await Promise.all(Array.from({length:count}, () => createCanvasImageTask(payload)));
+        const taskInfos = await Promise.all(Array.from({length:count}, () => createCanvasImageTask(payload, {cascadeTargetId})));
+        if(!out){
+            let outputs = [];
+            for(const task of taskInfos){
+                const result = await waitCanvasImageTaskResult(task.task_id, {cascadeTargetId});
+                outputs.push(...(result.images || []));
+                run.request = requestMetaFromResult(result);
+            }
+            if(!outputs.length) throw new Error(tr('canvas.generationFailed'));
+            mergeGeneratedOutputs(gen, outputs, Boolean(opts.cascade));
+            addGenerationLog({run, outputs, runMs:nowMs() - startedAt});
+            gen.runStatus = 'done';
+            gen.runError = '';
+            gen.running = false;
+            refreshRunNodes(gen, out);
+            scheduleSave();
+            return;
+        }
         pendingIds = taskInfos.map(() => uid('p'));
         if(out) out._pending = [
             ...(out._pending || []),
-            ...taskInfos.map((task, index) => makePendingForRun(pendingIds[index], run, gen, {refs, requestSize:payload.size}, {
+            ...taskInfos.map((task, index) => makePendingForRun(pendingIds[index], run, gen, {refs, requestSize:payload.size, cascadeTargetId}, {
                 canvasTaskId:task.task_id,
                 canvasTaskType:'online-image',
                 appendGenerated:Boolean(opts.cascade)
@@ -7087,7 +7136,8 @@ async function runGenerator(genId, opts={}){
         refreshRunNodes(gen, out);
         scheduleSave();
         await saveCanvas();
-        const statuses = await Promise.all(taskInfos.map(task => pollCanvasImageTask(task.task_id)));
+        const statuses = await Promise.all(taskInfos.map(task => pollCanvasImageTask(task.task_id, {cascadeTargetId})));
+        if(statuses.includes('aborted')) throw cascadeAbortError(cascadeStopMessage());
         if(statuses.includes('failed')) throw new Error(gen.runError || tr('canvas.generationFailed'));
     } catch(err) {
         const remainingIds = pendingIds.filter(id => pendingById(out, id));
@@ -7095,6 +7145,12 @@ async function runGenerator(genId, opts={}){
             const metas = collectRunMetas(out, remainingIds);
             addGenerationLog({run, outputs:[], runMs:Math.max(...metas.map(m => m.runMs || 0), 0), error:err.message || String(err)});
             if(out) out._pending = (out._pending||[]).filter(p => !remainingIds.includes(p.id));
+        }
+        if(isCascadeAbortError(err)){
+            gen.running = false;
+            refreshRunNodes(gen, out);
+            scheduleSave();
+            throw err;
         }
         gen.runStatus = 'failed'; gen.runError = err.message || String(err);
         gen.running = false;
@@ -7161,6 +7217,7 @@ async function runGeneratorLegacy(genId, opts={}){
 async function runVideoNode(nodeId, opts={}){
     const node = nodes.find(n => n.id === nodeId);
     if(!node || (node.running && !opts.cascade)) return;
+    const cascadeTargetId = cascadeTargetIdFromOptions(opts);
     const sources = orderedSources(node, generatorSources(node));
     const prompt = sources.map(s => s.prompt).filter(Boolean).join('\n\n');
     const allRefs = sources.flatMap(s => s.refs || []);
@@ -7172,11 +7229,11 @@ async function runVideoNode(nodeId, opts={}){
     let out = outputForNode(node, 460);
     const pendingId = uid('p');
     const run = runSnapshot(node, prompt, refs);
-    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs})];
+    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs, cascadeTargetId})];
     if(!opts.cascade){ node.running = true; refreshRunNodes(node, out); }
     else refreshRunNodes(node, out);
     try {
-        const result = await fetch('/api/canvas-video', {
+        const result = await cascadeFetch('/api/canvas-video', {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({
@@ -7194,7 +7251,7 @@ async function runVideoNode(nodeId, opts={}){
                 camerafixed:Boolean(node.cameraFixed),
                 generate_audio:Boolean(node.generateAudio)
             })
-        }).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, tr('canvas.videoFailed'))); return r.json(); });
+        }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, tr('canvas.videoFailed'))); return r.json(); });
         const meta = collectRunMeta(out, pendingId);
         if(out) out._pending = (out._pending || []).filter(p => p.id !== pendingId);
         const outputUrls = resultMediaUrls(result).map(item => {
@@ -7213,6 +7270,10 @@ async function runVideoNode(nodeId, opts={}){
         const meta = collectRunMeta(out, pendingId);
         addGenerationLog({run, outputs:[], runMs:meta.runMs || 0, error:err.message || String(err)});
         if(out) out._pending = (out._pending || []).filter(p => p.id !== pendingId);
+        if(isCascadeAbortError(err)){
+            if(opts.cascade) throw err;
+            return;
+        }
         node.runStatus = 'failed'; node.runError = err.message || String(err);
         refreshRunNodes(node, out);
         if(opts.cascade) throw err;
@@ -7541,6 +7602,173 @@ function clearStuckGeneratorRunning(node){
     if(cascadeRunningIds.has(node.id) || cascadeSerialIds.has(node.id)) return;
     node.running = false;
 }
+function resetCascadeRuntimeState(){
+    cascadeRunningIds.clear();
+    cascadeStopIds.clear();
+    cascadeSerialIds.clear();
+    cascadeContexts.forEach(ctx => clearCascadeCleanupTimer(ctx));
+    cascadeContexts.clear();
+    loopContext = null;
+}
+function cascadeContextFor(targetId){
+    return targetId ? cascadeContexts.get(targetId) || null : null;
+}
+function isCascadeActive(targetId){
+    const ctx = cascadeContextFor(targetId);
+    return Boolean(ctx && (ctx.status === 'running' || ctx.status === 'stopping'));
+}
+function isCascadeStopping(targetId){
+    return cascadeContextFor(targetId)?.status === 'stopping';
+}
+function cascadeAbortError(message='已停止一键运行'){
+    const err = new Error(message);
+    err.name = 'CascadeAbortError';
+    err.isCascadeAbort = true;
+    return err;
+}
+function isCascadeAbortError(err){
+    return Boolean(err?.isCascadeAbort || err?.name === 'CascadeAbortError');
+}
+function cascadeStopMessage(reason=''){
+    if(reason) return reason;
+    return langIsEn() ? 'One-click run stopped' : '已停止一键运行';
+}
+function cascadeBackendRestartMessage(){
+    return langIsEn() ? 'Backend restarted and task status was lost. This one-click run has been stopped.' : '后端已重启，任务状态已丢失，本次一键运行已停止';
+}
+function normalizeCanvasTaskError(err, fallback=''){
+    const raw = err?.message || String(err || '');
+    const text = String(raw || '').trim();
+    if(!text) return fallback || tr('canvas.generationFailed');
+    if(/backend restarted and task status was lost/i.test(text)) return cascadeBackendRestartMessage();
+    if(/(404|not found|missing)/i.test(text) && /canvas-image-task/i.test(text)) return cascadeBackendRestartMessage();
+    if(/Failed to fetch|NetworkError|Load failed|ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET/i.test(text)) return cascadeBackendRestartMessage();
+    return text;
+}
+function clearCascadeNodeState(node, options={}){
+    if(!node) return;
+    const keepError = Boolean(options.keepError);
+    if(node.runStatus) node.runStatus = '';
+    if(node._cascadeIdx) node._cascadeIdx = '';
+    if(!keepError){
+        node.runError = '';
+        node._cascadeFailed = false;
+    }
+}
+function createCascadeContext(targetId, order, options={}){
+    const ctx = {
+        targetId,
+        order:[...(order || [])],
+        status:'running',
+        startedAt:nowMs(),
+        abortRequested:false,
+        message:'',
+        currentNodeId:'',
+        currentRoundLabel:'',
+        mode:options.mode || 'serial',
+        cleanupTimer:null,
+        controllers:new Set()
+    };
+    cascadeContexts.set(targetId, ctx);
+    return ctx;
+}
+function clearCascadeCleanupTimer(ctx){
+    if(!ctx?.cleanupTimer) return;
+    clearTimeout(ctx.cleanupTimer);
+    ctx.cleanupTimer = null;
+}
+function beginCascade(targetId, order, options={}){
+    const existing = cascadeContextFor(targetId);
+    if(existing){
+        clearCascadeCleanupTimer(existing);
+        cascadeContexts.delete(targetId);
+    }
+    const ctx = createCascadeContext(targetId, order, options);
+    cascadeRunningIds.add(targetId);
+    if(options.serial) cascadeSerialIds.add(targetId);
+    if(options.mode) ctx.mode = options.mode;
+    return ctx;
+}
+function queueCascadeCleanup(ctx, ids){
+    if(!ctx) return;
+    clearCascadeCleanupTimer(ctx);
+    ctx.cleanupTimer = setTimeout(() => {
+        const uniqueIds = [...new Set((ids || []).filter(Boolean))];
+        uniqueIds.forEach(id => {
+            const node = nodes.find(n => n.id === id);
+            if(node && node.runStatus === 'done') clearCascadeNodeState(node, {keepError:false});
+        });
+        refreshNodes(uniqueIds);
+        if(cascadeContexts.get(ctx.targetId) === ctx) cascadeContexts.delete(ctx.targetId);
+        ctx.cleanupTimer = null;
+    }, 3000);
+}
+function requestCascadeStop(targetId, reason=''){
+    if(!targetId) return;
+    cascadeStopIds.add(targetId);
+    const ctx = cascadeContextFor(targetId);
+    if(ctx){
+        ctx.abortRequested = true;
+        ctx.status = 'stopping';
+        if(reason) ctx.message = reason;
+        [...(ctx.controllers || [])].forEach(controller => {
+            try { controller.abort(); } catch(_) {}
+        });
+    }
+    refreshNodes(cascadeUiNodeIds(targetId));
+}
+function ensureCascadeActive(targetId, reason=''){
+    const ctx = cascadeContextFor(targetId);
+    if(!ctx) return null;
+    if(ctx.abortRequested || ctx.status === 'stopping') throw cascadeAbortError(cascadeStopMessage(reason || ctx.message));
+    return ctx;
+}
+function finalizeCascade(targetId, state, options={}){
+    const ctx = cascadeContextFor(targetId);
+    const order = options.order || ctx?.order || computeCascadeOrder(targetId);
+    const uiIds = cascadeUiNodeIds(targetId, order);
+    clearCascadeCleanupTimer(ctx);
+    cascadeRunningIds.delete(targetId);
+    cascadeStopIds.delete(targetId);
+    cascadeSerialIds.delete(targetId);
+    if(ctx) ctx.status = state;
+    if(state === 'done'){
+        queueCascadeCleanup(ctx, uiIds);
+        refreshNodes(uiIds);
+        return;
+    }
+    if(state === 'stopped'){
+        (order || []).forEach(id => {
+            const node = nodes.find(n => n.id === id);
+            if(node && !node._cascadeFailed) clearCascadeNodeState(node);
+        });
+    }
+    refreshNodes(uiIds);
+    cascadeContexts.delete(targetId);
+}
+function cascadeTargetIdFromOptions(options={}){
+    return String(options?.cascadeTargetId || options?.targetId || '');
+}
+function cascadeContextFromOptions(options={}){
+    return cascadeContextFor(cascadeTargetIdFromOptions(options));
+}
+async function cascadeFetch(input, init={}, options={}){
+    const ctx = cascadeContextFromOptions(options);
+    if(!ctx) return fetch(input, init);
+    ensureCascadeActive(ctx.targetId, ctx.message);
+    const controller = new AbortController();
+    ctx.controllers.add(controller);
+    try {
+        return await fetch(input, {...init, signal:controller.signal});
+    } catch(err) {
+        if(controller.signal.aborted || err?.name === 'AbortError'){
+            throw cascadeAbortError(cascadeStopMessage(ctx.message));
+        }
+        throw err;
+    } finally {
+        ctx.controllers.delete(controller);
+    }
+}
 function updateLTXNodeElementSize(node){
     const el = document.querySelector(`.node[data-id="${CSS.escape(node.id)}"]`);
     if(!el) return;
@@ -7630,6 +7858,7 @@ function renderLTXDirectorBody(node){
 async function runLTXDirectorNode(nodeId, opts={}){
     const node = nodes.find(n => n.id === nodeId);
     if(!node || node.type !== 'ltxDirector') return;
+    const cascadeTargetId = cascadeTargetIdFromOptions(opts);
     clearStuckGeneratorRunning(node);
     if(node.running && !opts.cascade) return;
     ltxFlushTimelineToNode(node);
@@ -7657,7 +7886,7 @@ async function runLTXDirectorNode(nodeId, opts={}){
     const refs = sources.flatMap(s => s.refs || []);
     const run = runSnapshot(node, globalPrompt || segments.map(s => s.prompt).join(' | '), refs);
     run.taskLabel = tr('canvas.ltxDirector');
-    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs})];
+    if(out) out._pending = [...(out._pending || []), makePendingForRun(pendingId, run, node, {refs, cascadeTargetId})];
     if(!opts.cascade){
         node.running = true;
         refreshRunNodes(node, out);
@@ -7671,7 +7900,7 @@ async function runLTXDirectorNode(nodeId, opts={}){
             [LTX_DIRECTOR_WF_NODE]:directorInputs,
             [LTX_DIRECTOR_SEED_NODE]:{noise_seed:Number(node.noiseSeed ?? 12)}
         };
-        const result = await fetch('/api/generate', {
+        const result = await cascadeFetch('/api/generate', {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({
@@ -7681,7 +7910,7 @@ async function runLTXDirectorNode(nodeId, opts={}){
                 type:'ltx-director',
                 client_id:CLIENT_ID
             })
-        }).then(async r => {
+        }, {cascadeTargetId}).then(async r => {
             if(!r.ok) throw new Error(await responseErrorMessage(r, tr('canvas.ltxFailed')));
             return r.json();
         });
@@ -7702,6 +7931,10 @@ async function runLTXDirectorNode(nodeId, opts={}){
         const meta = collectRunMeta(out, pendingId);
         if(out) out._pending = (out._pending || []).filter(p => p.id !== pendingId);
         addGenerationLog({run, outputs:[], runMs:meta.runMs || 0, error:err.message || String(err)});
+        if(isCascadeAbortError(err)){
+            if(opts.cascade) throw err;
+            return;
+        }
         node.runStatus = 'failed';
         node.runError = err.message || String(err);
         refreshRunNodes(node, out);
@@ -7717,6 +7950,7 @@ async function runLTXDirectorNode(nodeId, opts={}){
 async function runComfyNode(nodeId, opts={}){
     const node = nodes.find(n => n.id === nodeId);
     if(!node || (node.running && !opts.cascade)) return;
+    const cascadeTargetId = cascadeTargetIdFromOptions(opts);
     const sources = orderedSources(node, generatorSources(node));
     const prompt = sources.map(s => s.prompt).filter(Boolean).join('\n\n');
     const allRefs = sources.flatMap(s => s.refs || []);
@@ -7735,7 +7969,7 @@ async function runComfyNode(nodeId, opts={}){
     const run = runSnapshot(node, prompt, refs);
     run.taskLabel = comfyRunLabel(node);
     const requestSize = mode === 'text' ? {width:Number(node.width || 1024), height:Number(node.height || 1024)} : null;
-    if(out) out._pending = [...(out._pending||[]), makePendingForRun(pendingId, run, node, {refs, requestSize})];
+    if(out) out._pending = [...(out._pending||[]), makePendingForRun(pendingId, run, node, {refs, requestSize, cascadeTargetId})];
     if(!opts.cascade){
         node.running = true;
         refreshRunNodes(node, out);
@@ -7746,7 +7980,7 @@ async function runComfyNode(nodeId, opts={}){
         let images = [];
         if(mode === 'text'){
             run.taskLabel = tr('canvas.comfyText');
-            const result = await fetch('/api/generate', {
+            const result = await cascadeFetch('/api/generate', {
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({
@@ -7757,13 +7991,13 @@ async function runComfyNode(nodeId, opts={}){
                     type:'zimage',
                     client_id:CLIENT_ID
                 })
-            }).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyText'))); return r.json(); });
+            }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyText'))); return r.json(); });
             run.request = requestMetaFromResult(result);
             images = comfyResultOutputs(result);
         } else if(mode === 'enhance'){
             run.taskLabel = tr('canvas.comfyEnhance');
             const inputName = await comfyNameForRef(refs[0]);
-            const enhance = await fetch('/api/generate', {
+            const enhance = await cascadeFetch('/api/generate', {
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({
@@ -7775,7 +8009,7 @@ async function runComfyNode(nodeId, opts={}){
                     type:'enhance',
                     client_id:CLIENT_ID
                 })
-            }).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyEnhance'))); return r.json(); });
+            }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyEnhance'))); return r.json(); });
             run.request = requestMetaFromResult(enhance);
             if(enhance.error) throw new Error(actionFailed('canvas.comfyEnhance', enhance.error));
             if(!enhance.images?.length) throw new Error(noReturnedImage('canvas.comfyEnhance'));
@@ -7823,7 +8057,7 @@ async function runComfyNode(nodeId, opts={}){
                 }
                 params[f.node][f.input] = comfyParamValue(node, f);
             });
-            const result = await fetch('/api/generate', {
+            const result = await cascadeFetch('/api/generate', {
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({
@@ -7833,7 +8067,7 @@ async function runComfyNode(nodeId, opts={}){
                     type:'workflow-custom',
                     client_id:CLIENT_ID
                 })
-            }).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyCustom'))); return r.json(); });
+            }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyCustom'))); return r.json(); });
             run.request = requestMetaFromResult(result);
             if(result.error) throw new Error(actionFailed('canvas.comfyCustom', result.error));
             images = comfyResultOutputs(result);
@@ -7842,7 +8076,7 @@ async function runComfyNode(nodeId, opts={}){
             run.taskLabel = tr('canvas.comfyEdit');
             const names = [];
             for (const ref of refs.slice(0, 3)) names.push(await comfyNameForRef(ref));
-            const result = await fetch('/api/generate', {
+            const result = await cascadeFetch('/api/generate', {
                 method:'POST',
                 headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({
@@ -7860,7 +8094,7 @@ async function runComfyNode(nodeId, opts={}){
                     },
                     client_id:CLIENT_ID
                 })
-            }).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyEdit'))); return r.json(); });
+            }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyEdit'))); return r.json(); });
             run.request = requestMetaFromResult(result);
             if(result.error) throw new Error(actionFailed('canvas.comfyEdit', result.error));
             if(!result.images?.length) throw new Error(noReturnedImage('canvas.comfyEdit'));
@@ -7878,17 +8112,22 @@ async function runComfyNode(nodeId, opts={}){
         const meta = collectRunMeta(out, pendingId);
         addGenerationLog({run, outputs:[], runMs:meta.runMs || 0, error:err.message || String(err)});
         if(out) out._pending = (out._pending||[]).filter(p => p.id !== pendingId);
+        if(isCascadeAbortError(err)){
+            refreshRunNodes(node, out);
+            if(opts.cascade) throw err;
+            return;
+        }
         node.runStatus = 'failed'; node.runError = err.message || String(err);
         refreshRunNodes(node, out);
         if(opts.cascade) throw err;
         alert(err.message || actionFailed('canvas.comfyGenerate'));
     }
 }
-async function callCanvasLLM(node, message, messages=[]){
+async function callCanvasLLM(node, message, messages=[], options={}){
     const llmProv = resolveChatProviderId(node.llmProvider || 'comfly');
     const model = resolveChatModel(node.model || node.llmMsModel, llmProv);
     const images = llmInputImages(node);
-    const result = await fetch('/api/canvas-llm', {
+    const result = await cascadeFetch('/api/canvas-llm', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
@@ -7900,7 +8139,7 @@ async function callCanvasLLM(node, message, messages=[]){
             messages,
             images,
         })
-    }).then(async r => {
+    }, options).then(async r => {
         if(!r.ok){
             throw new Error(await responseErrorMessage(r, 'LLM 运行失败'));
         }
@@ -7911,6 +8150,7 @@ async function callCanvasLLM(node, message, messages=[]){
 async function runLLMNode(nodeId, opts={}){
     const node = nodes.find(n => n.id === nodeId);
     if(!node || (node.running && !opts.cascade)) return;
+    const cascadeTargetId = cascadeTargetIdFromOptions(opts);
     const input = llmInputText(node) || node.userInput || '';
     if(!input){
         if(opts.cascade) throw new Error('LLM 缺少提示词输入');
@@ -7918,13 +8158,18 @@ async function runLLMNode(nodeId, opts={}){
     }
     if(!opts.cascade){ node.running = true; refreshNodes([node.id]); }
     try {
-        node.outputText = await callCanvasLLM(node, input, []);
+        node.outputText = await callCanvasLLM(node, input, [], {cascadeTargetId});
         if(!opts.cascade) node.running = false;
         node.runStatus = 'done'; node.runError = '';
         refreshNodes([node.id]);
         scheduleSave();
     } catch(err) {
         if(!opts.cascade) node.running = false;
+        if(isCascadeAbortError(err)){
+            refreshNodes([node.id]);
+            if(opts.cascade) throw err;
+            return;
+        }
         node.runStatus = 'failed'; node.runError = err.message || String(err);
         refreshNodes([node.id]);
         if(opts.cascade) throw err;
@@ -7975,10 +8220,9 @@ function cascadeBtnHtml(node){
     const loop = resolveCascadeLoop(node.id);
     if(order.length <= 1 && !loop) return '';
     const suffix = loop ? ` × ${loop.count} ${tr('canvas.loopRounds')}` : '';
-    // 仅在以串行模式启动的运行中显示停止按钮
-    if(cascadeSerialIds.has(node.id)){
-        const stopping = cascadeStopIds.has(node.id);
-        return `<button class="gen-cascade-btn gen-cascade-stop" type="button" data-cascade-stop="${node.id}" ${stopping ? 'disabled' : ''}><i data-lucide="square" class="w-4 h-4"></i><span>${stopping ? '停止中…' : '停止循环'}</span></button>`;
+    if(isCascadeActive(node.id)){
+        const stopping = isCascadeStopping(node.id);
+        return `<button class="gen-cascade-btn gen-cascade-stop" type="button" data-cascade-stop="${node.id}" ${stopping ? 'disabled' : ''}><i data-lucide="square" class="w-4 h-4"></i><span>${stopping ? '停止中…' : '停止运行'}</span></button>`;
     }
     return `<button class="gen-cascade-btn" type="button" data-cascade="${node.id}" title="一键运行整条工作流（追溯所有上游生成节点）"><i data-lucide="play-circle" class="w-4 h-4"></i><span>一键运行 ${order.length} 个节点${suffix}</span></button>`;
 }
@@ -8021,12 +8265,14 @@ function runCascadeNodeByType(node, opts={}){
     if(node.type === 'rh') return runRhNode(node.id, runOpts);
     return Promise.resolve();
 }
-function runCascadeNodeWithLoopContext(node, ctx, opts={}){
+async function runCascadeNodeWithLoopContext(node, ctx, opts={}){
     const previous = loopContext;
     loopContext = ctx || null;
-    const promise = runCascadeNodeByType(node, opts);
-    loopContext = previous;
-    return promise;
+    try {
+        return await runCascadeNodeByType(node, opts);
+    } finally {
+        loopContext = previous;
+    }
 }
 function cascadeParallelLimit(order, totalRounds){
     const hasComfy = order.some(id => nodes.find(n => n.id === id)?.type === 'comfy');
@@ -8098,13 +8344,24 @@ async function runCanvasGenerate(nodeId){
     if(!node || node.running || cascadeRunningIds.has(nodeId)) return;
     const order = computeConnectedWorkflowOrder(nodeId);
     if(order.length > 1){
-        cascadeRunningIds.add(nodeId);
-        refreshNodes(order);
+        const ctx = beginCascade(nodeId, order, {serial:true, mode:'connected'});
+        refreshNodes(cascadeUiNodeIds(nodeId, order));
         try {
-            await runOneCascadePass(order);
+            await runOneCascadePass(order, {cascadeTargetId:nodeId});
+            finalizeCascade(nodeId, 'done', {order});
+        } catch(err) {
+            if(isCascadeAbortError(err)){
+                finalizeCascade(nodeId, 'stopped', {order});
+                return;
+            }
+            const failedNodeId = ctx.currentNodeId || order.find(id => nodes.find(n => n.id === id)?.runStatus === 'failed') || nodeId;
+            const failedNode = nodes.find(n => n.id === failedNodeId) || node;
+            failedNode.runStatus = 'failed';
+            failedNode.runError = err.message || String(err);
+            failedNode._cascadeFailed = true;
+            finalizeCascade(nodeId, 'failed', {order});
         } finally {
-            cascadeRunningIds.delete(nodeId);
-            refreshNodes(order);
+            loopContext = null;
         }
         return;
     }
@@ -8163,30 +8420,24 @@ function cascadeUiNodeIds(targetId, order=null){
     if(loop?.node?.id) ids.add(loop.node.id);
     return [...ids].filter(Boolean);
 }
-function requestCascadeStop(targetId){
-    if(!targetId) return;
-    cascadeStopIds.add(targetId);
-    refreshNodes(cascadeUiNodeIds(targetId));
-}
 async function runNodeCascade(nodeId){
     const target = nodes.find(n => n.id === nodeId);
     if(!target) return;
     if(target.running){ alert('当前节点正在运行'); return; }
-    cascadeRunningIds.add(nodeId);
     const order = computeCascadeOrder(nodeId);
-    refreshNodes(cascadeUiNodeIds(nodeId, order));
     if(!order.length){ alert('没有可运行的生成节点'); return; }
     const loop = resolveCascadeLoop(nodeId);
     const totalRounds = loop?.count || 1;
     const startIdx = Math.max(1, Number(loop?.node?.loopStart) || 1);
     const loopBatchSize = loop?.node?.imageInput ? Math.max(1, Math.min(100, Number(loop?.node?.imageBatchSize) || 1)) : 1;
     const endIdx = startIdx + (totalRounds - 1) * loopBatchSize;
+    const ctx = beginCascade(nodeId, order, {serial:true, mode:loop?.mode || 'serial'});
+    refreshNodes(cascadeUiNodeIds(nodeId, order));
     order.forEach(id => {
         const n = nodes.find(x => x.id === id);
         if(n) n.generatedOutputs = [];
     });
     if(loop?.mode === 'parallel' && totalRounds > 1){
-        cascadeSerialIds.add(nodeId);
         order.forEach(id => {
             const n = nodes.find(x => x.id === id);
             if(n){ n.runStatus = 'queued'; n.runError = ''; n._cascadeFailed = false; n._cascadeIdx = `0/${totalRounds}`; }
@@ -8196,17 +8447,20 @@ async function runNodeCascade(nodeId){
         const rounds = Array.from({length:totalRounds}, (_, idx) => ({idx, index:startIdx + idx * loopBatchSize}));
         const limit = cascadeParallelLimit(order, totalRounds);
         const results = await runLimitedCascadeRounds(rounds, limit, async ({index}) => {
-            if(cascadeStopIds.has(nodeId)) return;
-            const ctx = {index, total:endIdx, nodeId:loop.node.id};
+            ensureCascadeActive(nodeId, ctx.message);
+            const loopCtx = {index, total:endIdx, nodeId:loop.node.id};
             for(let i = 0; i < order.length; i++){
-                if(cascadeStopIds.has(nodeId)) return;
+                ensureCascadeActive(nodeId, ctx.message);
                 const id = order[i];
                 const node = nodes.find(n => n.id === id);
                 if(!node) continue;
+                ctx.currentNodeId = id;
+                ctx.currentRoundLabel = `${index}/${endIdx}`;
                 node.runStatus = 'running';
                 node._cascadeIdx = `${order.indexOf(id)+1}/${order.length} · ${index}/${endIdx}`;
                 refreshNodes([id]);
-                await runCascadeNodeWithLoopContext(node, ctx);
+                await runCascadeNodeWithLoopContext(node, loopCtx, {cascadeTargetId:nodeId});
+                ensureCascadeActive(nodeId, ctx.message);
                 node.runStatus = 'done';
                 refreshNodes([id]);
             }
@@ -8218,41 +8472,26 @@ async function runNodeCascade(nodeId){
             refreshNodes(order);
         });
         loopContext = null;
-        cascadeRunningIds.delete(nodeId);
-        cascadeStopIds.delete(nodeId);
-        cascadeSerialIds.delete(nodeId);
-        refreshNodes(cascadeUiNodeIds(nodeId, order));
         const failed = results.find(r => r.status === 'rejected');
         if(failed){
             const err = failed.reason || new Error('parallel loop failed');
-            const node = nodes.find(n => n.id === nodeId) || target;
+            if(isCascadeAbortError(err)){
+                finalizeCascade(nodeId, 'stopped', {order});
+                return;
+            }
+            const node = nodes.find(n => n.id === ctx.currentNodeId) || nodes.find(n => n.id === nodeId) || target;
             node.runStatus = 'failed';
             node.runError = err.message || String(err);
             node._cascadeFailed = true;
-            refreshNodes(cascadeUiNodeIds(nodeId, order));
+            finalizeCascade(nodeId, 'failed', {order});
             return;
         }
-        setTimeout(() => {
-            order.forEach(id => {
-                const n = nodes.find(x => x.id === id);
-                if(n && n.runStatus === 'done'){ n.runStatus = ''; n._cascadeIdx = ''; }
-            });
-            refreshNodes(cascadeUiNodeIds(nodeId, order));
-        }, 3000);
+        finalizeCascade(nodeId, 'done', {order});
         return;
     }
-    cascadeSerialIds.add(nodeId);
     refreshNodes(cascadeUiNodeIds(nodeId, order));
     for(let round = 1; round <= totalRounds; round++){
-        if(cascadeStopIds.has(nodeId)){
-            cascadeStopIds.delete(nodeId);
-            cascadeRunningIds.delete(nodeId);
-            cascadeSerialIds.delete(nodeId);
-            loopContext = null;
-            order.forEach(id => { const n = nodes.find(x=>x.id===id); if(n){ n.runStatus=''; n._cascadeIdx=''; } });
-            refreshNodes(cascadeUiNodeIds(nodeId, order));
-            return;
-        }
+        ensureCascadeActive(nodeId, ctx.message);
         const loopIndex = startIdx + (round - 1) * loopBatchSize;
         loopContext = loop ? {index:loopIndex, total:endIdx, nodeId:loop.node.id} : null;
         order.forEach(id => {
@@ -8264,17 +8503,21 @@ async function runNodeCascade(nodeId){
             const id = order[i];
             const node = nodes.find(n => n.id === id);
             if(!node) continue;
+            ctx.currentNodeId = id;
+            ctx.currentRoundLabel = totalRounds > 1 ? `${loopIndex}/${endIdx}` : '';
             node.runStatus = 'running';
             refreshNodes([id]);
             try {
-                await runCascadeNodeWithLoopContext(node, loopContext);
+                await runCascadeNodeWithLoopContext(node, loopContext, {cascadeTargetId:nodeId});
+                ensureCascadeActive(nodeId, ctx.message);
                 node.runStatus = 'done';
                 refreshNodes([id]);
             } catch(err){
                 loopContext = null;
-                cascadeRunningIds.delete(nodeId);
-                cascadeStopIds.delete(nodeId);
-                cascadeSerialIds.delete(nodeId);
+                if(isCascadeAbortError(err)){
+                    finalizeCascade(nodeId, 'stopped', {order});
+                    return;
+                }
                 node.runStatus = 'failed';
                 node.runError = `${totalRounds > 1 ? `${tr('canvas.loopRound')} ${round}/${totalRounds}: ` : ''}${err.message || String(err)}`;
                 node._cascadeFailed = true;
@@ -8282,45 +8525,39 @@ async function runNodeCascade(nodeId){
                     const n2 = nodes.find(x => x.id === order[j]);
                     if(n2){ n2.runStatus = ''; n2._cascadeIdx = ''; }
                 }
-                refreshNodes(cascadeUiNodeIds(nodeId, order.slice(i)));
+                finalizeCascade(nodeId, 'failed', {order});
                 return;
             }
         }
     }
     loopContext = null;
-    cascadeRunningIds.delete(nodeId);
-    cascadeStopIds.delete(nodeId);
-    cascadeSerialIds.delete(nodeId);
-    refreshNodes(cascadeUiNodeIds(nodeId, order));
-    // 全部完成：3 秒后清除状态徽章
-    setTimeout(() => {
-        order.forEach(id => {
-            const n = nodes.find(x => x.id === id);
-            if(n && n.runStatus === 'done'){ n.runStatus = ''; n._cascadeIdx = ''; }
-        });
-        refreshNodes(cascadeUiNodeIds(nodeId, order));
-    }, 3000);
+    finalizeCascade(nodeId, 'done', {order});
 }
 async function runOneCascadePass(order, options={}){
+    const targetId = cascadeTargetIdFromOptions(options);
     order.forEach(id => {
         const n = nodes.find(x => x.id === id);
         if(n){ n.runStatus = 'queued'; n.runError = ''; n._cascadeFailed = false; n._cascadeIdx = ''; }
     });
     refreshNodes(order);
     for(let i = 0; i < order.length; i++){
+        if(targetId) ensureCascadeActive(targetId);
         const id = order[i];
         const node = nodes.find(n => n.id === id);
         if(!node) continue;
+        const ctx = cascadeContextFor(targetId);
+        if(ctx) ctx.currentNodeId = id;
         node.runStatus = 'running';
         refreshNodes([id]);
         try {
-            if(node.type === 'generator') await runGenerator(id, {cascade:true});
-            else if(node.type === 'msgen') await runMsGenNode(id, {cascade:true});
-            else if(node.type === 'comfy') await runComfyNode(id, {cascade:true});
-            else if(node.type === 'ltxDirector') await runLTXDirectorNode(id, {cascade:true});
-            else if(node.type === 'llm') await runLLMNode(id, {cascade:true});
-            else if(node.type === 'video') await runVideoNode(id, {cascade:true});
-            else if(node.type === 'rh') await runRhNode(id, {cascade:true});
+            if(node.type === 'generator') await runGenerator(id, {cascade:true, cascadeTargetId:targetId});
+            else if(node.type === 'msgen') await runMsGenNode(id, {cascade:true, cascadeTargetId:targetId});
+            else if(node.type === 'comfy') await runComfyNode(id, {cascade:true, cascadeTargetId:targetId});
+            else if(node.type === 'ltxDirector') await runLTXDirectorNode(id, {cascade:true, cascadeTargetId:targetId});
+            else if(node.type === 'llm') await runLLMNode(id, {cascade:true, cascadeTargetId:targetId});
+            else if(node.type === 'video') await runVideoNode(id, {cascade:true, cascadeTargetId:targetId});
+            else if(node.type === 'rh') await runRhNode(id, {cascade:true, cascadeTargetId:targetId});
+            if(targetId) ensureCascadeActive(targetId);
             node.runStatus = 'done';
             refreshNodes([id]);
         } catch(err) {
@@ -8335,30 +8572,26 @@ async function runOneCascadePass(order, options={}){
 async function retryNodeAndDownstream(nodeId){
     const target = nodes.find(n => n.id === nodeId);
     if(!target) return;
+    if(isCascadeActive(nodeId)) return;
     const order = computeCascadeOrder(nodeId);
     // 只重跑从该节点开始的剩余链
     const idx = order.indexOf(nodeId);
     const remain = idx >= 0 ? order.slice(idx) : [nodeId];
-    try { await runOneCascadePass(remain); }
-    catch(err) { refreshNodes(remain); return; }
-    setTimeout(() => {
-        remain.forEach(id => {
-            const n = nodes.find(x => x.id === id);
-            if(n && n.runStatus === 'done'){ n.runStatus = ''; n._cascadeIdx = ''; }
-        });
+    beginCascade(nodeId, remain, {serial:true, mode:'retry'});
+    try {
+        await runOneCascadePass(remain, {cascadeTargetId:nodeId});
+        finalizeCascade(nodeId, 'done', {order:remain});
+    } catch(err) {
+        if(isCascadeAbortError(err)){
+            finalizeCascade(nodeId, 'stopped', {order:remain});
+            return;
+        }
+        finalizeCascade(nodeId, 'failed', {order:remain});
         refreshNodes(remain);
-    }, 3000);
+    }
 }
 function cancelCascade(nodeId){
-    // 简单实现：把当前节点和上游 queued/failed 状态清掉（不能 abort 已发出的请求）
-    const order = computeCascadeOrder(nodeId);
-    order.forEach(id => {
-        const n = nodes.find(x => x.id === id);
-        if(n && (n.runStatus === 'queued' || n.runStatus === 'failed')){
-            n.runStatus = ''; n._cascadeIdx = ''; n.runError = ''; n._cascadeFailed = false;
-        }
-    });
-    refreshNodes(order);
+    requestCascadeStop(nodeId);
 }
 
 async function runLLMChat(nodeId){
@@ -8634,6 +8867,7 @@ function makePendingForRun(id, run, node, options={}, task={}){
     const pending = makePending(id, run, task);
     const previewSize = pendingPreviewSizeForRun(node, options);
     if(previewSize) pending.previewSize = previewSize;
+    if(options?.cascadeTargetId) pending.cascadeTargetId = String(options.cascadeTargetId);
     return pending;
 }
 function mergeGeneratedOutputs(node, outputs, append=false){
@@ -8682,17 +8916,17 @@ function findPendingTask(taskId){
     }
     return null;
 }
-async function createCanvasImageTask(payload){
-    const res = await fetch('/api/canvas-image-tasks', {
+async function createCanvasImageTask(payload, options={}){
+    const res = await cascadeFetch('/api/canvas-image-tasks', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify(payload)
-    });
+    }, options);
     if(!res.ok) throw new Error(await responseErrorMessage(res, tr('canvas.generationFailed')));
     return res.json();
 }
 function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
-async function pollCanvasImageTask(taskId){
+async function pollCanvasImageTask(taskId, options={}){
     if(!taskId) return 'failed';
     if(activeCanvasTaskPolls.has(taskId)) return 'running';
     activeCanvasTaskPolls.add(taskId);
@@ -8700,8 +8934,13 @@ async function pollCanvasImageTask(taskId){
         while(true){
             const found = findPendingTask(taskId);
             if(!found) return 'missing';
-            const res = await fetch(`/api/canvas-image-tasks/${encodeURIComponent(taskId)}`);
-            if(!res.ok) throw new Error(await responseErrorMessage(res, tr('canvas.generationFailed')));
+            const cascadeTargetId = String(options?.cascadeTargetId || found?.pending?.cascadeTargetId || '');
+            if(cascadeTargetId) ensureCascadeActive(cascadeTargetId);
+            const res = await cascadeFetch(`/api/canvas-image-tasks/${encodeURIComponent(taskId)}`, {}, {cascadeTargetId});
+            if(!res.ok){
+                if(res.status === 404) throw new Error(cascadeBackendRestartMessage());
+                throw new Error(await responseErrorMessage(res, tr('canvas.generationFailed')));
+            }
             const data = await res.json();
             if(data.status === 'succeeded'){
                 completeCanvasImageTask(taskId, data.result || {});
@@ -8714,10 +8953,28 @@ async function pollCanvasImageTask(taskId){
             await sleep(1800);
         }
     } catch(err) {
-        failCanvasImageTask(taskId, err.message || String(err));
+        const message = normalizeCanvasTaskError(err, tr('canvas.generationFailed'));
+        if(isCascadeAbortError(err)) return 'aborted';
+        failCanvasImageTask(taskId, message);
         return 'failed';
     } finally {
         activeCanvasTaskPolls.delete(taskId);
+    }
+}
+async function waitCanvasImageTaskResult(taskId, options={}){
+    if(!taskId) throw new Error(tr('canvas.generationFailed'));
+    while(true){
+        const cascadeTargetId = cascadeTargetIdFromOptions(options);
+        if(cascadeTargetId) ensureCascadeActive(cascadeTargetId);
+        const res = await cascadeFetch(`/api/canvas-image-tasks/${encodeURIComponent(taskId)}`, {}, {cascadeTargetId});
+        if(!res.ok){
+            if(res.status === 404) throw new Error(cascadeBackendRestartMessage());
+            throw new Error(await responseErrorMessage(res, tr('canvas.generationFailed')));
+        }
+        const data = await res.json();
+        if(data.status === 'succeeded') return data.result || {};
+        if(data.status === 'failed') throw new Error(data.error || tr('canvas.generationFailed'));
+        await sleep(1800);
     }
 }
 function completeCanvasImageTask(taskId, result){
@@ -8754,6 +9011,7 @@ function failCanvasImageTask(taskId, message){
     if(gen){
         gen.runStatus = 'failed';
         gen.runError = message || tr('canvas.generationFailed');
+        if(pending?.cascadeTargetId) gen._cascadeFailed = true;
         gen.running = false;
     }
     addGenerationLog({run, outputs:[], runMs, error:message || tr('canvas.generationFailed')});
@@ -8763,7 +9021,7 @@ function failCanvasImageTask(taskId, message){
 function resumeCanvasImageTasks(){
     nodes.filter(n => n.type === 'output').forEach(out => {
         (out._pending || []).forEach(p => {
-            if(p.canvasTaskType === 'online-image' && p.canvasTaskId) pollCanvasImageTask(p.canvasTaskId);
+            if(p.canvasTaskType === 'online-image' && p.canvasTaskId) pollCanvasImageTask(p.canvasTaskId, {cascadeTargetId:p.cascadeTargetId || ''});
         });
     });
 }

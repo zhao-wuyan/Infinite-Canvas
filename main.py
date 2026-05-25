@@ -192,7 +192,7 @@ GLOBAL_CONFIG_FILE = os.path.join(BASE_DIR, "global_config.json")
 CANVAS_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 LOCAL_IMAGE_IMPORT_MAX_BYTES = int(os.getenv("LOCAL_IMAGE_IMPORT_MAX_BYTES", str(50 * 1024 * 1024)))
 LOCAL_IMAGE_IMPORT_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-RUNNINGHUB_THUMBNAIL_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+RUNNINGHUB_THUMBNAIL_EXTS = (".jpg",)
 
 QUEUE = []
 QUEUE_LOCK = Lock()
@@ -513,6 +513,17 @@ def mask_secret(value):
     tail = value[-4:] if len(value) > 4 else value
     return f"••••••••{tail}"
 
+def strip_auth_scheme(value, scheme="Bearer"):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    pattern = rf"^{re.escape(scheme)}\s+"
+    return re.sub(pattern, "", text, flags=re.I).strip()
+
+def bearer_auth_value(value):
+    token = strip_auth_scheme(value, "Bearer")
+    return f"Bearer {token}" if token else ""
+
 def default_api_providers():
     # 只保留 ModelScope 为强制默认平台，其他平台均可自定义增删
     return [
@@ -823,10 +834,9 @@ def provider_endpoint_url(provider, key, default_path):
         if parsed.scheme and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}{override}"
         return override
-    if base_url.endswith("/v1") and default_path.startswith("/v1/"):
-        return f"{base_url}{default_path[3:]}"
-    if base_url.endswith("/v1beta") and default_path.startswith("/v1beta/"):
-        return f"{base_url}{default_path[7:]}"
+    for prefix in ("/api/v3", "/v1beta", "/v1", "/v2"):
+        if base_url.endswith(prefix) and default_path.startswith(f"{prefix}/"):
+            return f"{base_url}{default_path[len(prefix):]}"
     return f"{base_url}{default_path}"
 
 def runninghub_endpoint_url(provider, path):
@@ -1062,6 +1072,20 @@ def update_allowed_file(path: str) -> bool:
 # 缓存 GitHub Tree API 响应（含 ETag），减少 60 次/h 限流压力
 GITHUB_TREE_CACHE: Dict[str, Any] = {"etag": "", "data": None, "expires_at": 0.0}
 
+def github_get(url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 30) -> requests.Response:
+    try:
+        response = requests.get(
+            url,
+            headers=headers or {},
+            timeout=timeout,
+            proxies=urllib.request.getproxies() or None,
+        )
+    except requests.RequestException as exc:
+        raise urllib.error.URLError(str(exc)) from exc
+    if response.status_code >= 400 or response.status_code == 304:
+        raise urllib.error.HTTPError(url, response.status_code, response.reason, response.headers, None)
+    return response
+
 def github_json(url: str, use_etag_cache: bool = False):
     headers = {
         "Accept": "application/vnd.github+json",
@@ -1073,18 +1097,17 @@ def github_json(url: str, use_etag_cache: bool = False):
             return GITHUB_TREE_CACHE["data"]
         if GITHUB_TREE_CACHE["etag"]:
             headers["If-None-Match"] = GITHUB_TREE_CACHE["etag"]
-    req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            etag = resp.headers.get("ETag", "")
-            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-            if use_etag_cache and cache_key == GITHUB_TREE_URL:
-                GITHUB_TREE_CACHE.update({
-                    "etag": etag,
-                    "data": payload,
-                    "expires_at": time.time() + 600,  # 10 分钟内复用
-                })
-            return payload
+        resp = github_get(url, headers=headers, timeout=30)
+        etag = resp.headers.get("ETag", "")
+        payload = json.loads(resp.content.decode("utf-8", errors="replace"))
+        if use_etag_cache and cache_key == GITHUB_TREE_URL:
+            GITHUB_TREE_CACHE.update({
+                "etag": etag,
+                "data": payload,
+                "expires_at": time.time() + 600,  # 10 分钟内复用
+            })
+        return payload
     except urllib.error.HTTPError as exc:
         # 304 表示对方树未变，沿用缓存
         if exc.code == 304 and use_etag_cache and GITHUB_TREE_CACHE["data"]:
@@ -1093,9 +1116,8 @@ def github_json(url: str, use_etag_cache: bool = False):
         raise
 
 def github_bytes(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "Infinite-Canvas-Updater"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return resp.read()
+    resp = github_get(url, headers={"User-Agent": "Infinite-Canvas-Updater"}, timeout=60)
+    return resp.content
 
 def download_github_update_files(files: List[str], staging_root: str) -> None:
     staging_root_abs = os.path.abspath(staging_root)
@@ -2030,16 +2052,22 @@ def resolve_chat_provider(provider: str, model: str, ms_model: str):
         if not MODELSCOPE_API_KEY:
             raise HTTPException(status_code=400, detail="未配置 MODELSCOPE_API_KEY，请在 API/.env 中填写。")
         base = MODELSCOPE_CHAT_BASE_URL
-        hdrs = {"Authorization": f"Bearer {MODELSCOPE_API_KEY}", "Content-Type": "application/json"}
+        hdrs = {"Authorization": bearer_auth_value(MODELSCOPE_API_KEY), "Content-Type": "application/json"}
         mdl = selected_model(ms_model or model, MODELSCOPE_CHAT_MODELS[0] if MODELSCOPE_CHAT_MODELS else "MiniMax/MiniMax-M2.7")
         return base, hdrs, mdl
     api_provider = get_api_provider(provider or "")
     base_root = (api_provider.get("base_url") or AI_BASE_URL).rstrip("/")
     if not base_root:
         raise HTTPException(status_code=400, detail=f"{api_provider.get('name') or api_provider['id']} 未配置 Base URL")
-    base = base_root if base_root.endswith("/v1") else base_root + "/v1"
+    protocol = provider_protocol(api_provider)
+    if protocol == "gemini":
+        base = base_root if base_root.endswith("/v1beta") else base_root + "/v1beta"
+    elif protocol == "volcengine":
+        base = base_root if base_root.endswith("/api/v3") else base_root + "/api/v3"
+    else:
+        base = base_root if base_root.endswith("/v1") else base_root + "/v1"
     hdrs = api_headers(provider=api_provider)
-    default_model = (api_provider.get("chat_models") or [CHAT_MODEL])[0]
+    default_model = preferred_chat_model(api_provider)
     mdl = selected_model(model, default_model)
     return base, hdrs, mdl
 
@@ -2057,7 +2085,7 @@ def api_headers(json_body=True, provider=None):
     if provider and provider_protocol(provider) == "gemini":
         headers = {"Accept": "application/json", "x-goog-api-key": api_key}
     else:
-        headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
+        headers = {"Accept": "application/json", "Authorization": bearer_auth_value(api_key)}
     if json_body:
         headers["Content-Type"] = "application/json"
     return headers
@@ -2069,6 +2097,30 @@ def selected_model(requested, fallback):
     if len(model) > 240 or any(ord(ch) < 32 or ord(ch) == 127 for ch in model):
         raise HTTPException(status_code=400, detail=f"模型名称不合法：{model}")
     return model
+
+def looks_like_vision_chat_model(model):
+    lc = str(model or "").strip().lower()
+    if not lc:
+        return False
+    vision_keys = [
+        "vision", "vl-", "-vl-", "internvl", "qvq", "qwen-vl",
+        "doubao-vision", "glm-4v", "minicpm-v",
+    ]
+    return any(key in lc for key in vision_keys)
+
+def preferred_chat_model(provider):
+    values = [str(item or "").strip() for item in (provider.get("chat_models") or [CHAT_MODEL])]
+    models = [item for item in values if item]
+    if not models:
+        return CHAT_MODEL
+    if is_volcengine_provider(provider):
+        endpoint_models = [item for item in models if item.lower().startswith("ep-")]
+        if endpoint_models:
+            return endpoint_models[0]
+        text_like_models = [item for item in models if not looks_like_vision_chat_model(item)]
+        if text_like_models:
+            return text_like_models[0]
+    return models[0]
 
 def modelscope_size(value, fallback="1024x1024"):
     size = str(value or fallback).strip().lower().replace("*", "x")
@@ -2850,6 +2902,126 @@ def apimart_size_resolution(size):
     best = min(common, key=lambda item: abs(ratio - item[0] / item[1]))
     return best[2], resolution
 
+VOLCENGINE_MIN_PIXELS = 3_686_400
+VOLCENGINE_MIN_EDGE = 1536
+VOLCENGINE_MAX_EDGE = 4096
+VOLCENGINE_RATIO_CHOICES = [
+    (1, 1, "1:1"),
+    (4, 3, "4:3"),
+    (3, 4, "3:4"),
+    (16, 9, "16:9"),
+    (9, 16, "9:16"),
+    (21, 9, "21:9"),
+    (9, 21, "9:21"),
+    (3, 2, "3:2"),
+    (2, 3, "2:3"),
+    (5, 4, "5:4"),
+    (4, 5, "4:5"),
+]
+
+def is_volcengine_seedream_model(model):
+    value = str(model or "").strip().lower()
+    return "seedream" in value or "doubao-seedream" in value
+
+def normalize_volcengine_size(size, model=""):
+    width, height = parse_size_pair(size)
+    raw = str(size or "").strip().lower()
+    if not width or not height:
+        if raw == "4k":
+            return "4096x4096"
+        if raw == "2k":
+            return "2048x2048"
+        return "2048x2048" if is_volcengine_seedream_model(model) else (size or "1024x1024")
+    if not is_volcengine_seedream_model(model):
+        return f"{width}x{height}"
+    ratio = width / max(1, height)
+    best_ratio = min(VOLCENGINE_RATIO_CHOICES, key=lambda item: abs(ratio - item[0] / item[1]))
+    rw, rh = best_ratio[0], best_ratio[1]
+    scale = max(
+        (VOLCENGINE_MIN_PIXELS / max(1, rw * rh)) ** 0.5,
+        VOLCENGINE_MIN_EDGE / max(1, min(rw, rh)),
+    )
+    target_w = rw * scale
+    target_h = rh * scale
+    cap = min(1.0, VOLCENGINE_MAX_EDGE / max(target_w, target_h))
+    target_w *= cap
+    target_h *= cap
+    snapped_w = max(64, int(target_w // 16) * 16)
+    snapped_h = max(64, int(target_h // 16) * 16)
+    while snapped_w * snapped_h < VOLCENGINE_MIN_PIXELS:
+        if snapped_w <= snapped_h:
+            snapped_w += 16
+        else:
+            snapped_h += 16
+        if max(snapped_w, snapped_h) > VOLCENGINE_MAX_EDGE:
+            break
+    return f"{snapped_w}x{snapped_h}"
+
+def friendly_image_error_detail(text, size="", model=""):
+    text = str(text or "")
+    lower_text = text.lower()
+    m = re.search(r"longest edge must be less than or equal to (\d+)", text)
+    if m:
+        limit = m.group(1)
+        return f"该模型不支持当前分辨率：最长边超过 {limit}px。请把图片分辨率调低（例如换到 2K 或更小），或更换支持高分辨率的模型。"
+    if "image size must be at least" in lower_text:
+        pixel_match = re.search(r"at least (\d+) pixels", lower_text)
+        pixels = pixel_match.group(1) if pixel_match else "3686400"
+        return f"该模型要求更高分辨率，当前尺寸 {size or '过小'} 不满足最低像素要求（至少 {pixels} 像素）。火山 Seedream 5.0 建议从 2K 起步。"
+    if "invalid size" in lower_text or "invalid_value" in lower_text:
+        return f"该模型不支持当前尺寸：{size or '未指定'}。请尝试更换分辨率或模型。"
+    if "inputtextsensitivecontentdetected" in lower_text or "policyviolation" in lower_text or "copyright restrictions" in lower_text:
+        return "上游内容安全拦截了这段提示词，原因偏向版权/敏感内容限制。请改写提示词，避免直接出现具体 IP、角色名、品牌名、影视/动漫作品名，改成风格特征描述再试。"
+    if "rate limit" in lower_text or "429" in lower_text:
+        return "请求过于频繁，已被上游限流，请稍后再试。"
+    if "unauthorized" in lower_text or "401" in lower_text:
+        return "API Key 无效或已过期，请到「API 设置」检查 Key。"
+    if "model_not_found" in lower_text or "channel not found" in lower_text:
+        return f"上游平台找不到模型「{model}」可用通道。可能该模型未在此账号开通，请换一个已开通的模型。"
+    return ""
+
+def parse_error_payload_text(text):
+    body = str(text or "").strip()
+    if not body:
+        return {}
+    try:
+        parsed = json.loads(body)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+def friendly_chat_error_detail(text, model="", provider=None):
+    raw_text = str(text or "")
+    lower_text = raw_text.lower()
+    payload = parse_error_payload_text(raw_text)
+    error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+    code = str(error.get("code") or payload.get("code") or "").strip()
+    message = str(error.get("message") or payload.get("message") or "").strip()
+    code_lc = code.lower()
+    message_lc = message.lower()
+    model_name = str(model or "").strip()
+
+    if is_volcengine_provider(provider):
+        if code_lc in {"invalidendpointormodel.notfound", "invalidendpointormodel.modelidaccessdisabled"}:
+            provider_name = provider.get("name") or provider.get("id") or "火山方舟"
+            return (
+                f"{provider_name} 当前不接受模型名「{model_name or '未指定'}」直接调用聊天接口，"
+                f"请在火山方舟控制台创建并使用推理接入点 ID（形如 `ep-...`）作为聊天模型。\n\n"
+                f"补充说明：`/api/v3/models` 能拉到公开模型列表，但你的账号未必能直接用这些模型名调用 `/chat/completions`；"
+                f"很多账号只允许传自己已开通的 `ep-...` 接入点。"
+            )
+        if "does not exist or you do not have access to it" in message_lc:
+            return (
+                f"火山方舟找不到或无权访问聊天模型「{model_name or '未指定'}」。"
+                f"如果你现在填的是模型名，请改成已开通的推理接入点 ID（`ep-...`）；"
+                f"如果已经是 `ep-...`，请检查这个接入点是否绑定了聊天模型、区域是否正确、以及账号是否有调用权限。"
+            )
+    if "unauthorized" in lower_text or "401" in lower_text:
+        return "API Key 无效或已过期，请到「API 设置」检查 Key。"
+    if "rate limit" in lower_text or "429" in lower_text:
+        return "请求过于频繁，已被上游限流，请稍后再试。"
+    return ""
+
 async def generate_modelscope_provider_image(prompt, size, model, reference_images=None, provider=None):
     clean_token = MODELSCOPE_API_KEY.strip()
     if not clean_token:
@@ -2976,6 +3148,7 @@ def volcengine_image_payload(ref):
 
 async def generate_volcengine_provider_image(prompt, size, model, reference_images=None, provider=None):
     endpoint = volcengine_endpoint_url(provider)
+    size = normalize_volcengine_size(size, model)
     body = {
         "model": model,
         "prompt": prompt,
@@ -2996,7 +3169,7 @@ def runninghub_api_headers(provider):
     api_key = runninghub_api_key(provider)
     if not api_key:
         raise HTTPException(status_code=400, detail="未配置 RunningHub API Key，请在 API 设置中填写。")
-    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json", "Content-Type": "application/json"}
+    return {"Authorization": bearer_auth_value(api_key), "Accept": "application/json", "Content-Type": "application/json"}
 
 def runninghub_provider():
     return get_api_provider_exact("runninghub")
@@ -3018,7 +3191,7 @@ def runninghub_app_headers(json_body=True, use_wallet=False):
         wallet_key = os.getenv(runninghub_wallet_key_env(), "")
         api_key = wallet_key if use_wallet and wallet_key else free_key
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            headers["Authorization"] = bearer_auth_value(api_key)
     if json_body:
         headers["Content-Type"] = "application/json"
     return headers
@@ -3255,7 +3428,7 @@ async def runninghub_upload_reference(client, provider, ref):
         return value if str(value).startswith(("http://", "https://")) else ""
     upload_url = runninghub_endpoint_url(provider, "/openapi/v2/media/upload/binary")
     api_key = os.getenv(provider_key_env(provider["id"]), "")
-    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    headers = {"Authorization": bearer_auth_value(api_key), "Accept": "application/json"}
     with open(path, "rb") as fh:
         files = {"file": (os.path.basename(path), fh, content_type_for_path(path))}
         response = await client.post(upload_url, headers=headers, files=files, timeout=120)
@@ -4010,8 +4183,8 @@ def upstream_model_headers(api_key: str, protocol: str):
     if protocol == "gemini":
         return {"x-goog-api-key": api_key, "Accept": "application/json"}
     if protocol == "runninghub":
-        return {"Authorization": api_key, "Accept": "application/json"}
-    return {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+        return {"Authorization": strip_auth_scheme(api_key, "Bearer"), "Accept": "application/json"}
+    return {"Authorization": bearer_auth_value(api_key), "Accept": "application/json"}
 
 def classify_upstream_model(mid):
     lc = str(mid or "").lower()
@@ -4094,7 +4267,7 @@ async def probe_async_endpoint(payload: TestConnectionPayload):
     probe_url = f"{tasks_base}/tasks/healthcheck_probe_do_not_submit"
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(probe_url, headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"})
+            resp = await client.get(probe_url, headers={"Authorization": bearer_auth_value(api_key), "Accept": "application/json"})
         try:
             body = resp.json()
         except Exception:
@@ -4186,20 +4359,7 @@ async def build_online_image_result(payload: OnlineImageRequest):
         generated = await asyncio.gather(*(generate_one() for _ in range(count)))
     except httpx.HTTPStatusError as exc:
         text = exc.response.text or ''
-        # 把上游英文错误转成中文友好提示
-        friendly = None
-        m = re.search(r"longest edge must be less than or equal to (\d+)", text)
-        if m:
-            limit = m.group(1)
-            friendly = f"该模型不支持当前分辨率：最长边超过 {limit}px。请把图片分辨率调低（例如换到 2K 或更小），或更换支持高分辨率的模型。"
-        elif "Invalid size" in text or "invalid_value" in text:
-            friendly = f"该模型不支持当前尺寸：{payload.size}。请尝试更换分辨率或模型。"
-        elif "rate limit" in text.lower() or "429" in text:
-            friendly = "请求过于频繁，已被上游限流，请稍后再试。"
-        elif "Unauthorized" in text or "401" in text:
-            friendly = "API Key 无效或已过期，请到「API 设置」检查 Key。"
-        elif "model_not_found" in text or "channel not found" in text:
-            friendly = f"上游平台找不到模型「{model}」可用通道。可能该模型未在此账号开通，请换一个已开通的模型。"
+        friendly = friendly_image_error_detail(text, payload.size, model)
         detail = friendly or f"上游生图接口错误：{text[:300]}"
         raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
     except httpx.HTTPError as exc:
@@ -4284,6 +4444,7 @@ VIDEO_URL_KEYS = (
     "url", "video_url", "videoUrl", "mp4_url", "mp4Url",
     "output", "output_url", "outputUrl", "download_url", "downloadUrl",
     "video", "src", "uri", "preview_url", "previewUrl", "path",
+    "last_frame_url", "lastFrameUrl",
 )
 
 def _collect_video_url(value, urls):
@@ -4298,7 +4459,7 @@ def _collect_video_url(value, urls):
             _collect_video_url(item, urls)
         return
     if isinstance(value, dict):
-        for key in ("videos", "outputs", "data", "result"):
+        for key in ("videos", "outputs", "data", "result", "content"):
             if key in value:
                 _collect_video_url(value.get(key), urls)
         for key in VIDEO_URL_KEYS:
@@ -4311,10 +4472,17 @@ def video_output_urls(raw):
         return urls
     candidates = [raw]
     data = raw.get("data")
+    content = raw.get("content")
     if isinstance(data, dict):
         candidates.append(data)
     elif isinstance(data, list):
         for item in data:
+            if isinstance(item, dict):
+                candidates.append(item)
+    if isinstance(content, dict):
+        candidates.append(content)
+    elif isinstance(content, list):
+        for item in content:
             if isinstance(item, dict):
                 candidates.append(item)
     for node in list(candidates):
@@ -4328,7 +4496,7 @@ def video_output_urls(raw):
     for node in candidates:
         if not isinstance(node, dict):
             continue
-        for key in ("videos", "outputs"):
+        for key in ("videos", "outputs", "content"):
             value = node.get(key)
             if value:
                 _collect_video_url(value, urls)
@@ -4343,6 +4511,10 @@ def video_output_urls(raw):
 
 def video_api_root(provider):
     base_url = (provider.get("base_url") or AI_BASE_URL).rstrip("/")
+    if is_volcengine_provider(provider):
+        if base_url.endswith("/api/v3"):
+            base_url = base_url[: -len("/api/v3")]
+        return base_url
     if base_url.endswith("/v1") or base_url.endswith("/v2"):
         base_url = base_url.rsplit("/", 1)[0]
     return base_url
@@ -4363,6 +4535,8 @@ async def wait_for_video_task(client, provider, task_id):
     if is_apimart_provider(provider):
         task_path = f"{base_url}/tasks/{task_id}" if base_url.endswith("/v1") else f"{base_url}/v1/tasks/{task_id}"
         task_url = f"{task_path}?language=zh"
+    elif is_volcengine_provider(provider):
+        task_url = f"{base_url}/api/v3/contents/generations/tasks/{task_id}"
     else:
         task_url = f"{base_url}/v2/videos/generations/{task_id}"
     deadline = time.monotonic() + VIDEO_POLL_TIMEOUT
@@ -4395,6 +4569,17 @@ def apimart_video_size(size):
     allowed = {"16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "adaptive"}
     return value if value in allowed else "16:9"
 
+def volcengine_video_prompt_text(prompt, aspect_ratio="", duration=None):
+    text = str(prompt or "").strip()
+    suffixes = []
+    ratio = str(aspect_ratio or "").strip()
+    if ratio:
+        suffixes.append(f"--ratio {ratio}")
+    if not suffixes:
+        return text
+    suffix_text = " ".join(suffixes)
+    return f"{text} {suffix_text}".strip() if text else suffix_text
+
 @app.post("/api/canvas-video")
 async def canvas_video(payload: CanvasVideoRequest):
     provider = get_api_provider(payload.provider_id)
@@ -4405,7 +4590,13 @@ async def canvas_video(payload: CanvasVideoRequest):
     if not api_key:
         raise HTTPException(status_code=400, detail=f"未配置 {provider.get('name') or provider['id']} 的 API Key，请在 API 设置中填写。")
     is_apimart = is_apimart_provider(provider)
-    submit_url = f"{base_url}/videos/generations" if is_apimart and base_url.endswith("/v1") else f"{base_url}/v1/videos/generations" if is_apimart else f"{base_url}/v2/videos/generations"
+    is_volcengine = is_volcengine_provider(provider)
+    submit_url = (
+        f"{base_url}/videos/generations" if is_apimart and base_url.endswith("/v1")
+        else f"{base_url}/v1/videos/generations" if is_apimart
+        else f"{base_url}/api/v3/contents/generations/tasks" if is_volcengine
+        else f"{base_url}/v2/videos/generations"
+    )
     requested_model = selected_model(payload.model, "veo3-fast")
     is_veo31 = is_apimart and is_apimart_veo31_model(requested_model)
     try:
@@ -4492,35 +4683,54 @@ async def canvas_video(payload: CanvasVideoRequest):
                 for ref in payload.images[:4]:
                     if ref.url:
                         image_payload.append(reference_to_data_url(ref.dict(), max_size=1536))
-                body = {
-                    "prompt": payload.prompt,
-                    "model": selected_model(payload.model, "veo3-fast"),
-                    "duration": payload.duration,
-                    "watermark": payload.watermark,
-                }
-                if payload.aspect_ratio:
-                    body["aspect_ratio"] = payload.aspect_ratio
-                    body["ratio"] = payload.aspect_ratio
-                if payload.size:
-                    body["size"] = payload.size
-                if payload.resolution:
-                    body["resolution"] = payload.resolution
-                if image_payload:
-                    body["images"] = image_payload
-                if payload.videos:
-                    body["videos"] = [v for v in payload.videos if v]
-                if payload.enhance_prompt:
-                    body["enhance_prompt"] = True
-                if payload.enable_upsample:
-                    body["enable_upsample"] = True
-                if payload.seed is not None:
-                    body["seed"] = payload.seed
-                if payload.camerafixed:
-                    body["camerafixed"] = True
-                if payload.return_last_frame:
-                    body["return_last_frame"] = True
-                if payload.generate_audio:
-                    body["generate_audio"] = True
+                if is_volcengine:
+                    text = volcengine_video_prompt_text(payload.prompt, payload.aspect_ratio, payload.duration)
+                    body = {
+                        "model": selected_model(payload.model, "doubao-seedance-2-0-fast-260128"),
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": text,
+                            }
+                        ],
+                    }
+                    if image_payload:
+                        body["content"].append({
+                            "type": "image_url",
+                            "image_url": {"url": image_payload[0]},
+                        })
+                    if payload.seed is not None:
+                        body["seed"] = payload.seed
+                else:
+                    body = {
+                        "prompt": payload.prompt,
+                        "model": selected_model(payload.model, "veo3-fast"),
+                        "duration": payload.duration,
+                        "watermark": payload.watermark,
+                    }
+                    if payload.aspect_ratio:
+                        body["aspect_ratio"] = payload.aspect_ratio
+                        body["ratio"] = payload.aspect_ratio
+                    if payload.size:
+                        body["size"] = payload.size
+                    if payload.resolution:
+                        body["resolution"] = payload.resolution
+                    if image_payload:
+                        body["images"] = image_payload
+                    if payload.videos:
+                        body["videos"] = [v for v in payload.videos if v]
+                    if payload.enhance_prompt:
+                        body["enhance_prompt"] = True
+                    if payload.enable_upsample:
+                        body["enable_upsample"] = True
+                    if payload.seed is not None:
+                        body["seed"] = payload.seed
+                    if payload.camerafixed:
+                        body["camerafixed"] = True
+                    if payload.return_last_frame:
+                        body["return_last_frame"] = True
+                    if payload.generate_audio:
+                        body["generate_audio"] = True
             # --- 发起视频生成请求 ---
             response = await client.post(submit_url, headers=api_headers(provider=provider), json=body)
             response.raise_for_status()
@@ -4566,6 +4776,23 @@ async def canvas_video(payload: CanvasVideoRequest):
                 f"解决方法：\n"
                 f"  1. 登录 {provider.get('base_url') or '上游平台'} 控制台，开通该模型 / 充值；\n"
                 f"  2. 或在「API 设置」里把视频模型改成你账号已开通的型号（如 veo3-fast / veo2-fast / sora-2 等）。"
+            )
+            raise HTTPException(status_code=exc.response.status_code, detail=hint) from exc
+        if "text.duration" in text or "specified duration is not supported" in text:
+            hint = (
+                f"上游「{provider_name}」模型「{requested_model}」不支持当前时长参数。\n\n"
+                f"我方已改为不主动给火山 Seedance fast 传 duration；如果仍报这个错误，请把视频时长先切回默认值再试，"
+                f"或改用该账号已开通的其他视频模型。"
+            )
+            raise HTTPException(status_code=exc.response.status_code, detail=hint) from exc
+        if "inputimagesensitivecontentdetected" in text.lower() or "privacyinformation" in text.lower() or "may contain real person" in text.lower():
+            hint = (
+                f"上游「{provider_name}」拦截了输入参考图，原因是图片里可能包含真人身份/隐私信息。\n\n"
+                f"这不是代码协议错误，而是火山视频模型的内容安全策略。\n\n"
+                f"建议你这样处理：\n"
+                f"  1. 改用非真人参考图，例如插画、AI 头像、商品图、场景图；\n"
+                f"  2. 先把真人脸做模糊、遮挡、裁掉，或转成明显的二次元/插画风；\n"
+                f"  3. 如果只是想做文生视频，先去掉参考图只保留文字提示词测试。"
             )
             raise HTTPException(status_code=exc.response.status_code, detail=hint) from exc
         raise HTTPException(status_code=exc.response.status_code, detail=f"上游视频接口错误：{text}") from exc
@@ -4625,7 +4852,8 @@ async def canvas_llm(payload: CanvasLLMRequest):
             raw = response.json()
     except httpx.HTTPStatusError as exc:
         body = exc.response.text or ""
-        raise HTTPException(status_code=exc.response.status_code, detail=f"上游接口错误：{body}") from exc
+        friendly = friendly_chat_error_detail(body, model, _llm_provider)
+        raise HTTPException(status_code=exc.response.status_code, detail=friendly or f"上游接口错误：{body}") from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"请求上游接口失败：{exc}") from exc
     except HTTPException:
@@ -4972,7 +5200,9 @@ async def chat(payload: ChatRequest, request: Request, x_user_id: str = Header(d
             image_data, raw = await generate_ai_image(payload.message, payload.size, payload.quality, model, refs, provider["id"])
             local_url = await save_ai_image_to_output(image_data, prefix="chat_")
         except httpx.HTTPStatusError as exc:
-            raise HTTPException(status_code=exc.response.status_code, detail=f"上游生图接口错误：{exc.response.text}") from exc
+            text = exc.response.text or ""
+            detail = friendly_image_error_detail(text, payload.size, model) or f"上游生图接口错误：{text[:300]}"
+            raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"请求上游生图接口失败：{exc}") from exc
         assistant_message = {
@@ -5008,7 +5238,9 @@ async def chat(payload: ChatRequest, request: Request, x_user_id: str = Header(d
                 response.raise_for_status()
                 raw = response.json()
         except httpx.HTTPStatusError as exc:
-            raise HTTPException(status_code=exc.response.status_code, detail=f"上游接口错误：{exc.response.text}") from exc
+            body = exc.response.text or ""
+            friendly = friendly_chat_error_detail(body, model, _conv_provider)
+            raise HTTPException(status_code=exc.response.status_code, detail=friendly or f"上游接口错误：{body}") from exc
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"请求上游接口失败：{exc}") from exc
         raw_data = unwrap_apimart_response(raw) if isinstance(raw, dict) else raw
@@ -5054,6 +5286,7 @@ async def chat_stream(payload: ChatRequest, request: Request, x_user_id: str = H
     save_conversation(user_id, conversation)
 
     chat_base, chat_hdrs, model = resolve_chat_provider(payload.provider, payload.model, payload.ms_model)
+    _stream_provider = get_api_provider(payload.provider) if payload.provider not in ("modelscope",) else {}
     history = conversation["messages"][-MAX_HISTORY_MESSAGES:]
     upstream_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for item in history:
@@ -5075,7 +5308,9 @@ async def chat_stream(payload: ChatRequest, request: Request, x_user_id: str = H
                 ) as response:
                     if response.status_code >= 400:
                         detail = await response.aread()
-                        yield sse_event({"type": "error", "detail": f"上游接口错误：{detail.decode('utf-8', errors='ignore')}"})
+                        body = detail.decode("utf-8", errors="ignore")
+                        friendly = friendly_chat_error_detail(body, model, _stream_provider)
+                        yield sse_event({"type": "error", "detail": friendly or f"上游接口错误：{body}"})
                         return
                     async for line in response.aiter_lines():
                         if not line:
