@@ -1,0 +1,28 @@
+packaging/macos/launcher/runtime_manager.py
+  s_004abb5f7856ce::t_1d27e3b7aab3ae 172
+packaging/macos/MACOS_RUNBOOK.md
+  s_004abb5f7856ce::t_22cad24a4b9f89 124-125
+main.py
+  s_004abb5f7856ce::t_8aee3687df8bb2 19,1103-1120,1169-1174
+  s_004abb5f7856ce::t_10c3c7cd26aa26 1175-1183,1189
+tests/test_restart_script_visibility.py
+  s_004abb5f7856ce::t_6318a4495507ca 54-63
+tests/test_macos_runtime_manager.py
+  s_004abb5f7856ce::t_658e3c34e05b90 8,102-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "4498bf4f4812bb7e9d0da5fd48a40830be22b27c",
+  "prompts": {},
+  "sessions": {
+    "s_004abb5f7856ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e6e-a15a-7dd0-965d-592986b0cdc0",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
