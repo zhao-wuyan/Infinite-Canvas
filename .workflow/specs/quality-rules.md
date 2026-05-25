@@ -1,0 +1,67 @@
+---
+title: "Quality Rules"
+readMode: required
+priority: medium
+category: review
+keywords:
+  - quality
+  - lint
+  - rule
+  - enforcement
+---
+
+# Quality Rules
+
+## Entries
+
+<spec-entry category="rule" keywords="upstream-sync,pkg-compatibility,pr-prep,gitnexus,repo-url" date="2026-05-25" source="user:2026-05-25">
+
+### 上游同步、fork 适配与上游 PR 准备流程
+
+当任务涉及“同步上游代码、保持当前 fork 的桌面客户端或 Docker 适配、准备提交上游 PR”时，下列内容是必须遵守的流程规则，不是收到规则时立即执行的动作。
+
+执行前必须先确认远程与分支角色：`main` 以跟踪和同步 `upstream/main` 为主，只保留当前 fork 的最小 Docker 适配，原则上不承载桌面客户端、打包发布或高侵入产品化改动；`pkg` 是当前 fork 的桌面端打包适配主线，承载 launcher、macOS/Windows 打包、运行时管理、发布流程等较大改动；`pr` 用于准备向上游提交的最小化 PR 内容。
+
+标准顺序必须是：先在 `main` 分支 fetch 并同步上游代码，再把 `main` 合并到 `pkg` 分支做当前 fork 特性兼容性检测与必要适配，最后把已验证的 `pkg` 合并到 `pr` 分支，做上游 PR 前的仓库地址、品牌绑定和 fork 专属改动清理。
+
+同步或合并前必须保护工作区：检查 `git status --short --branch`，识别已有未提交改动、未跟踪文件和并行任务产物；除非用户明确授权，不得 reset、checkout、clean 或覆盖这些改动；需要跨分支处理时优先使用独立 worktree 或明确说明风险。
+
+`main` 同步阶段只解决与上游一致性和最小 Docker 适配相关的问题。若存在 `upstream` remote，必须以 `upstream/main` 为准；若不存在，先向用户说明 remote 缺失并请求确认来源。同步完成后应记录上游基线 commit，并验证 Docker 适配没有被上游改动破坏；不得在 `main` 阶段引入桌面端打包、launcher 或发布流程改动。
+
+`pkg` 兼容性检测阶段必须按高风险处理，因为它是桌面端打包适配主线且改动较大。重点检查当前 fork 特性是否被上游改动破坏，包括桌面 launcher、macOS/Windows 打包、运行时存储目录、环境变量、端口选择、自更新逻辑、静态资源版本注入、测试隔离、发布脚本，以及从 `main` 继承来的 Dockerfile、docker-compose 等最小 Docker 适配。发现冲突时应优先保持上游业务逻辑正确，再以最小补丁恢复 fork 的桌面客户端运行约束和 Docker 适配。
+
+`pkg` 阶段必须使用 GitNexus 做影响分析：对被合并冲突或需要修改的核心函数、API route、launcher/runtime 管理代码运行上下游影响查询；修改 API route 前优先运行 route/API impact 检查；修改共享函数、运行时路径、更新机制或打包流程前运行 symbol impact 检查，并把高风险调用链纳入测试范围。
+
+`pkg` 阶段完成后必须运行与改动范围匹配的测试，至少覆盖 launcher/runtime、桌面端打包、Docker 和上游合并冲突相关测试。由于 `pkg` 的桌面端适配改动较大，凡涉及 runtime、launcher、更新、路径、环境变量或发布脚本的合并，都应优先扩大回归测试范围。若无法运行某类测试，必须明确记录缺失原因、剩余风险和替代验证证据。
+
+`pr` 准备阶段必须扫描代码中绑定到当前 fork 或个人仓库的地址与标识，包括 GitHub repo URL、raw URL、tree API URL、release URL、issue URL、更新源、文档链接、镜像名、包名、桌面客户端品牌文案和 fork 专属环境变量默认值。凡是会进入上游 PR 的代码，默认应改回上游仓库、中性配置或可注入配置；确实需要保留 fork 专属逻辑时，必须隔离在不会污染上游 PR 的提交或分支中。
+
+`pr` 分支必须保持“可提交上游”的语义：提交应尽量小、主题集中、避免夹带 fork 的 Docker/桌面客户端私有适配；若 `pkg` 合并带入了 fork 专属内容，必须在 `pr` 中拆分、还原或配置化后再提交。PR 前需要再次检查 `git diff`、绑定仓库地址、测试结果和提交范围。
+
+禁止事项：不得把 `pkg` 的桌面端打包、launcher 或发布适配直接推回 `main`；不得把 `main` 的最小 Docker 适配扩展成高侵入产品化分支；不得在未完成兼容性检测时把上游同步结果推进 `pr`；不得让上游 PR 包含当前 fork 的默认更新源、私有镜像、桌面发行产物路径或个人仓库地址；不得用全局搜索替换仓库地址而不做语义审查。
+
+</spec-entry>
+
+<spec-entry category="rule" keywords="ai-assets,pkg-only,pr-cleanup,workflow,upstream-pr" date="2026-05-25" source="user:2026-05-25">
+
+### AI 协作资产只允许存在于 pkg，不得进入上游 PR
+
+当前 fork 允许为了长期手动同步、AI 辅助开发和历史决策追踪，在 `pkg` 分支提交 AI 协作资产，例如 `.workflow/`、`AGENTS.md`、`CLAUDE.md`、`.claude/` 以及类似的本地代理配置或工作流说明。这些内容属于 fork 内部工程资产，不属于上游项目功能实现。
+
+`pkg` 分支可以跟踪 AI 协作资产，但必须把它们视为 fork-only 内容。提交前需要确认文件不包含密钥、令牌、私有路径、个人账号敏感信息、不可公开的内部提示词或机器专属绝对路径。`.workflow/specs/`、项目级规则和可公开的协作说明可以进入 `pkg`；临时日志、缓存、会话转储、模型输出、大文件和包含隐私的工作目录不应进入版本库。
+
+`pr` 分支必须保持上游干净状态。凡是从 `pkg` 合并、cherry-pick 或迁移改动到 `pr`，都必须剥离 AI 协作资产，至少包括 `.workflow/`、`.claude/`、`AGENTS.md`、`CLAUDE.md`、AI agent 配置、工作流缓存、会话记录和 fork 内部 spec。上游 PR 不应包含这些文件的新增、修改或删除噪音。
+
+从 `pkg` 到 `pr` 的推荐路径是优先 cherry-pick 可上游提交的业务提交，避免把 fork-only AI 资产带入 `pr`。如果必须 merge `pkg`，应使用可审查流程：先 `git merge --no-commit pkg`，再删除或还原 AI 协作资产和 fork-only 内容，完成仓库地址扫描与测试后再提交。不得直接完成 merge 后把包含 AI 资产的提交推送到 `pr`。
+
+`pr` 清理必须有 denylist 检查。提交前至少检查：`git status --short`、`git diff --name-only upstream/main...HEAD` 或等价范围，以及路径 denylist `^\\.workflow/`、`^\\.claude/`、`^AGENTS\\.md$`、`^CLAUDE\\.md$`。命中这些路径时默认阻断 PR，除非用户明确说明该文件本身就是要提交给上游的内容。
+
+切换到 `pr` 分支后的第一步不得依赖记忆，必须执行 PR branch gate：确认当前分支、确认目标上游基线、运行路径 denylist、运行仓库地址/fork-only 内容扫描。未来 AI 或人工操作者在 `pr` 分支上准备 commit、push 或开 PR 前，都必须先完成这个 gate；没有 gate 结果时，不得声称该分支已经可提交上游。
+
+若 `pkg` 中 AI 协作资产持续演进，`pr` 合并时可能出现 modify/delete 或 add/delete 冲突。处理原则固定为：在 `pr` 侧保留删除或不引入这些文件；不要为了解冲突把 AI 资产恢复进 `pr`。若频繁重复同类冲突，可以在本地启用 `git rerere` 记忆处理结果，但仍必须在每次 PR 前做 denylist 复查。
+
+如果当前 `.gitignore` 忽略了某些 AI 目录，例如 `.claude/`，但用户决定在 `pkg` 长期跟踪它们，必须显式调整 `.gitignore` 或使用受控的强制添加，并同步更新本规则或相关 spec，说明哪些子路径可公开、哪些必须保持忽略。不得为了方便把所有 AI 缓存和本机状态无差别提交。
+
+GitNexus 或其他影响分析工具可以使用 AI 协作资产理解 fork 的长期决策，但在 `pr` 阶段不得把这些资产作为上游代码依赖。PR 说明可以人工摘要相关决策背景，但不应引用上游无法访问或不应接收的 fork 内部工作流文件作为必要上下文。
+
+</spec-entry>
