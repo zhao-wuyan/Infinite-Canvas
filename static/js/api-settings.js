@@ -7,6 +7,7 @@ const nameInput = document.getElementById('nameInput');
 const idInput = document.getElementById('idInput');
 const baseInput = document.getElementById('baseInput');
 const protocolInput = document.getElementById('protocolInput');
+const volcengineHint = document.getElementById('volcengineHint');
 const advancedEndpoints = document.getElementById('advancedEndpoints');
 const imageGenerationEndpointInput = document.getElementById('imageGenerationEndpointInput');
 const imageEditEndpointInput = document.getElementById('imageEditEndpointInput');
@@ -40,6 +41,7 @@ const msLoraBlock = document.getElementById('msLoraBlock');
 const msLoraList = document.getElementById('msLoraList');
 const recommendApiOverlay = document.getElementById('recommendApiOverlay');
 const recommendApiList = document.getElementById('recommendApiList');
+const VOLCENGINE_DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const MS_BUILTIN_IMAGE_MODELS = [
     'Tongyi-MAI/Z-Image-Turbo',
     'Qwen/Qwen-Image-2512',
@@ -304,7 +306,7 @@ function rhEditorSortedFields(fields){
     });
 }
 function rhFreeKeyHintText(item){
-    return item?.has_key ? `当前免费积分 Key 已保存：${item.key_env || 'API/.env'} ${item.key_preview || ''}` : '还没有保存免费积分 Key。';
+    return item?.has_key ? `当前 RH币 Key 已保存：${item.key_env || 'API/.env'} ${item.key_preview || ''}` : '还没有保存 RH币 Key。';
 }
 function rhWalletKeyHintText(item){
     return item?.has_wallet_key ? `当前账户余额 Key 已保存：${item.wallet_key_env || 'API/.env'} ${item.wallet_key_preview || ''}` : '还没有保存账户余额 Key。验证地址和拉取模型会优先使用它。';
@@ -367,7 +369,20 @@ function updateProtocolFromInput(){
     if(!item || !protocolInput || item.id === 'modelscope' || item.id === 'runninghub') return;
     const value = String(protocolInput.value || 'openai').toLowerCase();
     item.protocol = ['openai', 'apimart', 'gemini', 'volcengine'].includes(value) ? value : 'openai';
+    if(value === 'volcengine' && baseInput){
+        baseInput.value = VOLCENGINE_DEFAULT_BASE_URL;
+        item.base_url = VOLCENGINE_DEFAULT_BASE_URL;
+    }
+    updateProviderProtocolHint(item);
     clearVerifyResult();
+}
+function isVolcengineProvider(item){
+    return String(item?.protocol || '').toLowerCase() === 'volcengine';
+}
+function updateProviderProtocolHint(item = provider()){
+    if(!volcengineHint) return;
+    const visible = !!item && item.id !== 'modelscope' && item.id !== 'runninghub' && isVolcengineProvider(item);
+    volcengineHint.hidden = !visible;
 }
 function handleRhPasteInput(value){
     const parsed = parseRunningHubRunRef(value);
@@ -1547,7 +1562,7 @@ function rhEntryThumbnailCandidates(kind, entry){
     const id = String((kind === 'workflow' ? (entry?.workflowId || entry?.id) : (entry?.appId || entry?.id)) || '').trim().replace(/[^0-9A-Za-z_-]/g, '');
     if(!id) return [];
     const prefix = kind === 'workflow' ? 'workflow' : 'app';
-    const exts = ['png','jpg','jpeg','webp','gif'];
+    const exts = ['jpg'];
     const names = [`${prefix}-${id}`, id];
     const roots = ['/static/runninghub/thumbnails', '/static/runninghub'];
     const urls = [];
@@ -1744,7 +1759,7 @@ function renderEditor(){
         ensureRunningHubLists(item);
         if(rhFreeKeyInput){
             rhFreeKeyInput.value = '';
-            rhFreeKeyInput.placeholder = item.has_key ? `保持当前免费积分 Key ${item.key_preview || ''}` : '输入免费积分 API Key';
+            rhFreeKeyInput.placeholder = item.has_key ? `保持当前 RH币 Key ${item.key_preview || ''}` : '输入 RH币 API Key';
         }
         if(rhWalletKeyInput){
             rhWalletKeyInput.value = '';
@@ -1775,6 +1790,7 @@ function renderEditor(){
     renderModels('video');
     if(isModelScope) renderMsLoras();
     else if(msLoraList) msLoraList.innerHTML = '';
+    updateProviderProtocolHint(item);
     renderProviderList();
 }
 function showVerifyResult(html){ const el = document.getElementById('verifyResult'); if(el){ el.style.display = 'block'; el.innerHTML = html; } }
@@ -1859,7 +1875,10 @@ async function testConnection(){
             };
             const openBtn = document.getElementById('openPickerBtn');
             if(openBtn){ openBtn.disabled = false; openBtn.style.opacity = '1'; }
-            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 地址验证通过 · 找到 ${data.model_count} 个模型</span>`);
+            const volcengineNote = isVolcengineProvider(item)
+                ? `<div style="margin-top:6px;color:#92400e;font-size:11px;font-weight:700">火山协议提示：模型列表只代表可见模型，聊天模型建议填写你在方舟控制台创建的 <code>ep-...</code> 推理接入点。</div>`
+                : '';
+            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 地址验证通过 · 找到 ${data.model_count} 个模型</span>${volcengineNote}`);
         } else {
             showVerifyResult(`
                 <div style="font-size:11px;font-weight:800;color:#b45309">⚠ 地址验证未通过 (HTTP ${data.status})</div>
@@ -1902,7 +1921,8 @@ async function fetchModels(){
         // 启用「选择模型」按钮，并 statusbar 显示已拉取数量
         const openBtn = document.getElementById('openPickerBtn');
         if(openBtn){ openBtn.disabled = false; openBtn.style.opacity = '1'; }
-        setStatus(`已拉取 ${data.total} 个模型 · 点「选择模型」勾选要导入的`);
+        const extra = isVolcengineProvider(item) ? ' · 火山聊天建议改填 ep-... 接入点' : '';
+        setStatus(`已拉取 ${data.total} 个模型 · 点「选择模型」勾选要导入的${extra}`);
         openModelPicker();
     } catch(e){
         alert('拉取失败：' + (e.message || e));

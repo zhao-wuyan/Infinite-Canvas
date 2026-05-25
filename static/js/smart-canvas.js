@@ -87,6 +87,7 @@ let smartCascadeRunning = false;
 let smartLoopContext = null;
 let runBtnCooldownToken = 0;
 let smartRunStateToken = 0;
+const activeSmartTaskPolls = new Map();
 const smartNodeRunTokens = new Map();
 let smartRhRandomValues = {};
 let lastImagePasteAt = 0;
@@ -1007,6 +1008,7 @@ function renderDynamicParams(){
     else if(settings.engine === 'runninghub') renderRunningHubParams();
     else renderComfyParams();
     bindDynamicParams();
+    updatePromptPlaceholder();
     persistActiveSmartSettings();
     if(window.lucide) lucide.createIcons();
 }
@@ -1582,6 +1584,28 @@ function rhParamValue(field, media=null){
     if(rhFieldRole(field) === 'prompt') return param?.value ?? (media?.prompt || rhDefaultValue(field));
     return param?.value ?? rhDefaultValue(field);
 }
+function rhUserParamValue(field){
+    settings.rhParams = settings.rhParams || {};
+    const key = rhParamKey(field.nodeId, field.fieldName);
+    return settings.rhParams[key]?.value ?? '';
+}
+function rhPromptPlaceholder(field){
+    return rhDefaultValue(field) || field?.label || field?.fieldName || tr('smart.promptPlaceholder');
+}
+function rhDefaultPromptSuggestion(){
+    if(settings.engine !== 'runninghub') return '';
+    const fields = rhActiveFields().filter(field => rhFieldRole(field) === 'prompt');
+    for(const field of fields){
+        const value = rhDefaultValue(field).trim();
+        if(value) return value;
+    }
+    return '';
+}
+function updatePromptPlaceholder(){
+    if(!promptInput) return;
+    const suggestion = rhDefaultPromptSuggestion();
+    promptInput.dataset.placeholder = suggestion || tr('smart.promptPlaceholder');
+}
 function rhFieldIndexes(fields){
     const counters = {image:0, video:0, audio:0};
     const map = {};
@@ -1704,6 +1728,7 @@ async function rhBuildNodeInfoList(media){
             if(field.required !== true && !media.image?.[idx]?.url) continue;
         }
         let value = rhParamValue(field, media);
+        if(rhFieldRole(field) === 'prompt' && !String(value || '').trim()) value = rhDefaultValue(field);
         if(['image','video','audio'].includes(kind)) value = await rhUploadValueIfNeeded(value);
         if(typeof value === 'string' && /[\r\n]/.test(value)) value = value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || '';
         result.push({nodeId:field.nodeId, fieldName:field.fieldName, fieldValue:value});
@@ -2299,7 +2324,15 @@ async function loadCanvas(){
         document.title = canvas.title || tr('canvas.smartCanvas');
         document.getElementById('smartTitle').textContent = canvas.title || tr('canvas.smartCanvas');
         nodes = Array.isArray(canvas.nodes) ? canvas.nodes : [];
-        nodes.forEach(n => { if(n.pending) n.pending = 0; });
+        nodes.forEach(n => {
+            const pendingTasks = smartPendingTasks(n);
+            if(pendingTasks.length){
+                n.pending = Math.max(pendingTasks.length, Number(n.pending || 0) || pendingTasks.length);
+                n.running = false;
+            } else if(n.pending){
+                n.pending = 0;
+            }
+        });
         canvas.connections = Array.isArray(canvas.connections) ? canvas.connections : [];
         viewport = {...viewport, ...(canvas.viewport || {})};
         viewport.scale = safeScale(viewport.scale);
@@ -2311,6 +2344,7 @@ async function loadCanvas(){
         updateProviderModels();
         applyViewport();
         render();
+        resumeSmartPendingTasks();
     } catch(e) { toast(tr('smart.toastCanvasFail')); }
 }
 function scheduleSave(){
@@ -4078,7 +4112,8 @@ function previewCompareSources(){
     const editing = currentEditImage();
     const node = editing.node;
     if(!node) return [];
-    const upstream = inputImagesFor(node);
+    const savedRefs = Array.isArray(node.runInputRefs) ? node.runInputRefs.filter(ref => ref?.url) : [];
+    const upstream = savedRefs.length ? savedRefs : inputImagesFor(node);
     const dedup = [];
     const seen = new Set();
     for(const img of upstream){
@@ -5446,6 +5481,7 @@ function snapshotRunMeta(prompt, sourceId, displayPrompt='', refs=[]){
         promptHtml: promptInput ? promptInput.innerHTML : '',
         promptText: promptPlainText(),
         promptRefs:(refs || []).map(ref => ({url:ref.url || '', name:ref.name || '', nodeId:ref.nodeId || '', imageIndex:ref.imageIndex ?? ''})).filter(ref => ref.url),
+        inputRefs:(refs || []).map(ref => ({url:ref.url || '', name:ref.name || '', nodeId:ref.nodeId || '', imageIndex:ref.imageIndex ?? '', kind:ref.kind || ''})).filter(ref => ref.url),
         sourceNodeId:sourceId,
         settings:JSON.parse(JSON.stringify(settings)),
         createdAt:Date.now()
@@ -5456,6 +5492,13 @@ function attachRunMeta(targetNode, meta){
     targetNode.runPrompt = meta.displayPrompt || meta.promptText || meta.prompt;
     targetNode.runModelPrompt = meta.prompt;
     targetNode.runPromptRefs = meta.promptRefs || [];
+    targetNode.runInputRefs = (meta.inputRefs || meta.promptRefs || []).map(ref => ({
+        url:ref.url || '',
+        name:ref.name || '',
+        nodeId:ref.nodeId || '',
+        imageIndex:ref.imageIndex ?? '',
+        kind:ref.kind || ''
+    })).filter(ref => ref.url);
     targetNode.runSettings = meta.settings;
     if(meta.sourceNodeId) targetNode.sourceNodeId = meta.sourceNodeId;
     else delete targetNode.sourceNodeId;
@@ -5477,6 +5520,7 @@ function stripRunInputMeta(meta){
         promptHtml:escapeHtml(cleanPrompt),
         promptText:cleanPrompt,
         promptRefs:[],
+        inputRefs:meta.inputRefs || meta.promptRefs || [],
         sourceNodeId:''
     };
 }
@@ -6026,6 +6070,9 @@ function buildPromptRequest(node, overrideDefaultImages=null, consumeDefault=fal
     body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
     const inputPrompt = inputPromptTextFor(node, ctx).trim();
     if(promptInputNodesFor(node).length) body = inputPrompt;
+    if(!body && settings.engine === 'runninghub'){
+        body = rhDefaultPromptSuggestion();
+    }
     const displayPrompt = originalPrompt || body;
     if(hasMentionToken && refs.length){
         const mapText = refs.map((img, i) => `图${i + 1}：${img.name || `图片${i + 1}`}`).join('\n');
@@ -6449,6 +6496,7 @@ async function runCascadeStepIntoNode(sourceNode, targetNode, inputRefs, ctx=sma
         prompt,
         displayPrompt:request.displayPrompt || '',
         promptRefs:(request.refs || []).map(ref => ({url:ref.url || '', name:ref.name || '', nodeId:ref.nodeId || '', imageIndex:ref.imageIndex ?? ''})).filter(ref => ref.url),
+        inputRefs:(request.refs || []).map(ref => ({url:ref.url || '', name:ref.name || '', nodeId:ref.nodeId || '', imageIndex:ref.imageIndex ?? '', kind:ref.kind || ''})).filter(ref => ref.url),
         sourceNodeId:sourceNode.id,
         settings:JSON.parse(JSON.stringify(settings)),
         createdAt:Date.now()
@@ -6684,6 +6732,27 @@ async function runGeneration(){
             : settings.engine === 'modelscope'
                 ? await runModelscopeGeneration(prompt, refs)
                 : await runApiGeneration(prompt, refs);
+        if(settings.engine === 'api'){
+            const taskIds = Array.isArray(outImages?.taskIds) ? outImages.taskIds : [];
+            if(!taskIds.length) throw new Error(tr('smart.errRunFailed'));
+            pendingNode.pendingTasks = taskIds.map(taskId => ({taskId, kind:'image'}));
+            pendingNode.pending = Math.max(taskIds.length, Number(pendingNode.pending || 0) || taskIds.length);
+            pendingNode.runStartedAt = nowMs();
+            pendingNode.runTimerHidden = false;
+            pendingNode.running = false;
+            render();
+            scheduleSave();
+            await saveCanvas();
+            await resumeSmartPendingNode(pendingNode);
+            if(!(pendingNode.images || []).length) throw new Error(tr('smart.errNoOutImages'));
+            if(outpaintSize) delete node.outpaintSize;
+            if(sourceVisualState) restoreSourceVisualState(node, sourceVisualState);
+            addSmartGenerationLog({run:runLog, outputs:(pendingNode.images || []).map(img => img.url).filter(Boolean), runMs:nowMs() - runLogStart});
+            clearPromptInput({preserveDraft:true});
+            settings = previousSettings;
+            scheduleSave();
+            return;
+        }
         if(!outImages.length) throw new Error(tr('smart.errNoOutImages'));
         if(outpaintSize) delete node.outpaintSize;
         finalizePendingNode(pendingNode, outImages, pendingMeta);
@@ -6769,12 +6838,11 @@ async function runApiGeneration(prompt, refs){
     if(!settings.provider_id || !settings.model) throw new Error(tr('smart.errNoApiModel'));
     const count = Math.max(1, Math.min(8, Number(settings.count || 1)));
     const payload = {prompt, provider_id:settings.provider_id, model:settings.model, size:sizeForRun(), quality:settings.quality || 'auto', n:count, reference_images:imageRefsOnly(refs)};
-    const task = await fetch('/api/canvas-image-tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}).then(async r => {
+    const tasks = await Promise.all(Array.from({length:count}, () => fetch('/api/canvas-image-tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}).then(async r => {
         if(!r.ok) throw new Error(await r.text());
         return r.json();
-    });
-    const result = await pollTask(task.task_id);
-    return (result?.images || []).filter(Boolean);
+    })));
+    return {taskIds:tasks.map(task => task.task_id).filter(Boolean), count};
 }
 async function runRunningHubGeneration(prompt, refs){
     const ref = selectedRunningHubRef();
@@ -7026,14 +7094,90 @@ async function comfyNameForRef(ref){
     ref.comfy_name = name;
     return name;
 }
-async function pollTask(taskId){
-    for(let i = 0; i < 900; i++){
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        const task = await fetch(`/api/canvas-image-tasks/${encodeURIComponent(taskId)}`).then(r => r.json());
-        if(task.status === 'succeeded') return task.result;
-        if(task.status === 'failed') throw new Error(task.error || tr('smart.errRunFailed'));
+function smartPendingTasks(node){
+    if(!node || !Array.isArray(node.pendingTasks)) return [];
+    return node.pendingTasks.filter(task => task && task.taskId);
+}
+async function pollSmartCanvasTask(taskId){
+    if(!taskId) throw new Error(tr('smart.errRunFailed'));
+    if(activeSmartTaskPolls.has(taskId)) return activeSmartTaskPolls.get(taskId);
+    const promise = (async () => {
+        for(let i = 0; i < 900; i++){
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const task = await fetch(`/api/canvas-image-tasks/${encodeURIComponent(taskId)}`).then(async r => {
+                if(!r.ok) throw new Error(await r.text());
+                return r.json();
+            });
+            if(task.status === 'succeeded') return task.result || {};
+            if(task.status === 'failed') throw new Error(task.error || tr('smart.errRunFailed'));
+        }
+        throw new Error(tr('smart.errRunTimeout'));
+    })();
+    activeSmartTaskPolls.set(taskId, promise);
+    try {
+        return await promise;
+    } finally {
+        activeSmartTaskPolls.delete(taskId);
     }
-    throw new Error(tr('smart.errRunTimeout'));
+}
+function finalizeSmartPendingTask(node, taskId, images, kind='image'){
+    if(!node || !taskId) return;
+    node.pendingTasks = smartPendingTasks(node).filter(task => task.taskId !== taskId);
+    node.pending = Math.max(0, Number(node.pending || 0) - 1);
+    const ext = kind === 'video' ? 'mp4' : kind === 'audio' ? 'mp3' : kind === 'text' ? 'txt' : 'png';
+    const additions = (images || []).map((item, i) => {
+        const url = typeof item === 'string' ? item : item?.url || '';
+        const itemKind = (typeof item === 'object' && item.kind) || kind;
+        return stripImageGenerationMeta({url, name:(typeof item === 'object' && item.name) || `output-${i + 1}.${ext}`, kind:itemKind, generatedResult:true});
+    }).filter(item => item.url);
+    node.images = [...(node.images || []).map(img => stripImageGenerationMeta(img)), ...additions];
+    if(additions.length) node.outputKind = kind;
+    if(!node.pending && smartPendingTasks(node).length === 0){
+        delete node.pendingTasks;
+        node.runFinishedAt = nowMs();
+        if(!node.runStartedAt) node.runStartedAt = node.runFinishedAt;
+        node.runElapsedMs = Math.max(0, node.runFinishedAt - Number(node.runStartedAt || node.runFinishedAt));
+        node.runTimerHidden = false;
+        node.running = false;
+        node.title = node.images.length > 1 ? (kind === 'video' ? 'Videos' : kind === 'audio' ? 'Audios' : kind === 'text' ? 'Texts' : 'Group') : (kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : kind === 'text' ? 'Text' : 'Image');
+        node.scale = mediaNodeDefaultScale(node);
+        delete node.w;
+        delete node.h;
+    }
+}
+async function resumeSmartPendingNode(node){
+    const tasks = smartPendingTasks(node);
+    if(!node || !tasks.length) return;
+    node.pending = Math.max(tasks.length, Number(node.pending || 0) || tasks.length);
+    node.running = false;
+    render();
+    await Promise.all(tasks.map(async task => {
+        try {
+            const result = await pollSmartCanvasTask(task.taskId);
+            finalizeSmartPendingTask(node, task.taskId, result?.images || [], task.kind || 'image');
+            render();
+            scheduleSave();
+        } catch(e) {
+            node.pendingTasks = smartPendingTasks(node).filter(item => item.taskId !== task.taskId);
+            node.pending = Math.max(0, Number(node.pending || 0) - 1);
+            if(!node.pending && smartPendingTasks(node).length === 0){
+                delete node.pendingTasks;
+                node.running = false;
+                if(!(node.images || []).length){
+                    delete node.w;
+                    delete node.h;
+                }
+            }
+            toast((e.message || tr('smart.errRunFailed')).slice(0, 160));
+            render();
+            scheduleSave();
+        }
+    }));
+}
+function resumeSmartPendingTasks(){
+    nodes.filter(node => smartPendingTasks(node).length).forEach(node => {
+        resumeSmartPendingNode(node);
+    });
 }
 function updateSelectionBox(event){
     if(!selectionState) return;
