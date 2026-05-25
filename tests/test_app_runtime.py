@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from app_runtime import app_base_url, resolve_app_port, resolve_runtime_paths
@@ -6,20 +7,27 @@ from app_runtime import app_base_url, resolve_app_port, resolve_runtime_paths
 class ResolveRuntimePathsTests(unittest.TestCase):
     def test_defaults_to_base_dir_when_data_root_missing(self):
         paths = resolve_runtime_paths("/tmp/app")
+        expected_app_dir = os.path.abspath("/tmp/app")
 
-        self.assertEqual(paths["APP_DIR"], "/tmp/app")
-        self.assertEqual(paths["APP_DATA_ROOT"], "/tmp/app")
-        self.assertEqual(paths["STATIC_DIR"], "/tmp/app/static")
-        self.assertEqual(paths["API_ENV_FILE"], "/tmp/app/API/.env")
+        self.assertEqual(paths["APP_DIR"], expected_app_dir)
+        self.assertEqual(paths["APP_DATA_ROOT"], expected_app_dir)
+        self.assertEqual(paths["STATIC_DIR"], os.path.join(expected_app_dir, "static"))
+        self.assertEqual(paths["API_ENV_FILE"], os.path.join(expected_app_dir, "API", ".env"))
 
     def test_separates_resource_and_data_roots(self):
         paths = resolve_runtime_paths("/opt/infinite-canvas", "/data/infinite-canvas")
+        expected_app_dir = os.path.abspath("/opt/infinite-canvas")
+        expected_data_root = os.path.abspath("/data/infinite-canvas")
 
-        self.assertEqual(paths["WORKFLOW_DIR"], "/opt/infinite-canvas/workflows")
-        self.assertEqual(paths["STATIC_DIR"], "/opt/infinite-canvas/static")
-        self.assertEqual(paths["OUTPUT_DIR"], "/data/infinite-canvas/output")
-        self.assertEqual(paths["DATA_DIR"], "/data/infinite-canvas/data")
-        self.assertEqual(paths["GLOBAL_CONFIG_FILE"], "/data/infinite-canvas/global_config.json")
+        self.assertEqual(paths["WORKFLOW_DIR"], os.path.join(expected_app_dir, "workflows"))
+        self.assertEqual(paths["STATIC_DIR"], os.path.join(expected_app_dir, "static"))
+        self.assertEqual(paths["OUTPUT_DIR"], os.path.join(expected_data_root, "output"))
+        self.assertEqual(paths["DATA_DIR"], os.path.join(expected_data_root, "data"))
+        self.assertEqual(paths["GLOBAL_CONFIG_FILE"], os.path.join(expected_data_root, "global_config.json"))
+        self.assertEqual(
+            paths["RUNNINGHUB_WORKFLOW_STORE_FILE"],
+            os.path.join(expected_data_root, "data", "runninghub_workflows.json"),
+        )
 
     def test_resolve_app_port_uses_default_for_invalid_values(self):
         self.assertEqual(resolve_app_port(""), 3000)

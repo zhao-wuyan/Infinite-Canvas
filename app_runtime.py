@@ -32,6 +32,7 @@ def resolve_runtime_paths(base_dir: str, data_root: Optional[str] = None) -> Dic
     paths["CANVAS_DIR"] = os.path.join(paths["DATA_DIR"], "canvases")
     paths["ASSET_LIBRARY_PATH"] = os.path.join(paths["DATA_DIR"], "asset_library.json")
     paths["API_PROVIDERS_FILE"] = os.path.join(paths["DATA_DIR"], "api_providers.json")
+    paths["RUNNINGHUB_WORKFLOW_STORE_FILE"] = os.path.join(paths["DATA_DIR"], "runninghub_workflows.json")
     return paths
 
 
