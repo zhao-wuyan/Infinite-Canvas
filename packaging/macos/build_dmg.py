@@ -13,8 +13,10 @@ if str(ROOT) not in sys.path:
 from packaging.macos.build_app import APP_NAME, DEFAULT_DIST_DIR, build_app, read_version
 
 
-def build_dmg(dist_dir: Path) -> Path:
-    app_bundle = build_app(dist_dir)
+def build_dmg(dist_dir: Path, app_bundle: Path | None = None) -> Path:
+    app_bundle = app_bundle or build_app(dist_dir)
+    if not app_bundle.is_dir():
+        raise NotADirectoryError(f"DMG input is not an app bundle: {app_bundle}")
     version = read_version()
     dmg_path = dist_dir / f"{APP_NAME}-{version}.dmg"
     staging_dir = dist_dir / "dmg-root"
@@ -49,9 +51,10 @@ def build_dmg(dist_dir: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build macOS DMG for Infinite Canvas.")
     parser.add_argument("--dist-dir", type=Path, default=DEFAULT_DIST_DIR)
+    parser.add_argument("--app-bundle", type=Path, default=None)
     args = parser.parse_args()
 
-    dmg_path = build_dmg(args.dist_dir)
+    dmg_path = build_dmg(args.dist_dir, args.app_bundle)
     print(dmg_path)
     return 0
 

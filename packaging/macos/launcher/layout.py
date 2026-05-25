@@ -31,10 +31,10 @@ def default_storage_root(home: str | Path | None = None) -> Path:
 
 
 def app_bundle_from_executable(executable: str | Path) -> Path:
-    path = Path(executable).resolve()
+    path = Path(executable)
     if path.parent.name == "MacOS" and path.parent.parent.name == "Contents":
         return path.parent.parent.parent
-    return path
+    return path.resolve()
 
 
 def compute_layout(

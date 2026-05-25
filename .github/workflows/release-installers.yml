@@ -85,6 +85,9 @@ jobs:
           Copy-Item -LiteralPath "dist\windows-release\VERSION" -Destination "dist\release-assets\windows-VERSION"
           Copy-Item -LiteralPath "dist\windows-release\manifest.json" -Destination "dist\release-assets\windows-manifest.json"
           Copy-Item -LiteralPath "dist\windows-release\app-base.zip" -Destination "dist\release-assets\windows-app-base.zip"
+          Copy-Item -LiteralPath "dist\windows-release\VERSION" -Destination "dist\release-assets\VERSION"
+          Copy-Item -LiteralPath "dist\windows-release\manifest.json" -Destination "dist\release-assets\manifest.json"
+          Copy-Item -LiteralPath "dist\windows-release\app-base.zip" -Destination "dist\release-assets\app-base.zip"
 
       - name: Upload Windows release assets
         if: github.event_name == 'release'
@@ -99,6 +102,9 @@ jobs:
             "dist\release-assets\windows-VERSION" `
             "dist\release-assets\windows-manifest.json" `
             "dist\release-assets\windows-app-base.zip" `
+            "dist\release-assets\VERSION" `
+            "dist\release-assets\manifest.json" `
+            "dist\release-assets\app-base.zip" `
             --clobber
 
       - name: Upload Windows workflow artifacts

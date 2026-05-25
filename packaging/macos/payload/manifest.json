@@ -4,10 +4,10 @@
   "app_name": "Infinite Canvas",
   "payload_name": "app-base.zip",
   "storage_root_default": "~/Library/Application Support/InfiniteCanvas",
-  "update_base_url": "",
-  "version_endpoint": "VERSION",
-  "manifest_endpoint": "manifest.json",
-  "payload_endpoint": "app-base.zip",
+  "update_base_url": "https://github.com/zhao-wuyan/Infinite-Canvas/releases/latest/download",
+  "version_endpoint": "macos-VERSION",
+  "manifest_endpoint": "macos-manifest.json",
+  "payload_endpoint": "macos-app-base.zip",
   "modes": {
     "runtime": {
       "description": "macOS app bundle stays immutable; runtime is extracted under Application Support."

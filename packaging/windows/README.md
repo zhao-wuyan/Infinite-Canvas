@@ -33,7 +33,7 @@ python packaging\windows\payload\build_payload.py
 2. 生成静态更新源目录：
 
 ```powershell
-python packaging\windows\publish_release.py --update-base-url https://example.com/infinite-canvas/windows
+python packaging\windows\publish_release.py --update-base-url https://github.com/zhao-wuyan/Infinite-Canvas/releases/latest/download
 ```
 
 默认输出到 `dist/windows-release/`，结构如下：
@@ -94,7 +94,7 @@ python packaging\windows\build_portable.py
 - `python packaging\windows\payload\build_payload.py`
   - 生成 `packaging/windows/payload/app-base.zip`
   - `manifest.json` 中 `payload_entries` 与当前仓库内容一致，无 Git diff
-- `python packaging\windows\publish_release.py --update-base-url https://example.com/infinite-canvas/windows`
+- `python packaging\windows\publish_release.py --update-base-url https://github.com/zhao-wuyan/Infinite-Canvas/releases/latest/download`
   - 版本：`2026.05.24.1`
   - 生成 `dist/windows-release/VERSION`
   - 生成 `dist/windows-release/manifest.json`
@@ -120,13 +120,13 @@ python packaging\windows\build_portable.py
   - 请求 `http://127.0.0.1:3101/api/app-info` 成功
   - 返回版本 `2026.05.24.1`，`managed_by_launcher=true`，`preferred_local_url=http://127.0.0.1:3101/`
 - launcher CLI smoke test
-  - `--check-update` 可运行并读取 bootstrap manifest；由于 manifest 未配置 `update_base_url`，返回预期的未配置更新源错误
+  - `--check-update` 可运行并读取 bootstrap manifest；默认更新源为 GitHub Releases latest/download
   - `--list-backups` 可运行并返回空备份列表
 
 仍未验证项：
 
 - 未执行安装器 GUI 安装、卸载时保留/删除数据、桌面快捷方式、开始菜单项验证
-- 未执行真实静态更新源上的更新/回滚联调
+- 未执行 GitHub Releases 真实更新/回滚联调
 
 ## 当前状态
 

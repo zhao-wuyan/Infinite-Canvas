@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -13,7 +15,7 @@ from app_runtime import DEFAULT_APP_PORT, app_base_url
 from packaging.windows.launcher.runtime_manager import (
     compare_versions,
     create_update_backup,
-    current_release_name,
+    current_payload_version,
     launch_server,
     list_launcher_backups,
     read_manifest,
@@ -23,6 +25,10 @@ from packaging.windows.launcher.runtime_manager import (
     resolve_runtime_context,
     wait_for_server,
 )
+
+
+AUTO_UPDATE_ENV = "INFINITE_CANVAS_AUTO_UPDATE"
+UPDATE_ASSET_PREFIX = "windows"
 
 
 def default_install_dir() -> Path:
@@ -51,13 +57,63 @@ def fetch_text(url: str) -> str:
         return response.read().decode("utf-8", errors="replace")
 
 
+def update_endpoint_candidates(endpoint: str) -> list[str]:
+    endpoint = str(endpoint or "").strip()
+    if not endpoint:
+        return []
+    candidates = [endpoint]
+    if "/" not in endpoint and not endpoint.startswith(f"{UPDATE_ASSET_PREFIX}-"):
+        candidates.append(f"{UPDATE_ASSET_PREFIX}-{endpoint}")
+    return candidates
+
+
+def fetch_remote_version(base_url: str, endpoint: str) -> str | None:
+    text = None
+    for candidate in update_endpoint_candidates(endpoint):
+        try:
+            text = fetch_text(join_update_url(base_url, candidate))
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                continue
+            raise
+    if text is None:
+        return None
+    lines = text.strip().splitlines()
+    return lines[0].strip() if lines else ""
+
+
+def download_update_payload(base_url: str, endpoint: str, output_path: Path) -> str | None:
+    for candidate in update_endpoint_candidates(endpoint):
+        payload_url = join_update_url(base_url, candidate)
+        try:
+            with urllib.request.urlopen(payload_url, timeout=60) as response:
+                output_path.write_bytes(response.read())
+            return payload_url
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                continue
+            raise
+    return None
+
+
 def check_for_updates(install_dir: Path) -> dict[str, str | bool]:
     manifest = read_manifest(install_dir)
     base_url = str(manifest.get("update_base_url") or "").strip()
     if not base_url:
         return {"ok": False, "detail": "未配置 update_base_url。"}
-    current = current_release_name(install_dir)
-    remote = fetch_text(join_update_url(base_url, str(manifest.get("version_endpoint") or "VERSION"))).strip().splitlines()[0].strip()
+    current = current_payload_version(install_dir)
+    remote = fetch_remote_version(base_url, str(manifest.get("version_endpoint") or "VERSION"))
+    if remote is None:
+        return {
+            "ok": True,
+            "current_version": current,
+            "has_update": False,
+            "skipped": True,
+            "detail": "远端 VERSION 不存在，跳过自动更新。",
+        }
+    if not remote:
+        return {"ok": False, "current_version": current, "detail": "远端 VERSION 为空。"}
     return {
         "ok": True,
         "current_version": current,
@@ -79,30 +135,27 @@ def launcher_runtime_status(install_dir: Path) -> dict[str, str | bool]:
     }
 
 
-def apply_update(install_dir: Path) -> int:
+def apply_update_result(install_dir: Path) -> dict[str, object]:
     manifest = read_manifest(install_dir)
     base_url = str(manifest.get("update_base_url") or "").strip()
     if not base_url:
-        print(json.dumps({"ok": False, "detail": "未配置 update_base_url。"}, ensure_ascii=False))
-        return 1
+        return {"ok": False, "detail": "未配置 update_base_url。"}
     check = check_for_updates(install_dir)
     if not check.get("ok"):
-        print(json.dumps(check, ensure_ascii=False))
-        return 1
+        return dict(check)
     if not check.get("has_update"):
-        print(json.dumps({"ok": True, "updated": False, **check}, ensure_ascii=False))
-        return 0
+        return {"ok": True, "updated": False, **check}
 
-    payload_url = join_update_url(base_url, str(manifest.get("payload_endpoint") or "app-base.zip"))
+    updater = install_dir / "Infinite Canvas Updater.exe"
+    if not updater.exists():
+        return {"ok": False, "detail": "缺少更新器可执行文件。", **check}
+
     with tempfile.TemporaryDirectory() as tempdir:
         payload_file = Path(tempdir) / "app-base.zip"
-        with urllib.request.urlopen(payload_url, timeout=60) as response:
-            payload_file.write_bytes(response.read())
+        payload_url = download_update_payload(base_url, str(manifest.get("payload_endpoint") or "app-base.zip"), payload_file)
+        if not payload_url:
+            return {"ok": False, "detail": "远端 payload 不存在。", **check}
         backup = create_update_backup(install_dir, str(check["remote_version"]))
-        updater = install_dir / "Infinite Canvas Updater.exe"
-        if not updater.exists():
-            print(json.dumps({"ok": False, "detail": "缺少更新器可执行文件。"}, ensure_ascii=False))
-            return 1
         result = subprocess.run(
             [
                 str(updater),
@@ -116,10 +169,30 @@ def apply_update(install_dir: Path) -> int:
             check=False,
         )
         if result.returncode != 0:
-            print(json.dumps({"ok": False, "detail": f"更新器退出码 {result.returncode}"}, ensure_ascii=False))
-            return result.returncode
-    print(json.dumps({"ok": True, "updated": True, "backup": backup, **check}, ensure_ascii=False))
-    return 0
+            return {"ok": False, "detail": f"更新器退出码 {result.returncode}", "returncode": result.returncode, **check}
+    return {"ok": True, "updated": True, "backup": backup, **check}
+
+
+def apply_update(install_dir: Path) -> int:
+    result = apply_update_result(install_dir)
+    print(json.dumps(result, ensure_ascii=False))
+    if result.get("ok"):
+        return 0
+    return int(result.get("returncode") or 1)
+
+
+def auto_update_enabled() -> bool:
+    value = str(os.environ.get(AUTO_UPDATE_ENV, "1")).strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def try_auto_update_before_launch(install_dir: Path) -> dict[str, object]:
+    if not auto_update_enabled():
+        return {"ok": True, "updated": False, "skipped": True, "detail": "auto update disabled"}
+    try:
+        return apply_update_result(install_dir)
+    except Exception as exc:
+        return {"ok": False, "updated": False, "detail": f"自动更新检查失败：{exc}"}
 
 
 def list_backups(install_dir: Path) -> int:
@@ -154,8 +227,12 @@ def main() -> int:
         return list_backups(args.install_dir.resolve())
     if args.rollback_backup:
         return rollback_backup(args.install_dir.resolve(), str(args.rollback_backup).strip())
-    layout = resolve_runtime_context(args.install_dir.resolve())
-    launcher_exe = str(args.install_dir.resolve() / "Infinite Canvas.exe")
+    install_dir = args.install_dir.resolve()
+    update_result = try_auto_update_before_launch(install_dir)
+    if update_result.get("updated") or not update_result.get("ok", True):
+        print(json.dumps({"auto_update": update_result}, ensure_ascii=False))
+    layout = resolve_runtime_context(install_dir)
+    launcher_exe = str(install_dir / "Infinite Canvas.exe")
     selected_port, port_changed = select_launch_port(layout)
     persist_selected_port(layout, selected_port)
     process = launch_server(layout, launcher_exe=launcher_exe, port=selected_port)

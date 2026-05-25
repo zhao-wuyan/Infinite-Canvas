@@ -67,6 +67,31 @@ def current_release_name(install_dir: Path) -> str:
     return "current"
 
 
+def current_payload_version(install_dir: Path) -> str:
+    """Return the app version inside the active payload, not just the release pointer."""
+    release_name = current_release_name(install_dir)
+    candidates = [release_name]
+    install_version = read_version_from_text(install_dir / "VERSION")
+    if install_version:
+        candidates.append(install_version)
+    try:
+        config = load_install_config(install_dir)
+        runtime_version = read_version_from_text(config.storage_root / "runtime" / release_name / "VERSION")
+        if runtime_version:
+            candidates.append(runtime_version)
+    except Exception:
+        pass
+    payload_version = read_version_from_payload(install_dir)
+    if payload_version:
+        candidates.append(payload_version)
+
+    selected = candidates[0]
+    for candidate in candidates[1:]:
+        if compare_versions(candidate, selected) > 0:
+            selected = candidate
+    return selected
+
+
 def ensure_storage_dirs(layout: LaunchLayout) -> None:
     for path in (layout.storage_root, layout.data_root, layout.logs_root, layout.backups_root, layout.runtime_root):
         path.mkdir(parents=True, exist_ok=True)

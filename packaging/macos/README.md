@@ -33,7 +33,7 @@ python3 packaging/macos/payload/build_payload.py
 2. 生成静态更新源目录：
 
 ```bash
-python3 packaging/macos/publish_release.py --update-base-url https://example.com/infinite-canvas/macos
+python3 packaging/macos/publish_release.py --update-base-url https://github.com/zhao-wuyan/Infinite-Canvas/releases/latest/download
 ```
 
 默认输出到 `dist/macos-release/`。

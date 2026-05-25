@@ -6,6 +6,7 @@ from unittest import mock
 
 from packaging.macos.launcher.runtime_manager import (
     create_update_backup,
+    current_payload_version,
     current_release_name,
     ensure_runtime_release,
     list_launcher_backups,
@@ -34,6 +35,20 @@ class MacRuntimeManagerTests(unittest.TestCase):
             app_bundle = create_bundle_with_payload(Path(tempdir))
 
             self.assertEqual(current_release_name(app_bundle), "2026.05.24.1")
+
+    def test_current_payload_version_uses_runtime_version_after_hot_update(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            app_bundle = create_bundle_with_payload(root, version="2026.05.24.1")
+            storage_root = root / "storage"
+            layout = compute_layout(app_bundle, storage_root=storage_root, release_name="2026.05.24.1")
+            runtime_release = layout.runtime_root / "2026.05.24.1"
+            runtime_release.mkdir(parents=True)
+            (runtime_release / "VERSION").write_text("2026.05.25.3\n", encoding="utf-8")
+            layout.current_release_file.parent.mkdir(parents=True, exist_ok=True)
+            layout.current_release_file.write_text("2026.05.24.1\n", encoding="utf-8")
+
+            self.assertEqual(current_payload_version(app_bundle, storage_root=storage_root), "2026.05.25.3")
 
     def test_ensure_runtime_release_extracts_payload(self):
         with tempfile.TemporaryDirectory() as tempdir:

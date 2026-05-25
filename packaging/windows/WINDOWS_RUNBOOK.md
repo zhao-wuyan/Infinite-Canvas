@@ -145,12 +145,12 @@ py -3 packaging\windows\build_portable.py
 
 ## 更新联调
 
-先准备一个可访问的静态更新源，把 `dist\windows-release\` 发布上去。
+默认更新源是 GitHub Releases latest/download；也可以准备一个可访问的静态更新源并覆盖 `update_base_url`。
 
 ### 1. 首次安装旧版本
 
 - 安装一个旧版
-- 确认 `bootstrap\manifest.json` 中的 `update_base_url` 指向真实静态源
+- 确认 `bootstrap\manifest.json` 中的 `update_base_url` 指向 GitHub Releases 或真实静态源
 
 ### 2. 发布新版本静态目录
 
@@ -241,7 +241,7 @@ http://<局域网 IP>:<实际端口>/
 - `payload` 漏文件：
   - 当前已把 `app_runtime.py` 纳入 payload；如果后续再新增 runtime 依赖文件，必须同步更新 `build_payload.py`
 - `update_base_url` 为空：
-  - launcher 会直接返回“未配置 update_base_url”
+  - 默认 manifest 已配置 GitHub Releases；如果自定义 manifest 置空，launcher 会直接返回“未配置 update_base_url”
 - 安装目录可写性判断与预期不符：
   - 以“当前用户是否能写临时文件”为准，不以路径名判断
 - `3000` 被占用：

@@ -63,6 +63,25 @@ def current_release_name(app_bundle: Path, storage_root: str | Path | None = Non
     return "current"
 
 
+def current_payload_version(app_bundle: Path, storage_root: str | Path | None = None) -> str:
+    """Return the app version inside the active runtime, not just current.txt."""
+    release_name = current_release_name(app_bundle, storage_root=storage_root)
+    layout = compute_layout(app_bundle, storage_root=storage_root, release_name=release_name)
+    candidates = [release_name]
+    runtime_version = read_version_from_text(layout.runtime_root / release_name / "VERSION")
+    if runtime_version:
+        candidates.append(runtime_version)
+    payload_version = read_version_from_payload(layout)
+    if payload_version:
+        candidates.append(payload_version)
+
+    selected = candidates[0]
+    for candidate in candidates[1:]:
+        if compare_versions(candidate, selected) > 0:
+            selected = candidate
+    return selected
+
+
 def ensure_storage_dirs(layout: MacLaunchLayout) -> None:
     for path in (layout.storage_root, layout.data_root, layout.logs_root, layout.backups_root, layout.runtime_root):
         path.mkdir(parents=True, exist_ok=True)

@@ -113,7 +113,7 @@ dist/macos/Infinite Canvas.app
 
 ## 更新联调
 
-先发布 `dist/macos-release/` 到静态源。
+默认更新源是 GitHub Releases latest/download；也可以发布 `dist/macos-release/` 到静态源并覆盖 `update_base_url`。
 
 验证点：
 

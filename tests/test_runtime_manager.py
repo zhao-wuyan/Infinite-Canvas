@@ -6,6 +6,7 @@ from unittest import mock
 
 from packaging.windows.launcher.runtime_manager import (
     create_update_backup,
+    current_payload_version,
     current_release_name,
     ensure_runtime_release,
     list_launcher_backups,
@@ -56,6 +57,25 @@ class RuntimeManagerTests(unittest.TestCase):
                 archive.writestr("VERSION", "2026.05.24.1\n")
 
             self.assertEqual(current_release_name(install_dir), "2026.05.24.1")
+
+    def test_current_payload_version_uses_runtime_version_after_hot_update(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            install_dir = root / "app"
+            storage_root = root / "storage"
+            install_dir.mkdir()
+            (install_dir / "bootstrap").mkdir()
+            (install_dir / "bootstrap" / "manifest.json").write_text("{}", encoding="utf-8")
+            (install_dir / "install-meta.ini").write_text(
+                f"[paths]\nstorage_root={storage_root}\n",
+                encoding="utf-8",
+            )
+            (install_dir / "current.txt").write_text("2026.05.24.1\n", encoding="utf-8")
+            runtime_release = storage_root / "runtime" / "2026.05.24.1"
+            runtime_release.mkdir(parents=True)
+            (runtime_release / "VERSION").write_text("2026.05.25.3\n", encoding="utf-8")
+
+            self.assertEqual(current_payload_version(install_dir), "2026.05.25.3")
 
     def test_launch_server_prefers_packaged_service_executable(self):
         with tempfile.TemporaryDirectory() as tempdir:
