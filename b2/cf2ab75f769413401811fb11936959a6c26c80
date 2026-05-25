@@ -1,0 +1,34 @@
+tests/test_run_bat.py
+  s_cc9e56621aa13f::t_f77b1ba8f45f4c 6,9-10
+  s_cc9e56621aa13f::t_d56bd53c2174b3 13-27
+  s_cc9e56621aa13f::t_184f7cbbe1fc13 1-5,7-8,11-12,28-29
+run.bat
+  s_cc9e56621aa13f::t_184f7cbbe1fc13 2-7
+  s_cc9e56621aa13f::t_f77b1ba8f45f4c 12-13
+mac-启动服务.sh
+  s_cc9e56621aa13f::t_d56bd53c2174b3 21
+main.py
+  s_cc9e56621aa13f::t_d56bd53c2174b3 1093,1095,1097,1112-1113,1122
+mac-修复权限.command
+  s_cc9e56621aa13f::t_d56bd53c2174b3 15,23,34
+mac-启动服务.command
+  s_cc9e56621aa13f::t_d56bd53c2174b3 14,18,26-27
+MAC-使用说明.md
+  s_cc9e56621aa13f::t_d56bd53c2174b3 7-8,14,36-37,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "b2cf2ab75f769413401811fb11936959a6c26c80",
+  "prompts": {},
+  "sessions": {
+    "s_cc9e56621aa13f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d90-cce9-70f2-9eab-2af29b54bfba",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
