@@ -21,6 +21,7 @@
         "update.oneClick": { zh: "一键更新", en: "Update" },
         "update.versionLine": { zh: "本地 {local} · 最新 {remote}", en: "Local {local} · Latest {remote}" },
         "nav.textToImage": { zh: "文生图", en: "Text to Image" },
+        "nav.localTools": { zh: "本地功能", en: "Local Tools" },
         "nav.enhance": { zh: "细节增强", en: "Enhance" },
         "nav.imageEdit": { zh: "图片编辑", en: "Image Edit" },
         "nav.angle": { zh: "角度控制", en: "Angle Control" },
