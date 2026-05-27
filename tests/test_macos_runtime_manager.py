@@ -34,9 +34,11 @@ def create_bundle_with_payload(root: Path, version: str = "2026.05.24.1") -> Pat
 class MacRuntimeManagerTests(unittest.TestCase):
     def test_current_release_name_falls_back_to_payload_version(self):
         with tempfile.TemporaryDirectory() as tempdir:
-            app_bundle = create_bundle_with_payload(Path(tempdir))
+            root = Path(tempdir)
+            app_bundle = create_bundle_with_payload(root)
+            storage_root = root / "storage"
 
-            self.assertEqual(current_release_name(app_bundle), "2026.05.24.1")
+            self.assertEqual(current_release_name(app_bundle, storage_root=storage_root), "2026.05.24.1")
 
     def test_current_payload_version_uses_runtime_version_after_hot_update(self):
         with tempfile.TemporaryDirectory() as tempdir:

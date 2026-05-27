@@ -75,7 +75,7 @@
         "smart.rhConfig": { zh: "RH 配置", en: "RH Config" },
         "smart.rhNoConfig": { zh: "暂无 RH 配置", en: "No RH config" },
         "smart.rhKey": { zh: "Key", en: "Key" },
-        "smart.rhFreeKey": { zh: "免费积分", en: "Free credits" },
+        "smart.rhFreeKey": { zh: "RH币", en: "RH Coins" },
         "smart.rhWalletKey": { zh: "账户余额", en: "Wallet" },
         "smart.rhMachine": { zh: "显存", en: "VRAM" },
         "smart.rhParams": { zh: "RH 参数", en: "RH Params" },
