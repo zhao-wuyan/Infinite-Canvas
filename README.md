@@ -9,6 +9,8 @@ https://apimart.ai/register?aff=1uyAbb  （包含所有生图模型/视频模型
 
 https://www.fhl.mom/register?aff=86L574B4T2N9  （包含codex和GPT image 2模型）
 
+功能请求/功能更新/视频教程/联系我，都可以在B站评论或私信：https://space.bilibili.com/78652351
+
 ----
 
 【新增了version文件，我每次更新都会更新version的版本号，如果你下载version文件，打开项目后，导航栏的GitHub按键就会提示新版本，如果不想查看更新提示，就删除version文件】
@@ -28,6 +30,23 @@ May 25th Update:
 2. Supports Volcano Engine
 
 3. Supports uploading video/audio, and supports various output results from Comfyui (video/audio/text)
+
+--------
+
+已经申请著作权，禁止商业用途
+
+Commercial use is prohibited.
+
+
+* 可以自己使用和公司使用，禁止用于任何形式的修改封装成商业产品，商用须取得授权。
+
+* 根据代码二次开发的软件必须保持开源并注明来源作者
+
+* This software is for personal and company use only, but is prohibited from being modified or packaged into commercial products in any way. Commercial use requires authorization.
+
+* Software developed based on this code must remain open source and the original author must be credited.
+
+--------
 
 <img width="2079" height="665" alt="image" src="https://github.com/user-attachments/assets/8469923b-f7a2-403c-9c37-e6e789211f28" />
 
