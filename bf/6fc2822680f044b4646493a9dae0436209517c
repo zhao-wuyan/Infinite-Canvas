@@ -1,0 +1,19 @@
+.workflow/specs/quality-rules.md
+  s_c29a3966c97456::t_3456bae81dec36 69-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bf6fc2822680f044b4646493a9dae0436209517c",
+  "prompts": {},
+  "sessions": {
+    "s_c29a3966c97456": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e69ec-7be1-70a3-b463-74ae148a63d0",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
