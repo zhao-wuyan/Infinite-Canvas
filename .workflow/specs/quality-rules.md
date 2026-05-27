@@ -65,3 +65,15 @@ keywords:
 GitNexus 或其他影响分析工具可以使用 AI 协作资产理解 fork 的长期决策，但在 `pr` 阶段不得把这些资产作为上游代码依赖。PR 说明可以人工摘要相关决策背景，但不应引用上游无法访问或不应接收的 fork 内部工作流文件作为必要上下文。
 
 </spec-entry>
+
+<spec-entry category="rule" keywords="upstream-sync,branch-flow,origin-main,pkg,pr-authorization" date="2026-05-27" source="user:2026-05-27">
+
+### 本 fork 的上游同步分支流向与推送授权规则
+
+当前 fork 的 `main` 分支是唯一允许直接同步上游 `hero8152/Infinite-Canvas` 的基线分支。即使本地没有配置 `upstream` remote，也可以把本 fork 的 `origin/main` 视为已经由人工同步后的上游基线；自动化流程不得在 `pkg` 或 `pr` 分支直接从 `hero8152/Infinite-Canvas`、其他 fork 或任意外部分支合入代码。
+
+标准合并方向固定为：先由用户或授权流程把上游合入本 fork 的 `main`，再只允许从本 fork 的 `main` 合入 `pkg`，最后只允许从本 fork 的 `pkg` 合入本 fork 的 `pr` 分支。`pkg` 不能直接合并上游仓库，`pr` 不能直接合并 `main` 或上游仓库。
+
+`pr` 分支用于准备提交到上游 PR，但推送或更新上游 PR 必须获得用户明确授权。没有授权时，自动化流程只能完成本地合并、清理、检查和报告，不得执行 `git push` 或触发远端 PR 更新。
+
+</spec-entry>
