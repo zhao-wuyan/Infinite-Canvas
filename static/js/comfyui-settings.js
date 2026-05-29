@@ -247,6 +247,8 @@ async function saveComfyInstances(){
         const data = await res.json();
         comfyInstances = data.instances || cleaned;
         renderComfyInstances();
+        try { new BroadcastChannel('studio-api').postMessage({ type: 'comfy-instances-changed' }); } catch(e) {}
+        try { window.parent?.postMessage({ type: 'comfy-instances-changed' }, '*'); } catch(e) {}
         setStatus('ComfyUI 后端地址已保存');
     } catch(e){
         alert(e.message || '保存失败');
