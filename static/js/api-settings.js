@@ -260,7 +260,7 @@ function rhWorkflowFieldKey(field){
 }
 function rhWorkflowFieldKind(field){
     const type = String(field?.fieldType || '').toUpperCase();
-    if(['IMAGE','VIDEO','AUDIO','BOOLEAN','NUMBER','FLOAT','INT','INTEGER','TEXT'].includes(type)){
+    if(['IMAGE','VIDEO','AUDIO','BOOLEAN','NUMBER','FLOAT','INT','INTEGER','TEXT','SLIDER'].includes(type)){
         if(type === 'FLOAT' || type === 'INT' || type === 'INTEGER') return 'NUMBER';
         return type;
     }
@@ -276,6 +276,7 @@ function rhWorkflowFieldTypeLabel(type){
     return ({
         TEXT:'文本',
         NUMBER:'数字',
+        SLIDER:'滑块',
         BOOLEAN:'开关',
         SELECT:'下拉',
         IMAGE:'图片',
@@ -308,13 +309,14 @@ function normalizeRhWorkflowField(field){
         : String(field?.options || '').split(/\r?\n|,/).map(option => option.trim()).filter(Boolean);
     const knownOptions = options.length ? options : rhKnownOptionsForField(field);
     const fieldType = String(field?.fieldType || rhWorkflowFieldKind(field));
+    const normalizedType = fieldType.toUpperCase();
     const savedSource = field?.sourceFromUpstream;
     return {
         id:String(field?.id || rhWorkflowFieldKey(field)),
         nodeId:String(field?.nodeId || ''),
         fieldName:String(field?.fieldName || ''),
         fieldValue:field?.fieldValue == null ? '' : String(field.fieldValue),
-        fieldType:knownOptions.length && !['IMAGE','VIDEO','AUDIO'].includes(fieldType.toUpperCase()) ? 'SELECT' : fieldType,
+        fieldType:knownOptions.length && !['IMAGE','VIDEO','AUDIO','SLIDER'].includes(normalizedType) ? 'SELECT' : fieldType,
         label:String(field?.label || field?.fieldName || ''),
         enabled:field?.enabled === true,
         sourceFromUpstream:savedSource === undefined ? false : savedSource !== false,
@@ -1178,6 +1180,13 @@ function renderRhPreviewControl(field){
         const on = String(value).toLowerCase() === 'true';
         return `<div class="rh-preview-field"><div class="rh-preview-label">${label}</div><div class="rh-preview-switch ${on ? 'on' : ''}"><span></span></div></div>`;
     }
+    if(kind === 'SLIDER'){
+        const min = Number.isFinite(Number(field.min)) ? Number(field.min) : 0;
+        const max = Number.isFinite(Number(field.max)) && Number(field.max) > min ? Number(field.max) : 1;
+        const step = Number.isFinite(Number(field.step)) && Number(field.step) > 0 ? Number(field.step) : 0.01;
+        const numericValue = Number.isFinite(Number(value)) ? Number(value) : min;
+        return `<div class="rh-preview-field"><div class="rh-preview-label"><span>${label}</span><span class="rh-preview-slider-val">${escapeHtml(numericValue)}</span></div><input class="rh-preview-slider" type="range" min="${escapeAttr(min)}" max="${escapeAttr(max)}" step="${escapeAttr(step)}" value="${escapeAttr(numericValue)}" oninput="updateRhPreviewValue('${escapeAttr(key)}', this.value); const val=this.closest('.rh-preview-field')?.querySelector('.rh-preview-slider-val'); if(val) val.textContent=this.value;"></div>`;
+    }
     if(options.length || kind === 'SELECT'){
         return `<div class="rh-preview-field"><div class="rh-preview-label">${label}</div><select disabled>${(options.length ? options : [value || '选项']).map(option => `<option>${escapeHtml(option)}</option>`).join('')}</select></div>`;
     }
@@ -1291,6 +1300,8 @@ async function buildRhPreviewNodeInfoList(){
             value = await rhPreviewUploadValueIfNeeded(preview.url || value);
         } else if(kind === 'NUMBER' && field.random_enabled === true && preview.randomActive !== false) {
             value = rhPreviewRandomValue(field);
+        } else if(['NUMBER','SLIDER'].includes(kind) && String(value ?? '').trim() !== '' && !Number.isNaN(Number(value))) {
+            value = Number(value);
         }
         if(typeof value === 'string' && /[\r\n]/.test(value)) value = value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || '';
         result.push({nodeId:field.nodeId, fieldName:field.fieldName, fieldValue:value});
@@ -1456,7 +1467,7 @@ function renderRhWorkflowEditorField(field){
                 <div class="rh-editor-field-controls">
                     <input type="text" value="${escapeAttr(field.label || '')}" placeholder="显示名称" oninput="updateRhWorkflowEditorField('${escapeAttr(key)}','label',this.value)">
                     <select onchange="updateRhWorkflowEditorField('${escapeAttr(key)}','fieldType',this.value)">
-                        ${['TEXT','NUMBER','BOOLEAN','SELECT','IMAGE','VIDEO','AUDIO'].map(option => `<option value="${option}" ${String(field.fieldType || type).toUpperCase() === option ? 'selected' : ''}>${rhWorkflowFieldTypeLabel(option)}</option>`).join('')}
+                        ${['TEXT','NUMBER','SLIDER','BOOLEAN','SELECT','IMAGE','VIDEO','AUDIO'].map(option => `<option value="${option}" ${String(field.fieldType || type).toUpperCase() === option ? 'selected' : ''}>${rhWorkflowFieldTypeLabel(option)}</option>`).join('')}
                     </select>
                 </div>
                 ${imageSlotControls}

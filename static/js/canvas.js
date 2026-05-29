@@ -225,6 +225,8 @@ const MANAGED_IMAGE_MODELS_KEY = 'canvas_image_models_ordered';
 const MANAGED_CHAT_MODELS_KEY = 'canvas_chat_models_ordered';
 const CANVAS_THEME_KEY = 'canvas_theme';
 const QUICK_TOOLBAR_COLLAPSED_KEY = 'canvas_quick_toolbar_collapsed';
+const CANVAS_SESSION_VIEWPORTS_KEY = 'canvas_session_viewports_v1';
+let canvasSessionViewportFallback = {};
 const DEFAULT_VIDEO_MODELS = [
     // Veo
     'veo2', 'veo2-fast', 'veo2-pro',
@@ -246,6 +248,37 @@ const DEFAULT_VIDEO_MODELS = [
 ];
 
 function uid(prefix='n'){ return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`; }
+function loadLocalViewportMap(){
+    try {
+        const data = JSON.parse(sessionStorage.getItem(CANVAS_SESSION_VIEWPORTS_KEY) || '{}');
+        return data && typeof data === 'object' ? data : {};
+    } catch(e) {
+        return canvasSessionViewportFallback;
+    }
+}
+function localViewportForCanvas(canvasId, fallback={x:0, y:0, scale:1}){
+    const item = loadLocalViewportMap()[canvasId || ''];
+    if(!item || typeof item !== 'object') return {...fallback};
+    return {
+        x:Number.isFinite(Number(item.x)) ? Number(item.x) : Number(fallback.x || 0),
+        y:Number.isFinite(Number(item.y)) ? Number(item.y) : Number(fallback.y || 0),
+        scale:Number.isFinite(Number(item.scale)) ? Math.max(.12, Math.min(8, Number(item.scale))) : Number(fallback.scale || 1)
+    };
+}
+function saveLocalViewport(){
+    if(!canvas?.id) return;
+    const map = loadLocalViewportMap();
+    map[canvas.id] = {
+        x:Number(viewport.x || 0),
+        y:Number(viewport.y || 0),
+        scale:Number(viewport.scale || 1),
+        updatedAt:Date.now()
+    };
+    canvasSessionViewportFallback = map;
+    try {
+        sessionStorage.setItem(CANVAS_SESSION_VIEWPORTS_KEY, JSON.stringify(map));
+    } catch(e) {}
+}
 function applyTheme(theme){
     const dark = theme === 'dark';
     document.documentElement.classList.toggle('studio-theme-dark', dark);
@@ -826,6 +859,9 @@ function scheduleSave(){
     }
     saveTimer = setTimeout(saveCanvas, 500);
 }
+function scheduleViewportSave(){
+    saveLocalViewport();
+}
 function refreshOutputTimer(){
     const hasPending = nodes.some(n => n.type === 'output' && (n._pending || []).length);
     if(hasPending && !outputTimer){
@@ -903,7 +939,9 @@ async function saveCanvas(){
         }
         if(!res.ok) throw new Error('save failed');
         const data = await res.json().catch(() => ({}));
-        if(data.canvas) canvas = {...canvas, ...data.canvas};
+        const localViewport = {...viewport};
+        if(data.canvas) canvas = {...canvas, ...data.canvas, viewport:localViewport};
+        viewport = localViewport;
         canvas.updated_at = Number(canvas.updated_at || Date.now());
         lastCanvasUpdatedAt = canvas.updated_at;
         localCanvasDirty = Boolean(saveCanvasAgain);
@@ -1161,7 +1199,8 @@ async function createCanvas(){
         canvas.logs = canvas.logs || [];
         nodes = canvas.nodes || [];
         connections = canvas.connections || [];
-        viewport = canvas.viewport || {x:0, y:0, scale:1};
+        viewport = localViewportForCanvas(canvas.id, canvas.viewport || {x:0, y:0, scale:1});
+        canvas.viewport = {...viewport};
         resetTransientRunState(nodes);
         sanitizeConnections();
         selected.clear();
@@ -1302,7 +1341,8 @@ async function openCanvas(id){
         canvas.logs = canvas.logs || [];
         nodes = canvas.nodes || [];
         connections = canvas.connections || [];
-        viewport = canvas.viewport || {x:0, y:0, scale:1};
+        viewport = localViewportForCanvas(canvas.id, canvas.viewport || {x:0, y:0, scale:1});
+        canvas.viewport = {...viewport};
         lastCanvasUpdatedAt = Number(canvas.updated_at || 0);
         localCanvasDirty = false;
         resetTransientRunState(nodes);
@@ -1331,18 +1371,21 @@ function applyRemoteCanvasData(remote){
     applyingRemoteCanvas = true;
     try {
         resetCascadeRuntimeState();
+        const localViewport = localViewportForCanvas(canvas.id, viewport || remote.viewport || {x:0, y:0, scale:1});
+        const localSelectedIds = new Set(selected);
         canvas = remote;
         canvas.logs = canvas.logs || [];
         nodes = canvas.nodes || [];
         connections = canvas.connections || [];
-        viewport = canvas.viewport || {x:0, y:0, scale:1};
+        viewport = localViewport;
+        canvas.viewport = {...viewport};
         lastCanvasUpdatedAt = Number(canvas.updated_at || Date.now());
         localCanvasDirty = false;
         resetTransientRunState(nodes);
         sanitizeConnections();
         pruneMissingComfyWorkflows();
         refreshMissingCanvasAssets().then(() => render());
-        selected.clear();
+        selected = new Set([...localSelectedIds].filter(id => nodes.some(node => node.id === id)));
         renderCanvasList();
         render();
         resumeCanvasImageTasks();
@@ -6230,6 +6273,7 @@ function rhFieldKind(field){
     if(type === 'IMAGE') return 'image';
     if(type === 'VIDEO') return 'video';
     if(type === 'AUDIO') return 'audio';
+    if(type === 'SLIDER') return 'slider';
     if(['NUMBER','FLOAT','INTEGER','INT'].includes(type)) return 'number';
     if(['BOOLEAN','BOOL'].includes(type)) return 'boolean';
     const key = `${field?.fieldName || ''} ${field?.fieldValue || ''}`.toLowerCase();
@@ -6240,7 +6284,7 @@ function rhFieldKind(field){
 }
 function rhFieldRole(field){
     const kind = rhFieldKind(field);
-    if(['image','video','audio','number','boolean'].includes(kind)) return kind;
+    if(['image','video','audio','number','slider','boolean'].includes(kind)) return kind;
     const text = `${field?.fieldName || ''} ${field?.label || ''} ${field?.group || ''}`.toLowerCase();
     if(/prompt|positive|negative|text|caption|description|关键词|提示词|正向|负向/.test(text)) return 'prompt';
     return 'text';
@@ -6753,6 +6797,18 @@ function renderRhSettingField(node, field, key, kind, label, value, options, wid
             <button type="button" class="setting-check ${active ? 'active' : ''}" data-rh-param="${escapeAttr(key)}" data-rh-type="boolean"><span class="check-dot"></span>${safeLabel}</button>
         </div>`;
     }
+    if(kind === 'slider'){
+        const min = Number.isFinite(Number(field.min)) ? Number(field.min) : 0;
+        const max = Number.isFinite(Number(field.max)) && Number(field.max) > min ? Number(field.max) : 1;
+        const step = Number.isFinite(Number(field.step)) && Number(field.step) > 0 ? Number(field.step) : 0.01;
+        const numericValue = Number.isFinite(Number(value)) ? Number(value) : min;
+        return `<div class="gen-settings-row rh-param-row ${wide ? 'wide' : ''}">
+            <label class="field" style="flex:1">
+                <div class="setting-title" style="display:flex;justify-content:space-between"><span>${safeLabel}</span><span class="rh-param-val">${escapeHtml(numericValue)}</span></div>
+                <input type="range" class="canvas-range rh-param-input" data-rh-param="${escapeAttr(key)}" data-rh-type="slider" min="${escapeAttr(min)}" max="${escapeAttr(max)}" step="${escapeAttr(step)}" value="${escapeAttr(numericValue)}">
+            </label>
+        </div>`;
+    }
     if(options?.length){
         return `<div class="gen-settings-row rh-param-row ${wide ? 'wide' : ''}">
             <label class="field"><div class="setting-title">${safeLabel}</div><select class="select-lite rh-param-input" data-rh-param="${escapeAttr(key)}" data-rh-type="select" style="width:100%">${options.map(opt => `<option value="${escapeAttr(opt)}" ${String(value) === String(opt) ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}</select></label>
@@ -6795,6 +6851,8 @@ function bindRhParamControls(container, node){
             node.rhParams = node.rhParams || {};
             const cur = node.rhParams[key] || {};
             node.rhParams[key] = {...cur, value:e.target.value};
+            const val = control.closest('.field')?.querySelector('.rh-param-val');
+            if(val) val.textContent = e.target.value;
             scheduleSave();
         };
     });
@@ -6929,6 +6987,7 @@ async function rhBuildNodeInfoList(node, media){
         }
         let value = rhFieldValue(node, field, media);
         if(['image','video','audio'].includes(kind)) value = await rhUploadValueIfNeeded(value, node);
+        if(['number','slider'].includes(kind) && String(value ?? '').trim() !== '' && !Number.isNaN(Number(value))) value = Number(value);
         if(typeof value === 'string' && /[\r\n]/.test(value)) value = value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || '';
         result.push({nodeId:field.nodeId, fieldName:field.fieldName, fieldValue:value});
     }
@@ -10179,6 +10238,8 @@ function sanitizeConnections(){
     connections = (connections || []).filter(c => canConnect(c.from, c.to));
 }
 function endDrag(event=null){
+    const hadContentDrag = Boolean(dragNode || resizeNode || llmPaneDrag || knifeChanged || tempLink);
+    const hadViewportDrag = Boolean(dragBoard || minimapDrag);
     if(dragNode){
         const moved = [dragNode.node, ...(dragNode.children || []).map(c => c.node)].filter(Boolean);
         // 拖动 group/promptGroup 自身时不重新评估（成员跟着一起走，包含关系不变）
@@ -10202,7 +10263,8 @@ function endDrag(event=null){
     window.onmouseup = null;
     if(shouldRenderKnife) render();
     scheduleMinimapRender();
-    scheduleSave();
+    if(hadContentDrag) scheduleSave();
+    else if(hadViewportDrag) scheduleViewportSave();
 }
 function nodeRect(n){
     const el = nodesEl.querySelector(`.node[data-id="${n.id}"]`);
@@ -10526,7 +10588,7 @@ minimap?.addEventListener('mousedown', e => {
         minimapDrag = false;
         window.onmousemove = null;
         window.onmouseup = null;
-        scheduleSave();
+        scheduleViewportSave();
     };
 });
 function startBoardPan(e){
@@ -10604,7 +10666,7 @@ board.onwheel = e => {
     applyViewport();
     renderLinks();
     renderSelectionHub();
-    scheduleSave();
+    scheduleViewportSave();
 };
 board.addEventListener('dragover', e => {
     if(e.target.closest?.('.image-node')){

@@ -1116,7 +1116,53 @@ def static_html_response(filename: str):
         headers={"Cache-Control": "no-cache"},
     )
 
-PROMPT_TEMPLATE_MD = os.path.join(BASE_DIR, "功能点", "无限画布_预设提示词标准库_v2.0.md")
+STATIC_PROMPT_TEMPLATE_MD = os.path.join(STATIC_DIR, "system-prompts", "infinite-canvas-prompt-templates.md")
+LEGACY_PROMPT_TEMPLATE_MD = os.path.join(BASE_DIR, "功能点", "无限画布_预设提示词标准库_v2.0.md")
+PROMPT_TEMPLATE_PATHS = [STATIC_PROMPT_TEMPLATE_MD, LEGACY_PROMPT_TEMPLATE_MD]
+PROMPT_TEMPLATE_EN = {
+    "多机位九宫格": {
+        "name": "9-Angle Multi-Camera Grid",
+        "scene": "Show the same subject or scene from 9 camera angles for character turnarounds, product views, or space scouting.",
+    },
+    "多机位九宫格4K": {
+        "name": "9-Angle Multi-Camera Grid 4K",
+        "scene": "A high-resolution 9-angle reference sheet for print-grade output, large displays, and fine material study.",
+    },
+    "剧情推演四宫格": {
+        "name": "4-Panel Story Progression",
+        "scene": "Preview four consecutive story beats or emotional stages for storyboard planning and narrative rhythm tests.",
+    },
+    "角色脸部三视图": {
+        "name": "Character Face 3-View Sheet",
+        "scene": "Front, side, and three-quarter face references for Actor ID locking and expression consistency.",
+    },
+    "产品三视图": {
+        "name": "Product 3-View Sheet",
+        "scene": "Front, side, and top product views for industrial design, ecommerce detail pages, and technical documents.",
+    },
+    "25宫格连贯分镜": {
+        "name": "25-Panel Continuous Storyboard",
+        "scene": "A full 5x5 storyboard for continuous scene or action flow, useful for film previews and motion continuity tests.",
+    },
+    "电影级光影校正": {
+        "name": "Cinematic Lighting Comparison",
+        "scene": "Compare the same subject or scene under different lighting conditions for mood, color, and lighting choices.",
+    },
+    "角色设定参考表（胸口特写+全身三视图）": {
+        "name": "Character Reference Sheet: Portrait + Full-Body Views",
+        "scene": "A consistency reference combining a face anchor and full-body front, side, and back views for Actor ID and costume lock.",
+    },
+    "6种基础表情胸像（2×3六宫格）": {
+        "name": "6 Basic Expression Busts",
+        "scene": "Six basic expressions of the same character for expression consistency, emotion baselines, and Seedance Talk-to-Edit reference.",
+    },
+}
+
+def prompt_template_markdown_path() -> str:
+    for path in PROMPT_TEMPLATE_PATHS:
+        if os.path.exists(path):
+            return path
+    return ""
 
 def prompt_template_category(name: str, scene: str) -> str:
     text = f"{name} {scene}"
@@ -1161,8 +1207,10 @@ def parse_prompt_template_markdown(text: str):
             "id": f"builtin_md_{number}",
             "number": number,
             "name": name,
+            "name_en": PROMPT_TEMPLATE_EN.get(name, {}).get("name", name),
             "category": prompt_template_category(name, scene),
             "scene": scene,
+            "scene_en": PROMPT_TEMPLATE_EN.get(name, {}).get("scene", scene),
             "positive": positive,
             "negative": negative,
             "params": params,
@@ -1177,6 +1225,7 @@ def app_info():
         "version": version,
         "repo_url": GITHUB_REPO_URL,
         "version_url": GITHUB_VERSION_URL,
+        "tree_url": GITHUB_TREE_URL,
         "port": APP_PORT,
     }
     if LAUNCHER_MANAGED:
@@ -1188,6 +1237,51 @@ def app_info():
             "preferred_local_url": f"http://127.0.0.1:{APP_PORT}/",
         })
     return info
+
+def connectivity_probe(name: str, url: str, timeout: float = 8.0) -> Dict[str, Any]:
+    started = time.time()
+    item = {
+        "name": name,
+        "url": url,
+        "ok": False,
+        "status": 0,
+        "elapsed_ms": 0,
+        "error": "",
+    }
+    try:
+        response = requests.get(
+            url,
+            headers={"User-Agent": "Infinite-Canvas-Updater"},
+            timeout=timeout,
+            stream=True,
+            proxies=urllib.request.getproxies() or None,
+        )
+        item["status"] = response.status_code
+        item["ok"] = 200 <= response.status_code < 400
+        if not item["ok"]:
+            item["error"] = f"HTTP {response.status_code} {response.reason}"
+        response.close()
+    except requests.RequestException as exc:
+        item["error"] = str(exc)
+    finally:
+        item["elapsed_ms"] = int((time.time() - started) * 1000)
+    return item
+
+@app.get("/api/update-connectivity")
+def update_connectivity():
+    targets = [
+        ("GitHub 更新列表", GITHUB_TREE_URL),
+        ("GitHub 版本文件", GITHUB_VERSION_URL),
+        ("GitHub 主页", "https://github.com/"),
+        ("Google 连通性", "https://www.google.com/generate_204"),
+    ]
+    results = [connectivity_probe(name, url) for name, url in targets]
+    return {
+        "ok": all(item["ok"] for item in results[:2]),
+        "results": results,
+        "required": ["GitHub 更新列表", "GitHub 版本文件"],
+        "optional": ["GitHub 主页", "Google 连通性"],
+    }
 
 @app.get("/api/launcher/status")
 def launcher_status_api():
@@ -5800,11 +5894,12 @@ async def get_canvas(canvas_id: str):
 @app.get("/api/smart-canvas/prompt-templates")
 async def smart_canvas_prompt_templates():
     try:
-        if not os.path.exists(PROMPT_TEMPLATE_MD):
+        template_path = prompt_template_markdown_path()
+        if not template_path:
             return {"templates": []}
-        with open(PROMPT_TEMPLATE_MD, "r", encoding="utf-8") as f:
+        with open(template_path, "r", encoding="utf-8") as f:
             text = f.read()
-        return {"templates": parse_prompt_template_markdown(text)}
+        return {"templates": parse_prompt_template_markdown(text), "source": os.path.relpath(template_path, BASE_DIR).replace("\\", "/")}
     except Exception as e:
         print(f"读取提示词模板失败: {e}")
         return {"templates": []}
@@ -6046,7 +6141,10 @@ async def update_canvas(canvas_id: str, payload: CanvasSaveRequest):
     canvas["kind"] = normalize_canvas_kind(canvas.get("kind"))
     canvas["nodes"] = payload.nodes
     canvas["connections"] = payload.connections
-    canvas["viewport"] = payload.viewport
+    if canvas["kind"] == "smart":
+        canvas["viewport"] = payload.viewport
+    else:
+        canvas["viewport"] = canvas.get("viewport") or {"x": 0, "y": 0, "scale": 1}
     canvas["logs"] = payload.logs[-500:]
     canvas["settings"] = payload.settings or {}
     save_canvas(canvas)

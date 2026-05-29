@@ -348,6 +348,10 @@ body.studio-theme-dark .rh-editor-field textarea { background:var(--soft); borde
 .rh-preview-label { color:var(--muted); font-size:11px; font-weight:850; }
 .rh-preview-field input,
 .rh-preview-field select { width:100%; height:34px; border:1px solid var(--line); border-radius:9px; background:var(--panel); color:var(--text); outline:none; padding:0 10px; font-size:12px; font-weight:750; }
+.rh-preview-field input[type=range].rh-preview-slider { -webkit-appearance:none; height:3px !important; border:0 !important; border-radius:2px; background:#e2e8f0 !important; padding:0 !important; margin:7px 0 6px; cursor:pointer; }
+.rh-preview-field input[type=range].rh-preview-slider::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--text); cursor:pointer; margin-top:-5.5px; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+.rh-preview-field input[type=range].rh-preview-slider::-webkit-slider-runnable-track { height:3px; border-radius:2px; background:#e2e8f0; }
+.rh-preview-slider-val { color:var(--text); font-variant-numeric:tabular-nums; font-family:ui-monospace,Menlo,monospace; }
 .rh-preview-label { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .rh-preview-slot { color:var(--faint); font-size:10px; font-weight:900; white-space:nowrap; }
 .rh-preview-keep { min-height:34px; border:1px dashed var(--line); border-radius:9px; background:var(--soft); color:var(--muted); display:flex; align-items:center; justify-content:center; gap:7px; font-size:11px; font-weight:850; }
