@@ -1643,6 +1643,7 @@ function rhFieldKind(field){
     if(type === 'IMAGE') return 'image';
     if(type === 'VIDEO') return 'video';
     if(type === 'AUDIO') return 'audio';
+    if(type === 'SLIDER') return 'slider';
     if(['NUMBER','FLOAT','INTEGER','INT'].includes(type)) return 'number';
     if(['BOOLEAN','BOOL'].includes(type)) return 'boolean';
     const key = `${field?.fieldName || ''} ${field?.fieldValue || ''}`.toLowerCase();
@@ -1653,7 +1654,7 @@ function rhFieldKind(field){
 }
 function rhFieldRole(field){
     const kind = rhFieldKind(field);
-    if(['image','video','audio','number','boolean'].includes(kind)) return kind;
+    if(['image','video','audio','number','slider','boolean'].includes(kind)) return kind;
     const text = `${field?.fieldName || ''} ${field?.label || ''} ${field?.group || ''}`.toLowerCase();
     if(/prompt|positive|negative|text|caption|description|关键词|提示词|正向|负向/.test(text)) return 'prompt';
     return 'text';
@@ -2039,6 +2040,7 @@ async function rhBuildNodeInfoList(media){
         let value = rhParamValue(field, media);
         if(rhFieldRole(field) === 'prompt' && !String(value || '').trim()) value = rhDefaultValue(field);
         if(['image','video','audio'].includes(kind)) value = await rhUploadValueIfNeeded(value);
+        if(['number','slider'].includes(kind) && String(value ?? '').trim() !== '' && !Number.isNaN(Number(value))) value = Number(value);
         if(typeof value === 'string' && /[\r\n]/.test(value)) value = value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || '';
         result.push({nodeId:field.nodeId, fieldName:field.fieldName, fieldValue:value});
     }
@@ -2053,6 +2055,19 @@ function renderRhSettingField(field){
     if(kind === 'boolean'){
         const active = String(value).toLowerCase() === 'true';
         return `<button type="button" class="setting-check ${active ? 'active' : ''}" data-rh-bool="${escapeHtml(key)}"><span class="check-box"></span><span>${escapeHtml(label)}</span></button>`;
+    }
+    if(kind === 'slider'){
+        const min = Number.isFinite(Number(field.min)) ? Number(field.min) : 0;
+        const max = Number.isFinite(Number(field.max)) && Number(field.max) > min ? Number(field.max) : 1;
+        const step = Number.isFinite(Number(field.step)) && Number(field.step) > 0 ? Number(field.step) : 0.01;
+        const numericValue = Number.isFinite(Number(value)) ? Number(value) : min;
+        return `<div class="smart-control rh-slider-control" title="${escapeHtml(label)}">
+            <button class="smart-pill" type="button"><span class="sub">${escapeHtml(label)}</span><span class="rh-slider-pill-value">${escapeHtml(numericValue)}</span></button>
+            <div class="smart-popover compact-popover rh-picker-popover rh-param-popover rh-slider-popover">
+                <div class="smart-popover-title"><span>${escapeHtml(label)}</span><span class="rh-slider-value">${escapeHtml(numericValue)}</span></div>
+                <input type="range" class="smart-range rh-slider-input" data-rh-param="${escapeHtml(key)}" data-rh-type="slider" min="${escapeHtml(min)}" max="${escapeHtml(max)}" step="${escapeHtml(step)}" value="${escapeHtml(numericValue)}">
+            </div>
+        </div>`;
     }
     if(options?.length){
         const curLabel = String(value || options[0] || label);
@@ -2264,9 +2279,20 @@ function bindDynamicParams(){
             settings.rhParams = settings.rhParams || {};
             const cur = settings.rhParams[key] || {};
             settings.rhParams[key] = {...cur, value:input.value};
+            const control = input.closest('.smart-control');
+            const valueText = control?.querySelector('.rh-slider-value');
+            const pillValue = control?.querySelector('.rh-slider-pill-value');
+            if(valueText) valueText.textContent = input.value;
+            if(pillValue) pillValue.textContent = input.value;
             persistActiveSmartSettings();
             scheduleSave();
         };
+        if(input.dataset.rhType === 'slider'){
+            input.onpointerup = () => input.blur();
+            input.onmouseleave = () => {
+                if(!input.closest('.smart-control')?.matches(':hover')) input.blur();
+            };
+        }
     });
     dynamicParams.querySelectorAll('[data-rh-pick]').forEach(btn => {
         btn.onclick = event => {
@@ -2337,11 +2363,11 @@ function savePromptPresets(){
 }
 function defaultPromptTemplateGroups(){
     return [
-        {id:'storyboard', name:'分镜'},
-        {id:'character', name:'角色'},
-        {id:'product', name:'产品'},
-        {id:'lighting', name:'光影'},
-        {id:'mine', name:'我的'}
+        {id:'storyboard', name:tr('smart.tplCatStoryboard')},
+        {id:'character', name:tr('smart.tplCatCharacter')},
+        {id:'product', name:tr('smart.tplCatProduct')},
+        {id:'lighting', name:tr('smart.tplCatLighting')},
+        {id:'mine', name:tr('smart.tplCatMine')}
     ];
 }
 function loadPromptTemplateGroups(){
@@ -2407,9 +2433,34 @@ function promptTemplateText(template, mode='positive'){
         .join('\n');
     return [positive, negative ? `Negative prompt:\n${negative}` : '', params ? `Params:\n${params}` : ''].filter(Boolean).join('\n\n');
 }
+function promptTemplateName(template){
+    if(window.StudioI18n?.lang?.() === 'en' && template?.name_en) return template.name_en;
+    return template?.name || '';
+}
+function promptTemplateScene(template){
+    if(window.StudioI18n?.lang?.() === 'en' && template?.scene_en) return template.scene_en;
+    return template?.scene || '';
+}
+function promptTemplateSearchText(template){
+    return [
+        template?.name,
+        template?.name_en,
+        template?.scene,
+        template?.scene_en,
+        template?.positive,
+        template?.negative
+    ].join(' ').toLowerCase();
+}
 function promptTemplateCategoryLabel(category){
-    if(category === 'all') return '全部';
-    return promptTemplateGroups.find(g => g.id === category)?.name || category;
+    if(category === 'all') return tr('smart.tplAll');
+    const builtin = {
+        storyboard:tr('smart.tplCatStoryboard'),
+        character:tr('smart.tplCatCharacter'),
+        product:tr('smart.tplCatProduct'),
+        lighting:tr('smart.tplCatLighting'),
+        mine:tr('smart.tplCatMine')
+    };
+    return builtin[category] || promptTemplateGroups.find(g => g.id === category)?.name || category;
 }
 function promptTemplateSelectedItem(){
     return promptTemplateItems().find(item => item.id === promptTemplateSelectedId) || promptTemplateItems()[0] || null;
@@ -2534,7 +2585,7 @@ function renderPromptTemplatePanel(options={}){
     const scrollSnapshot = options.preserveScroll === false ? null : promptTemplateScrollSnapshot();
     const query = String(promptTemplateSearch?.value || '').trim().toLowerCase();
     const allTemplates = promptTemplateItems();
-    const categories = [{id:'all', name:'全部'}, ...promptTemplateGroups];
+    const categories = [{id:'all', name:tr('smart.tplAll')}, ...promptTemplateGroups.map(group => ({...group, name:promptTemplateCategoryLabel(group.id)}))];
     const groupCounts = allTemplates.reduce((map, item) => {
         map[item.category || 'mine'] = (map[item.category || 'mine'] || 0) + 1;
         return map;
@@ -2543,23 +2594,23 @@ function renderPromptTemplatePanel(options={}){
         <div class="prompt-template-group-panel">
             <div class="prompt-template-group-title">
                 <div>
-                    <strong>分组管理</strong>
-                    <span>这里只调整上方分类，不影响模板内容</span>
+                    <strong>${escapeHtml(tr('smart.tplGroupManage'))}</strong>
+                    <span>${escapeHtml(tr('smart.tplGroupHint'))}</span>
                 </div>
                 <div class="prompt-template-group-tools">
-                    <button type="button" data-template-cat-new><i data-lucide="plus"></i><span>新增</span></button>
-                    <button type="button" class="primary" data-template-group-edit><i data-lucide="check"></i><span>完成</span></button>
+                    <button type="button" data-template-cat-new><i data-lucide="plus"></i><span>${escapeHtml(tr('smart.tplAdd'))}</span></button>
+                    <button type="button" class="primary" data-template-group-edit><i data-lucide="check"></i><span>${escapeHtml(tr('smart.tplDone'))}</span></button>
                 </div>
             </div>
             <div class="prompt-template-group-list">
                 ${promptTemplateGroups.map(group => `
                     <div class="prompt-template-group-row ${['storyboard','character','product','lighting','mine'].includes(group.id) ? '' : 'has-delete'}">
                         <button type="button" class="group-name ${group.id === promptTemplateCategory ? 'active' : ''}" data-template-cat="${escapeHtml(group.id)}">
-                            <span>${escapeHtml(group.name)}</span>
+                            <span>${escapeHtml(promptTemplateCategoryLabel(group.id))}</span>
                             <small>${groupCounts[group.id] || 0}</small>
                         </button>
-                        <button type="button" class="group-tool" data-template-cat-edit="${escapeHtml(group.id)}" title="重命名"><i data-lucide="pencil"></i></button>
-                        ${['storyboard','character','product','lighting','mine'].includes(group.id) ? '' : `<button type="button" class="group-tool danger" data-template-cat-delete="${escapeHtml(group.id)}" title="删除"><i data-lucide="trash-2"></i></button>`}
+                        <button type="button" class="group-tool" data-template-cat-edit="${escapeHtml(group.id)}" title="${escapeAttr(tr('smart.tplRename'))}"><i data-lucide="pencil"></i></button>
+                        ${['storyboard','character','product','lighting','mine'].includes(group.id) ? '' : `<button type="button" class="group-tool danger" data-template-cat-delete="${escapeHtml(group.id)}" title="${escapeAttr(tr('common.delete'))}"><i data-lucide="trash-2"></i></button>`}
                     </div>
                 `).join('')}
             </div>
@@ -2574,13 +2625,13 @@ function renderPromptTemplatePanel(options={}){
                     </button>
                 `).join('')}
             </div>
-            <button type="button" class="prompt-template-manage-groups" data-template-group-edit><i data-lucide="settings-2"></i><span>管理分组</span></button>
+            <button type="button" class="prompt-template-manage-groups" data-template-group-edit><i data-lucide="settings-2"></i><span>${escapeHtml(tr('smart.tplManageGroups'))}</span></button>
         </div>
     `;
     const items = allTemplates.filter(item => {
         if(promptTemplateCategory !== 'all' && item.category !== promptTemplateCategory) return false;
         if(!query) return true;
-        return [item.name, item.scene, item.positive, item.negative].some(value => String(value || '').toLowerCase().includes(query));
+        return promptTemplateSearchText(item).includes(query);
     });
     if(items.length && !items.some(item => item.id === promptTemplateSelectedId)) promptTemplateSelectedId = items[0].id;
     const selected = items.find(item => item.id === promptTemplateSelectedId) || items[0] || null;
@@ -2594,70 +2645,70 @@ function renderPromptTemplatePanel(options={}){
     promptTemplateBody.innerHTML = `
         <div class="prompt-template-list">
             <div class="prompt-template-list-tools">
-                <button type="button" ${nodeHasText ? '' : 'disabled'} data-template-save-current><i data-lucide="bookmark-plus"></i><span>存当前</span></button>
-                <button type="button" data-template-new><i data-lucide="file-plus-2"></i><span>新模板</span></button>
+                <button type="button" ${nodeHasText ? '' : 'disabled'} data-template-save-current><i data-lucide="bookmark-plus"></i><span>${escapeHtml(tr('smart.tplSaveCurrent'))}</span></button>
+                <button type="button" data-template-new><i data-lucide="file-plus-2"></i><span>${escapeHtml(tr('smart.tplNewTemplate'))}</span></button>
             </div>
             ${items.length ? items.map(item => `<button type="button" class="prompt-template-card ${item.id === selected?.id ? 'active' : ''}" data-template-id="${escapeHtml(item.id)}">
                 <span class="prompt-template-card-top">
-                    <span class="prompt-template-name">${escapeHtml(item.name)}</span>
-                    <span class="prompt-template-source">${escapeHtml(item.builtin ? '内置' : '我的')}</span>
+                    <span class="prompt-template-name">${escapeHtml(promptTemplateName(item))}</span>
+                    <span class="prompt-template-source">${escapeHtml(item.builtin ? tr('smart.tplBuiltin') : tr('smart.tplMine'))}</span>
                 </span>
-                <span class="prompt-template-scene">${escapeHtml(item.scene || item.positive || '')}</span>
+                <span class="prompt-template-scene">${escapeHtml(promptTemplateScene(item) || item.positive || '')}</span>
                 <span class="prompt-template-tag">${escapeHtml(promptTemplateCategoryLabel(item.category || 'mine'))}</span>
-            </button>`).join('') : `<div class="prompt-template-list-empty">没有匹配的模板</div>`}
+            </button>`).join('') : `<div class="prompt-template-list-empty">${escapeHtml(tr('smart.tplNoMatches'))}</div>`}
         </div>
         <div class="prompt-template-detail">
             ${selected ? `
                 <div class="prompt-template-detail-head">
                     <div>
-                        <strong>${escapeHtml(selected.name || '')}</strong>
-                        <span>${escapeHtml(promptTemplateCategoryLabel(selected.category || ''))} · ${escapeHtml(selected.builtin ? '内置模板' : '我的模板')}</span>
+                        <strong>${escapeHtml(promptTemplateName(selected) || '')}</strong>
+                        <span>${escapeHtml(promptTemplateCategoryLabel(selected.category || ''))} · ${escapeHtml(selected.builtin ? tr('smart.tplBuiltinTemplate') : tr('smart.tplMineTemplate'))}</span>
                     </div>
                     ${editMode ? '' : `
                         <div class="prompt-template-icon-actions">
-                            <button type="button" data-template-edit title="修改模板"><i data-lucide="pencil"></i><span>修改</span></button>
-                            <button type="button" class="danger" data-template-delete title="删除模板"><i data-lucide="trash-2"></i><span>删除</span></button>
+                            <button type="button" data-template-edit title="${escapeAttr(tr('smart.tplEditTemplate'))}"><i data-lucide="pencil"></i><span>${escapeHtml(tr('common.edit'))}</span></button>
+                            <button type="button" class="danger" data-template-delete title="${escapeAttr(tr('smart.tplDeleteTemplate'))}"><i data-lucide="trash-2"></i><span>${escapeHtml(tr('common.delete'))}</span></button>
                         </div>
                     `}
                 </div>
             ${editMode ? `
                 <div class="prompt-template-edit-fields">
-                    <label>模板名称</label>
-                    <input data-template-edit-name value="${escapeAttr(selectedPreset.name || '')}" placeholder="模板名称">
-                    <label>所属分组</label>
+                    <label>${escapeHtml(tr('smart.tplName'))}</label>
+                    <input data-template-edit-name value="${escapeAttr(selectedPreset.name || '')}" placeholder="${escapeAttr(tr('smart.tplName'))}">
+                    <label>${escapeHtml(tr('smart.tplGroup'))}</label>
                     <select data-template-edit-category>
-                        ${promptTemplateGroups.map(group => `<option value="${escapeAttr(group.id)}" ${group.id === (selectedPreset.category || selected?.category || 'mine') ? 'selected' : ''}>${escapeHtml(group.name)}</option>`).join('')}
+                        ${promptTemplateGroups.map(group => `<option value="${escapeAttr(group.id)}" ${group.id === (selectedPreset.category || selected?.category || 'mine') ? 'selected' : ''}>${escapeHtml(promptTemplateCategoryLabel(group.id))}</option>`).join('')}
                     </select>
-                    <label>模板内容</label>
-                    <textarea data-template-edit-text placeholder="模板内容">${escapeHtml(selectedPreset.text || '')}</textarea>
+                    <label>${escapeHtml(tr('smart.tplContent'))}</label>
+                    <textarea data-template-edit-text placeholder="${escapeAttr(tr('smart.tplContent'))}">${escapeHtml(selectedPreset.text || '')}</textarea>
                 </div>
             ` : `
                 <div class="prompt-template-preview-content">
                 <div class="prompt-template-section">
-                    <label>正向提示词</label>
+                    <label>${escapeHtml(tr('smart.tplPositive'))}</label>
                     <p>${escapeHtml(selected?.positive || '')}</p>
                 </div>
                 ${selected?.negative ? `<div class="prompt-template-section">
-                    <label>负向提示词</label>
+                    <label>${escapeHtml(tr('smart.tplNegative'))}</label>
                     <p>${escapeHtml(selected.negative)}</p>
                 </div>` : ''}
                 ${Object.keys(selected?.params || {}).length ? `<div class="prompt-template-section">
-                    <label>参数建议</label>
+                    <label>${escapeHtml(tr('smart.tplParams'))}</label>
                     <p>${escapeHtml(Object.entries(selected.params).map(([k,v]) => `${k}: ${v}`).join('\n'))}</p>
                 </div>` : ''}
                 </div>
             `}
             <div class="prompt-template-actions">
                 ${editMode ? `
-                    <button type="button" data-template-edit-cancel><i data-lucide="x"></i><span>取消</span></button>
-                    <button type="button" class="danger" data-template-delete><i data-lucide="trash-2"></i><span>删除</span></button>
-                    <button type="button" class="primary" data-template-edit-save><i data-lucide="save"></i><span>保存</span></button>
+                    <button type="button" data-template-edit-cancel><i data-lucide="x"></i><span>${escapeHtml(tr('common.cancel'))}</span></button>
+                    <button type="button" class="danger" data-template-delete><i data-lucide="trash-2"></i><span>${escapeHtml(tr('common.delete'))}</span></button>
+                    <button type="button" class="primary" data-template-edit-save><i data-lucide="save"></i><span>${escapeHtml(tr('common.save'))}</span></button>
                 ` : `
-                    <button type="button" data-template-apply="positive"><i data-lucide="corner-down-left"></i><span>正向</span></button>
-                    <button type="button" class="primary" data-template-apply="full"><i data-lucide="wand-sparkles"></i><span>完整应用</span></button>
+                    <button type="button" data-template-apply="positive"><i data-lucide="corner-down-left"></i><span>${escapeHtml(tr('smart.tplApplyPositive'))}</span></button>
+                    <button type="button" class="primary" data-template-apply="full"><i data-lucide="wand-sparkles"></i><span>${escapeHtml(tr('smart.tplApplyFull'))}</span></button>
                 `}
             </div>
-            ` : `<div class="prompt-template-empty">选择或新建一个模板</div>`}
+            ` : `<div class="prompt-template-empty">${escapeHtml(tr('smart.tplPickOrCreate'))}</div>`}
         </div>
     `;
     refreshIcons();
@@ -2729,7 +2780,7 @@ function saveCurrentPromptAsTemplate(){
 }
 function createBlankPromptTemplate(){
     const category = promptTemplateCategory && promptTemplateCategory !== 'all' ? promptTemplateCategory : 'mine';
-    const preset = {id:uid('preset'), name:'新模板', text:'', category, createdAt:Date.now(), updatedAt:Date.now()};
+    const preset = {id:uid('preset'), name:tr('smart.tplNewTemplateName'), text:'', category, createdAt:Date.now(), updatedAt:Date.now()};
     promptPresets.unshift(preset);
     savePromptPresets();
     promptTemplateCategory = category;
@@ -2743,7 +2794,7 @@ function savePromptTemplateEdit(){
     const name = promptTemplatePanel.querySelector('[data-template-edit-name]')?.value?.trim() || '';
     const text = promptTemplatePanel.querySelector('[data-template-edit-text]')?.value?.trim() || '';
     const category = promptTemplatePanel.querySelector('[data-template-edit-category]')?.value || 'mine';
-    if(!name || !text){ toast('模板名称和内容不能为空'); return; }
+    if(!name || !text){ toast(tr('smart.tplRequired')); return; }
     if(item.builtin){
         promptTemplateOverrides.editedBuiltins = promptTemplateOverrides.editedBuiltins || {};
         promptTemplateOverrides.editedBuiltins[item.id] = {
@@ -2784,7 +2835,7 @@ function deletePromptTemplate(){
     scheduleSave();
 }
 function createPromptTemplateGroup(){
-    const name = window.prompt('新分组名称', '新分组');
+    const name = window.prompt(tr('smart.tplNewGroupPrompt'), tr('smart.tplNewGroupDefault'));
     if(!String(name || '').trim()) return;
     const group = {id:uid('tpl_group'), name:String(name).trim().slice(0, 24)};
     promptTemplateGroups.push(group);
@@ -2795,7 +2846,7 @@ function createPromptTemplateGroup(){
 function renamePromptTemplateGroup(groupId){
     const group = promptTemplateGroups.find(g => g.id === groupId);
     if(!group) return;
-    const name = window.prompt('分组名称', group.name || '');
+    const name = window.prompt(tr('smart.tplGroupNamePrompt'), group.name || '');
     if(!String(name || '').trim()) return;
     group.name = String(name).trim().slice(0, 24);
     savePromptTemplateGroups();
@@ -2806,7 +2857,7 @@ function deletePromptTemplateGroup(groupId){
         renamePromptTemplateGroup(groupId);
         return;
     }
-    if(!window.confirm('删除分组？该分组里的我的模板会移动到“我的”。')) return;
+    if(!window.confirm(tr('smart.tplDeleteGroupConfirm'))) return;
     promptTemplateGroups = promptTemplateGroups.filter(g => g.id !== groupId);
     promptPresets = promptPresets.map(p => p.category === groupId ? {...p, category:'mine'} : p);
     Object.entries(promptTemplateOverrides.editedBuiltins || {}).forEach(([id, item]) => {
@@ -10284,6 +10335,7 @@ window.addEventListener('studio-lang-change', () => {
     if(document.getElementById('imageEditModal')?.classList.contains('open')){
         setImageEditMode(imageEditMode);
     }
+    if(promptTemplatePanel?.classList?.contains('open')) renderPromptTemplatePanel();
     render();
 });
 window.onload = async () => {
