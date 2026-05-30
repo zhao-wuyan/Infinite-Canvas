@@ -15,12 +15,12 @@
             } catch(e) {}
         })();
     </script>
-    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.05.29.2"></script>
-    <script src="/static/vendor/js/lucide.js?v=2026.05.29.2"></script>
-    <script src="/static/js/theme.js?v=2026.05.29.2"></script>
-    <script src="/static/js/i18n.js?v=2026.05.29.2"></script>
-    <link rel="stylesheet" href="/static/css/theme.css?v=2026.05.29.2">
-    <link rel="stylesheet" href="/static/css/api-settings.css?v=2026.05.29.2">
+    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.05.30"></script>
+    <script src="/static/vendor/js/lucide.js?v=2026.05.30"></script>
+    <script src="/static/js/theme.js?v=2026.05.30"></script>
+    <script src="/static/js/i18n.js?v=2026.05.30"></script>
+    <link rel="stylesheet" href="/static/css/theme.css?v=2026.05.30">
+    <link rel="stylesheet" href="/static/css/api-settings.css?v=2026.05.30">
 </head>
 <body>
     <div class="page">
@@ -81,7 +81,7 @@
                                 </div>
                                 <div class="volcengine-hint">
                                     <span class="ms-line">方舟默认请求地址：<span class="inline-code">https://ark.cn-beijing.volces.com/api/v3</span></span>
-                                    <span class="ms-line">素材库接口使用 AK/SK 鉴权，视频生成仍使用方舟 API Key。</span>
+                                    <span class="ms-line">Seedance 视频生成使用方舟 API Key，验证会请求 <span class="inline-code">/api/v3/models</span>。</span>
                                 </div>
                             </label>
                             <label class="field full api-key-field">
@@ -140,7 +140,7 @@
                                         <span id="rhWalletKeyHint" class="hint"></span>
                                     </div>
                                 </div>
-                                <div class="volcengine-key-stack">
+                                <div class="volcengine-key-stack" hidden>
                                     <div class="rh-key-item">
                                         <div class="rh-key-head">
                                             <div>
@@ -414,6 +414,6 @@
         </div>
     </div>
 
-    <script src="/static/js/api-settings.js?v=2026.05.29.2"></script>
+    <script src="/static/js/api-settings.js?v=2026.05.30"></script>
 </body>
 </html>

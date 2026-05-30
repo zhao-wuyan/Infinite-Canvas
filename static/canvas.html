@@ -16,12 +16,12 @@
             } catch(e) {}
         })();
     </script>
-    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.05.29.2"></script>
-    <script src="/static/vendor/js/lucide.js?v=2026.05.29.2"></script>
-    <script src="/static/js/theme.js?v=2026.05.29.2"></script>
-    <script src="/static/js/i18n.js?v=2026.05.29.2"></script>
-    <link rel="stylesheet" href="/static/css/canvas.css?v=2026.05.29.2">
-    <link rel="stylesheet" href="/static/css/theme.css?v=2026.05.29.2">
+    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.05.30"></script>
+    <script src="/static/vendor/js/lucide.js?v=2026.05.30"></script>
+    <script src="/static/js/theme.js?v=2026.05.30"></script>
+    <script src="/static/js/i18n.js?v=2026.05.30"></script>
+    <link rel="stylesheet" href="/static/css/canvas.css?v=2026.05.30">
+    <link rel="stylesheet" href="/static/css/theme.css?v=2026.05.30">
 </head>
 <body>
     <div id="shell" class="shell no-canvas">
@@ -51,6 +51,7 @@
                     <button class="tool-btn" onclick="groupSelectedImages()"><i data-lucide="group" class="w-4 h-4"></i><span data-i18n="canvas.group">分组</span></button>
                 </div>
                 <div class="toolbar-fixed">
+                    <button id="canvasAssetToggle" class="tool-btn toolbar-asset canvas-asset-toggle" type="button" title="资产库" aria-label="资产库"><i data-lucide="library" class="w-4 h-4"></i><span>资产库</span></button>
                     <button class="tool-btn toolbar-log" onclick="openCanvasLog()" title="日志" aria-label="日志" data-i18n-title="canvas.logs"><i data-lucide="list-todo" class="w-4 h-4"></i><span data-i18n="canvas.logs">日志</span></button>
                 </div>
             </div>
@@ -74,6 +75,10 @@
                         <button id="gateTrashBtn" class="gate-icon-btn gate-trash-entry" type="button" title="打开回收站" aria-label="打开回收站" data-i18n-title="canvas.openTrash">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                             <span id="gateTrashCount" class="gate-trash-badge">0</span>
+                        </button>
+                        <button id="gateAssetManagerBtn" class="gate-icon-btn gate-manager-btn" type="button" title="资产库管理" aria-label="资产库管理" hidden>
+                            <i data-lucide="library" class="w-4 h-4"></i>
+                            <span>素材库管理</span>
                         </button>
                         <button id="gateCreateBtn" class="primary-btn" type="button"><i data-lucide="plus" class="w-4 h-4"></i><span data-i18n="canvas.newCanvas">新建画布</span></button>
                         <button id="gateCreateSmartBtn" class="smart-create-btn" type="button"><i data-lucide="sparkles" class="w-4 h-4"></i><span data-i18n="canvas.newSmartCanvas">新建智能画布</span></button>
@@ -121,6 +126,24 @@
                     <div id="minimapViewport" class="minimap-viewport"></div>
                 </div>
             </div>
+            <aside id="canvasAssetPanel" class="canvas-asset-panel">
+                <div class="canvas-asset-head">
+                    <strong><i data-lucide="library" class="w-4 h-4"></i><span>资产库</span></strong>
+                    <button id="canvasAssetCloseBtn" class="canvas-asset-icon-btn" type="button" title="关闭"><i data-lucide="x" class="w-4 h-4"></i></button>
+                </div>
+                <select id="canvasAssetLibrarySelect" class="canvas-asset-select"></select>
+                <div class="canvas-asset-row">
+                    <select id="canvasAssetCategorySelect" class="canvas-asset-select"></select>
+                    <button id="canvasAssetAddCategoryBtn" class="canvas-asset-icon-btn" type="button" title="新建分组"><i data-lucide="folder-plus" class="w-4 h-4"></i></button>
+                </div>
+                <div id="canvasAssetDropZone" class="canvas-asset-drop">拖入图片或输出保存到当前分组</div>
+                <div id="canvasAssetGrid" class="canvas-asset-grid"></div>
+            </aside>
+            <div id="canvasAssetHoverPreview" class="canvas-asset-hover-preview" hidden>
+                <img alt="asset preview">
+                <video muted preload="metadata" playsinline disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback" style="display:none"></video>
+                <div class="canvas-asset-hover-name"></div>
+            </div>
         </div>
         <div class="hint editor-only" data-i18n="canvas.hint">拖拽画布或按住滚轮移动，Ctrl 框选多选，拖动选中节点可一起移动。图片/提示词节点右下端口拖线到生成节点。</div>
         <div id="outputLightbox" class="output-lightbox" onclick="closeOutputLightbox()">
@@ -165,6 +188,7 @@
                     <button class="preview-icon-btn" type="button" onclick="closePromptTemplateModal()" title="关闭" aria-label="关闭" data-i18n-title="common.close"><i data-lucide="x" class="w-4 h-4"></i></button>
                 </div>
                 <div class="prompt-template-toolbar">
+                    <select id="promptTemplateLibrarySelect" class="prompt-template-library-select" title="选择提示词库"></select>
                     <input id="promptTemplateSearch" class="prompt-template-search" type="search" placeholder="搜索模板" data-i18n-placeholder="canvas.promptTemplateSearch">
                     <div id="promptTemplateCats" class="prompt-template-cats"></div>
                 </div>
@@ -181,6 +205,22 @@
                     <button class="preview-icon-btn" type="button" onclick="closeCanvasLog()" title="关闭" data-i18n-title="common.close"><i data-lucide="x" class="w-4 h-4"></i></button>
                 </div>
                 <div id="logList" class="log-list"></div>
+            </div>
+        </div>
+        <div id="assetManagerModal" class="asset-manager-modal" onclick="closeAssetManager()">
+            <div class="asset-manager-panel" onclick="event.stopPropagation()">
+                <div class="asset-manager-head">
+                    <div>
+                        <div class="asset-manager-title">资产库管理</div>
+                        <div class="asset-manager-sub">管理图片资产库和提示词库</div>
+                    </div>
+                    <button class="preview-icon-btn" type="button" onclick="closeAssetManager()" title="关闭"><i data-lucide="x" class="w-4 h-4"></i></button>
+                </div>
+                <div class="asset-manager-tabs">
+                    <button class="active" type="button" data-manager-tab="assets"><i data-lucide="image" class="w-4 h-4"></i><span>图片资产</span></button>
+                    <button type="button" data-manager-tab="prompts"><i data-lucide="text-cursor-input" class="w-4 h-4"></i><span>提示词库</span></button>
+                </div>
+                <div id="assetManagerBody" class="asset-manager-body"></div>
             </div>
         </div>
         <div id="imageEditModal" class="image-edit-modal" onclick="closeImageEditor()">
@@ -285,7 +325,7 @@
         </div>
     </div>
 
-    <script src="/static/js/ltx-director-timeline.js?v=2026.05.29.2"></script>
-    <script src="/static/js/canvas.js?v=2026.05.29.2"></script>
+    <script src="/static/js/ltx-director-timeline.js?v=2026.05.30"></script>
+    <script src="/static/js/canvas.js?v=2026.05.30"></script>
 </body>
 </html>

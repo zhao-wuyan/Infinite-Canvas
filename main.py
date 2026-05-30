@@ -19,7 +19,7 @@ import mimetypes
 import tempfile
 import math
 import shlex
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from threading import Lock
 import httpx
 from PIL import Image
@@ -201,6 +201,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 CONVERSATION_DIR = os.path.join(DATA_DIR, "conversations")
 CANVAS_DIR = os.path.join(DATA_DIR, "canvases")
 ASSET_LIBRARY_PATH = os.path.join(DATA_DIR, "asset_library.json")
+PROMPT_LIBRARY_PATH = os.path.join(DATA_DIR, "prompt_libraries.json")
 API_PROVIDERS_FILE = os.path.join(DATA_DIR, "api_providers.json")
 RUNNINGHUB_WORKFLOW_STORE_FILE = os.path.join(DATA_DIR, "runninghub_workflows.json")
 GLOBAL_CONFIG_FILE = os.path.join(BASE_DIR, "global_config.json")
@@ -596,6 +597,12 @@ def volcengine_secret_key_value() -> str:
     env_key = volcengine_secret_key_env()
     return os.getenv(env_key, "") or read_api_env_value(env_key)
 
+def volcengine_provider_api_key(explicit_key: str = "") -> str:
+    explicit_key = str(explicit_key or "").strip()
+    if explicit_key:
+        return explicit_key
+    return provider_env_key_value("volcengine")
+
 def mask_secret(value):
     if not value:
         return ""
@@ -721,12 +728,14 @@ def merge_default_api_providers(providers):
         legacy = next((item for item in merged if item.get("id") != "volcengine" and str(item.get("protocol") or "").lower() == "volcengine"), None)
         if not current:
             if legacy:
+                legacy_image_models = model_list_from_values(legacy.get("image_models") or [])
+                legacy_video_models = model_list_from_values(legacy.get("video_models") or [])
                 current = {
                     **volc_default,
                     "base_url": legacy.get("base_url") or volc_default["base_url"],
-                    "image_models": model_list_from_values([*(legacy.get("image_models") or []), *(volc_default.get("image_models") or [])]),
+                    "image_models": legacy_image_models or model_list_from_values(volc_default.get("image_models") or []),
                     "chat_models": model_list_from_values(legacy.get("chat_models") or []),
-                    "video_models": model_list_from_values([*(legacy.get("video_models") or []), *(volc_default.get("video_models") or [])]),
+                    "video_models": legacy_video_models or model_list_from_values(volc_default.get("video_models") or []),
                 }
                 merged.append(current)
             else:
@@ -735,7 +744,6 @@ def merge_default_api_providers(providers):
             if not current.get("base_url"):
                 current["base_url"] = volc_default["base_url"]
             current["protocol"] = "volcengine"
-            current["video_models"] = model_list_from_values([*(current.get("video_models") or []), *(volc_default.get("video_models") or [])])
             current["volcengine_project_name"] = str(current.get("volcengine_project_name") or VOLCENGINE_DEFAULT_PROJECT_NAME).strip() or VOLCENGINE_DEFAULT_PROJECT_NAME
             current["volcengine_region"] = str(current.get("volcengine_region") or VOLCENGINE_DEFAULT_REGION).strip() or VOLCENGINE_DEFAULT_REGION
     jimeng_default = next((d for d in default_api_providers() if d["id"] == "jimeng"), None)
@@ -1093,6 +1101,16 @@ def public_provider(provider):
             "volcengine_region": provider.get("volcengine_region") or VOLCENGINE_DEFAULT_REGION,
         })
     return item
+
+def public_api_providers():
+    providers = [public_provider(p) for p in load_api_providers()]
+    has_standalone_volcengine = any(p.get("id") == "volcengine" for p in providers)
+    if has_standalone_volcengine:
+        providers = [
+            p for p in providers
+            if p.get("id") == "volcengine" or str(p.get("protocol") or "").lower() != "volcengine"
+        ]
+    return providers
 
 def get_primary_provider_id(providers=None):
     """返回当前首选 provider 的 id；优先 primary=True 的，否则取第一个非 modelscope 的，再次取第一个。"""
@@ -1849,6 +1867,7 @@ class CanvasVideoRequest(BaseModel):
     camerafixed: bool = False
     return_last_frame: bool = False
     generate_audio: bool = False
+    multimodal: bool = False
 
 class TempShUploadRequest(BaseModel):
     url: str = ""
@@ -2006,14 +2025,43 @@ class LocalImageImportRequest(BaseModel):
 class AssetLibraryCategoryRequest(BaseModel):
     name: str = "新文件夹"
     type: str = "image"
+    library_id: str = ""
+
+class AssetLibraryRequest(BaseModel):
+    name: str = "资产库"
 
 class AssetLibraryAddRequest(BaseModel):
     category_id: str = ""
     url: str = ""
     name: str = ""
+    library_id: str = ""
+
+class AssetLibraryBatchAddRequest(BaseModel):
+    category_id: str = ""
+    library_id: str = ""
+    items: List[AssetLibraryAddRequest] = []
 
 class AssetLibraryRenameRequest(BaseModel):
     name: str = ""
+
+class AssetLibraryBatchDeleteRequest(BaseModel):
+    ids: List[str] = []
+    library_id: str = ""
+
+class PromptLibraryRequest(BaseModel):
+    name: str = "提示词库"
+
+class PromptLibraryItemRequest(BaseModel):
+    library_id: str = ""
+    item_id: str = ""
+    name: str = "提示词"
+    category: str = "mine"
+    positive: str = ""
+    negative: str = ""
+    scene: str = ""
+
+class PromptLibraryBatchDeleteRequest(BaseModel):
+    ids: List[str] = []
 
 # --- 负载均衡 ---
 
@@ -2778,8 +2826,8 @@ async def run_jimeng_cli(args, timeout=120):
         raise HTTPException(status_code=504, detail=f"即梦 CLI 执行超时：{' '.join(command[:3])}") from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=f"未找到即梦 CLI：{exe}") from exc
-    out_text = stdout.decode("utf-8", errors="replace").strip()
-    err_text = stderr.decode("utf-8", errors="replace").strip()
+    out_text = (decode_wsl_output(stdout) if jimeng_use_wsl() else stdout.decode("utf-8", errors="replace")).strip()
+    err_text = (decode_wsl_output(stderr) if jimeng_use_wsl() else stderr.decode("utf-8", errors="replace")).strip()
     clean_err_text = jimeng_clean_wsl_stderr(err_text) if jimeng_use_wsl() else err_text
     raw = jimeng_extract_json(f"{out_text}\n{clean_err_text}".strip())
     if proc.returncode != 0:
@@ -2896,6 +2944,64 @@ def jimeng_video_duration(duration):
     except Exception:
         value = 5
     return max(4, min(15, value))
+
+def jimeng_transition_duration(total_duration, transition_count):
+    count = max(1, int(transition_count or 1))
+    try:
+        total = float(total_duration or 5)
+    except Exception:
+        total = 5.0
+    return max(0.5, min(8.0, total / count))
+
+def jimeng_video_model_version(model):
+    value = str(model or "").strip()
+    low = value.lower()
+    aliases = {
+        "seedance2.0fast_vip": "seedance2.0fast_vip",
+        "seedance2.0_vip": "seedance2.0_vip",
+        "seedance2.0fast": "seedance2.0fast",
+        "seedance2.0": "seedance2.0",
+        "3.0_fast": "3.0fast",
+        "3.0fast": "3.0fast",
+        "3.0_pro": "3.0pro",
+        "3.0pro": "3.0pro",
+        "3.5_pro": "3.5pro",
+        "3.5pro": "3.5pro",
+        "3.0": "3.0",
+    }
+    for key, mapped in aliases.items():
+        if key in low:
+            return mapped
+    return ""
+
+def jimeng_video_resolution_arg(model, resolution):
+    return jimeng_video_resolution(model, resolution).lower()
+
+def jimeng_video_ratio_arg(aspect_ratio):
+    value = str(aspect_ratio or "").strip()
+    allowed = {"1:1", "3:4", "16:9", "4:3", "9:16", "21:9"}
+    if value in allowed:
+        return value
+    return ""
+
+def jimeng_append_model_resolution_args(args, payload: CanvasVideoRequest, include_model=False):
+    model_version = jimeng_video_model_version(payload.model)
+    if include_model and model_version:
+        args.append(f"--model_version={model_version}")
+    if payload.resolution:
+        args.append(f"--video_resolution={jimeng_video_resolution_arg(payload.model, payload.resolution)}")
+
+def jimeng_video_ref_role(ref):
+    role = getattr(ref, "role", "")
+    if isinstance(ref, dict):
+        role = ref.get("role", role)
+    return str(role or "").lower()
+
+def jimeng_video_ref_url(ref):
+    url = getattr(ref, "url", "")
+    if isinstance(ref, dict):
+        url = ref.get("url", url)
+    return str(url or "").strip()
 
 def jimeng_local_output_url(path, kind="image"):
     path = os.path.abspath(str(path or ""))
@@ -3050,20 +3156,90 @@ async def generate_jimeng_provider_image(prompt, size, model, reference_images=N
                 pass
 
 async def generate_jimeng_video(payload: CanvasVideoRequest, provider):
-    image_refs = [ref for ref in (payload.images or []) if ref.url]
+    image_refs = [ref for ref in (payload.images or []) if jimeng_video_ref_url(ref)]
+    video_refs = [url for url in (payload.videos or []) if str(url or "").strip()]
     duration = jimeng_video_duration(payload.duration)
     temp_paths = []
     try:
-        if image_refs:
-            image_path, created = await jimeng_prepare_local_media(image_refs[0].url, "image")
-            temp_paths.extend(created)
+        if payload.multimodal or video_refs:
+            image_paths = []
+            video_paths = []
+            for ref in image_refs:
+                image_path, created = await jimeng_prepare_local_media(jimeng_video_ref_url(ref), "image")
+                temp_paths.extend(created)
+                image_paths.append(image_path)
+            for ref_url in video_refs:
+                video_path, created = await jimeng_prepare_local_media(ref_url, "video")
+                temp_paths.extend(created)
+                video_paths.append(video_path)
             args = [
-                "image2video",
-                f"--image={jimeng_cli_path_arg(image_path)}",
+                "multimodal2video",
                 f"--prompt={payload.prompt}",
                 f"--duration={duration}",
                 f"--poll={jimeng_poll_seconds()}",
             ]
+            ratio = jimeng_video_ratio_arg(payload.aspect_ratio)
+            if ratio:
+                args.append(f"--ratio={ratio}")
+            jimeng_append_model_resolution_args(args, payload, include_model=True)
+            for image_path in image_paths:
+                args.append(f"--image={jimeng_cli_path_arg(image_path)}")
+            for video_path in video_paths:
+                args.append(f"--video={jimeng_cli_path_arg(video_path)}")
+        elif len(image_refs) >= 2:
+            first_frame = next((ref for ref in image_refs if jimeng_video_ref_role(ref) == "first_frame"), None)
+            last_frame = next((ref for ref in image_refs if jimeng_video_ref_role(ref) == "last_frame"), None)
+            if first_frame and last_frame:
+                first_path, created = await jimeng_prepare_local_media(jimeng_video_ref_url(first_frame), "image")
+                temp_paths.extend(created)
+                last_path, created = await jimeng_prepare_local_media(jimeng_video_ref_url(last_frame), "image")
+                temp_paths.extend(created)
+                args = [
+                    "frames2video",
+                    f"--first={jimeng_cli_path_arg(first_path)}",
+                    f"--last={jimeng_cli_path_arg(last_path)}",
+                    f"--prompt={payload.prompt}",
+                    f"--duration={duration}",
+                    f"--poll={jimeng_poll_seconds()}",
+                ]
+                jimeng_append_model_resolution_args(args, payload, include_model=True)
+            else:
+                image_paths = []
+                for ref in image_refs:
+                    image_path, created = await jimeng_prepare_local_media(jimeng_video_ref_url(ref), "image")
+                    temp_paths.extend(created)
+                    image_paths.append(image_path)
+                args = [
+                    "multiframe2video",
+                    f"--images={','.join(jimeng_cli_path_arg(path) for path in image_paths)}",
+                    f"--prompt={payload.prompt}",
+                    f"--duration={duration}",
+                    f"--poll={jimeng_poll_seconds()}",
+                ]
+                jimeng_append_model_resolution_args(args, payload, include_model=True)
+        elif image_refs:
+            image_path, created = await jimeng_prepare_local_media(jimeng_video_ref_url(image_refs[0]), "image")
+            temp_paths.extend(created)
+            ratio = jimeng_video_ratio_arg(payload.aspect_ratio)
+            if ratio:
+                args = [
+                    "multimodal2video",
+                    f"--image={jimeng_cli_path_arg(image_path)}",
+                    f"--prompt={payload.prompt}",
+                    f"--duration={duration}",
+                    f"--ratio={ratio}",
+                    f"--poll={jimeng_poll_seconds()}",
+                ]
+                jimeng_append_model_resolution_args(args, payload, include_model=True)
+            else:
+                args = [
+                    "image2video",
+                    f"--image={jimeng_cli_path_arg(image_path)}",
+                    f"--prompt={payload.prompt}",
+                    f"--duration={duration}",
+                    f"--poll={jimeng_poll_seconds()}",
+                ]
+                jimeng_append_model_resolution_args(args, payload, include_model=True)
         else:
             args = [
                 "text2video",
@@ -3073,6 +3249,9 @@ async def generate_jimeng_video(payload: CanvasVideoRequest, provider):
                 f"--video_resolution={jimeng_video_resolution(payload.model, payload.resolution)}",
                 f"--poll={jimeng_poll_seconds()}",
             ]
+            model_version = jimeng_video_model_version(payload.model)
+            if model_version:
+                args.append(f"--model_version={model_version}")
         raw = await run_jimeng_cli(args, timeout=jimeng_poll_seconds() + 180)
         urls = await jimeng_store_outputs(raw, "video")
         return {"videos": urls, "task_id": jimeng_submit_id(raw) or None, "raw": raw}
@@ -3257,14 +3436,47 @@ def import_local_image_file(path):
     return {"url": output_url_for(filename, "input"), "name": os.path.basename(path) or filename, "kind": "image"}
 
 def default_asset_library():
+    categories = [
+        {"id": "characters", "name": "角色", "type": "image", "items": []},
+        {"id": "scenes", "name": "场景", "type": "image", "items": []},
+        {"id": "workflows", "name": "工作流", "type": "workflow", "items": []},
+    ]
     return {
-        "categories": [
-            {"id": "characters", "name": "角色", "type": "image", "items": []},
-            {"id": "scenes", "name": "场景", "type": "image", "items": []},
-            {"id": "workflows", "name": "工作流", "type": "workflow", "items": []},
-        ],
+        "active_library_id": "default",
+        "libraries": [{"id": "default", "name": "默认资产库", "type": "asset", "categories": categories}],
+        "categories": categories,
         "updated_at": now_ms(),
     }
+
+def normalize_asset_library(lib):
+    if not isinstance(lib, dict):
+        lib = default_asset_library()
+    legacy_categories = lib.get("categories") if isinstance(lib.get("categories"), list) else None
+    libraries = lib.get("libraries") if isinstance(lib.get("libraries"), list) else []
+    if not libraries:
+        libraries = [{
+            "id": "default",
+            "name": "默认资产库",
+            "type": "asset",
+            "categories": legacy_categories or default_asset_library()["categories"],
+        }]
+    for library in libraries:
+        library["id"] = re.sub(r"[^A-Za-z0-9_-]+", "_", str(library.get("id") or f"lib_{uuid.uuid4().hex[:8]}"))[:40]
+        library["name"] = sanitize_asset_name(library.get("name") or "资产库", "资产库")
+        cats = library.get("categories") if isinstance(library.get("categories"), list) else []
+        if not any(c.get("type") == "workflow" for c in cats):
+            cats.append({"id": "workflows", "name": "工作流", "type": "workflow", "items": []})
+        library["categories"] = cats
+    active = str(lib.get("active_library_id") or libraries[0].get("id") or "default")
+    if not any(item.get("id") == active for item in libraries):
+        active = libraries[0].get("id") or "default"
+    active_library = next((item for item in libraries if item.get("id") == active), libraries[0])
+    lib["libraries"] = libraries
+    lib["active_library_id"] = active
+    lib["categories"] = active_library.get("categories") or []
+    lib["updated_at"] = int(lib.get("updated_at") or now_ms())
+    sort_asset_library_items(lib)
+    return lib
 
 def load_asset_library():
     if not os.path.exists(ASSET_LIBRARY_PATH):
@@ -3276,16 +3488,17 @@ def load_asset_library():
             lib = json.load(f)
     except Exception:
         lib = default_asset_library()
-    cats = lib.get("categories") if isinstance(lib.get("categories"), list) else []
-    if not any(c.get("type") == "workflow" for c in cats):
-        cats.append({"id": "workflows", "name": "工作流", "type": "workflow", "items": []})
-    lib["categories"] = cats
-    lib["updated_at"] = int(lib.get("updated_at") or now_ms())
-    sort_asset_library_items(lib)
-    return lib
+    return normalize_asset_library(lib)
 
 def sort_asset_library_items(lib):
-    for cat in lib.get("categories", []):
+    cats = list(lib.get("categories", []))
+    for library in lib.get("libraries", []) if isinstance(lib.get("libraries"), list) else []:
+        cats.extend(library.get("categories") or [])
+    seen = set()
+    for cat in cats:
+        if id(cat) in seen:
+            continue
+        seen.add(id(cat))
         items = cat.get("items")
         if isinstance(items, list):
             def created_at_key(item):
@@ -3296,9 +3509,47 @@ def sort_asset_library_items(lib):
                 except (TypeError, ValueError):
                     return 0
             items.sort(key=created_at_key, reverse=True)
+
+def asset_library_media_kind(path: str, content_type: str = "") -> str:
+    ext = os.path.splitext(path or "")[1].lower()
+    ct = (content_type or "").lower()
+    if ext in {".mp4", ".webm", ".mov", ".m4v", ".mkv"} or ct.startswith("video/"):
+        return "video"
+    if ext in {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"} or ct.startswith("audio/"):
+        return "audio"
+    return "image"
+
+def asset_library_safe_extension(path: str, kind: str) -> str:
+    ext = os.path.splitext(path or "")[1].lower()
+    allowed = {
+        "image": {".png", ".jpg", ".jpeg", ".webp", ".gif"},
+        "video": {".mp4", ".webm", ".mov", ".m4v", ".mkv"},
+        "audio": {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"},
+    }
+    fallback = {"image": ".png", "video": ".mp4", "audio": ".mp3"}
+    return ext if ext in allowed.get(kind, allowed["image"]) else fallback.get(kind, ".png")
+
+def make_asset_library_item(src: str, name: str = "") -> Tuple[str, Dict[str, Any]]:
+    kind = asset_library_media_kind(src)
+    ext = asset_library_safe_extension(src, kind)
+    safe_name = sanitize_asset_name(name or os.path.basename(src), "asset")
+    if not os.path.splitext(safe_name)[1]:
+        safe_name += ext
+    dest_name = f"lib_{uuid.uuid4().hex[:12]}_{safe_name}"
+    dest_path = os.path.join(ASSET_LIBRARY_DIR, dest_name)
+    shutil.copy2(src, dest_path)
+    item = {
+        "id": f"asset_{uuid.uuid4().hex[:12]}",
+        "name": os.path.splitext(safe_name)[0][:120],
+        "url": f"/assets/library/{dest_name}",
+        "kind": kind,
+        "created_at": now_ms(),
+    }
+    return dest_name, item
     return lib
 
 def save_asset_library(lib):
+    lib = normalize_asset_library(lib)
     sort_asset_library_items(lib)
     lib["updated_at"] = now_ms()
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -3312,6 +3563,155 @@ def find_asset_category(lib, category_id):
         if cat.get("id") == category_id:
             return cat
     return None
+
+def find_asset_library(lib, library_id=""):
+    lib = normalize_asset_library(lib)
+    library_id = str(library_id or lib.get("active_library_id") or "").strip()
+    return next((item for item in lib.get("libraries", []) if item.get("id") == library_id), None) or (lib.get("libraries") or [None])[0]
+
+def find_asset_category_in_library(lib, category_id, library_id=""):
+    library = find_asset_library(lib, library_id)
+    if not library:
+        return None
+    for cat in library.get("categories", []):
+        if cat.get("id") == category_id:
+            return cat
+    return None
+
+def find_asset_category_with_library(lib, category_id, library_id=""):
+    lib = normalize_asset_library(lib)
+    preferred = str(library_id or "").strip()
+    libraries = lib.get("libraries", []) or []
+    if preferred:
+        libraries = [item for item in libraries if item.get("id") == preferred]
+    for library in libraries:
+        for cat in library.get("categories", []) or []:
+            if cat.get("id") == category_id:
+                return library, cat
+    return None, None
+
+def builtin_prompt_templates():
+    try:
+        template_path = prompt_template_markdown_path()
+        if not template_path:
+            return []
+        with open(template_path, "r", encoding="utf-8") as f:
+            return parse_prompt_template_markdown(f.read())
+    except Exception as e:
+        print(f"读取提示词模板失败: {e}")
+        return []
+
+def normalize_prompt_library_item(item):
+    if not isinstance(item, dict):
+        item = {}
+    name = sanitize_asset_name(item.get("name") or "提示词", "提示词")
+    positive = str(item.get("positive") or item.get("text") or "").strip()
+    return {
+        "id": re.sub(r"[^A-Za-z0-9_-]+", "_", str(item.get("id") or item.get("item_id") or f"tpl_{uuid.uuid4().hex[:12]}"))[:60],
+        "name": name,
+        "category": re.sub(r"[^A-Za-z0-9_-]+", "_", str(item.get("category") or "mine"))[:40] or "mine",
+        "scene": str(item.get("scene") or "").strip()[:500],
+        "positive": positive,
+        "negative": str(item.get("negative") or "").strip(),
+        "params": item.get("params") if isinstance(item.get("params"), dict) else {},
+        "created_at": int(item.get("created_at") or now_ms()),
+        "updated_at": int(item.get("updated_at") or item.get("created_at") or now_ms()),
+    }
+
+def default_prompt_libraries():
+    return {
+        "active_library_id": "mine",
+        "libraries": [
+            {"id": "mine", "name": "我的提示词库", "type": "prompt", "items": [], "categories": defaultPromptTemplateCategories()},
+        ],
+        "updated_at": now_ms(),
+    }
+
+def defaultPromptTemplateCategories():
+    return [
+        {"id": "view", "name": "视角"},
+        {"id": "storyboard", "name": "分镜"},
+        {"id": "character", "name": "角色"},
+        {"id": "product", "name": "产品"},
+        {"id": "lighting", "name": "光影"},
+        {"id": "mine", "name": "我的"},
+    ]
+
+def normalize_prompt_libraries(data):
+    if not isinstance(data, dict):
+        data = default_prompt_libraries()
+    libraries = data.get("libraries") if isinstance(data.get("libraries"), list) else []
+    if not libraries:
+        libraries = default_prompt_libraries()["libraries"]
+    normalized = []
+    seen = set()
+    for library in libraries:
+        if not isinstance(library, dict):
+            continue
+        lib_id = re.sub(r"[^A-Za-z0-9_-]+", "_", str(library.get("id") or f"plib_{uuid.uuid4().hex[:10]}"))[:40] or f"plib_{uuid.uuid4().hex[:10]}"
+        if lib_id == "system":
+            lib_id = f"plib_{uuid.uuid4().hex[:10]}"
+        if lib_id in seen:
+            lib_id = f"{lib_id}_{uuid.uuid4().hex[:4]}"
+        seen.add(lib_id)
+        categories = library.get("categories") if isinstance(library.get("categories"), list) else defaultPromptTemplateCategories()
+        normalized.append({
+            "id": lib_id,
+            "name": sanitize_asset_name(library.get("name") or "提示词库", "提示词库"),
+            "type": "prompt",
+            "readonly": False,
+            "categories": categories,
+            "items": [normalize_prompt_library_item(item) for item in (library.get("items") if isinstance(library.get("items"), list) else []) if isinstance(item, dict)],
+        })
+    if not normalized:
+        normalized = default_prompt_libraries()["libraries"]
+    active = str(data.get("active_library_id") or normalized[0]["id"])
+    if not any(item["id"] == active for item in normalized):
+        active = normalized[0]["id"]
+    return {"active_library_id": active, "libraries": normalized, "updated_at": int(data.get("updated_at") or now_ms())}
+
+def load_prompt_libraries():
+    if not os.path.exists(PROMPT_LIBRARY_PATH):
+        data = default_prompt_libraries()
+        save_prompt_libraries(data)
+        return data
+    try:
+        with open(PROMPT_LIBRARY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = default_prompt_libraries()
+    return normalize_prompt_libraries(data)
+
+def save_prompt_libraries(data):
+    data = normalize_prompt_libraries(data)
+    data["updated_at"] = now_ms()
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(PROMPT_LIBRARY_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return data
+
+def public_prompt_libraries(data=None):
+    data = normalize_prompt_libraries(data or load_prompt_libraries())
+    system_library = {
+        "id": "system",
+        "name": "系统提示词库",
+        "type": "prompt",
+        "readonly": True,
+        "categories": defaultPromptTemplateCategories(),
+        "items": builtin_prompt_templates(),
+    }
+    return {
+        "active_library_id": data.get("active_library_id") or "mine",
+        "libraries": [system_library, *(data.get("libraries") or [])],
+        "updated_at": data.get("updated_at") or now_ms(),
+    }
+
+def find_prompt_library(data, library_id=""):
+    if not isinstance(data, dict):
+        return None
+    libraries = data.get("libraries") if isinstance(data.get("libraries"), list) else []
+    library_id = str(library_id or data.get("active_library_id") or "").strip()
+    return next((item for item in libraries if item.get("id") == library_id), None) or (libraries[0] if libraries else None)
 
 def sanitize_asset_name(name, fallback="asset"):
     name = re.sub(r'[\\/:*?"<>|]+', "_", str(name or fallback)).strip()
@@ -3502,6 +3902,27 @@ def volcengine_video_resolution(value: str) -> str:
 def is_volcengine_seedance2_model(model: str) -> bool:
     value = str(model or "").strip().lower().replace("_", "-").replace(".", "-")
     return "seedance-2-0" in value
+
+async def volcengine_video_reference_content_items(value, max_frames=4, max_size=768):
+    text = str(value or "").strip()
+    if not text:
+        return []
+    if is_private_asset_url(text):
+        return [{
+            "type": "video_url",
+            "video_url": {"url": text},
+            "role": "reference_video",
+        }]
+    frame_urls = await video_reference_to_frame_data_urls(text, max_frames=max_frames, max_size=max_size)
+    return [
+        {
+            "type": "image_url",
+            "image_url": {"url": frame_url},
+            "role": "reference_image",
+        }
+        for frame_url in frame_urls
+        if frame_url
+    ]
 
 async def video_reference_to_frame_data_urls(value, max_frames=6, max_size=768):
     if not isinstance(value, str) or not value:
@@ -5315,7 +5736,7 @@ async def jimeng_status():
 @app.get("/api/config")
 async def ai_config():
     preferred_chat_model = next((m for m in CHAT_MODELS if m == "gpt-5.5"), CHAT_MODELS[0] if CHAT_MODELS else CHAT_MODEL)
-    providers = [public_provider(p) for p in load_api_providers()]
+    providers = public_api_providers()
     return {
         "base_url": AI_BASE_URL,
         "chat_model": preferred_chat_model,
@@ -5336,7 +5757,7 @@ async def ai_models():
 
 @app.get("/api/providers")
 async def api_providers():
-    return {"providers": [public_provider(p) for p in load_api_providers()]}
+    return {"providers": public_api_providers()}
 
 @app.put("/api/providers")
 async def save_providers(payload: List[ApiProviderPayload]):
@@ -5424,6 +5845,13 @@ class TestConnectionPayload(BaseModel):
     protocol: str = "openai"
 
 def protocol_from_payload(payload):
+    provider_id = str(getattr(payload, "provider_id", "") or "").strip().lower()
+    if provider_id == "volcengine":
+        return "volcengine"
+    if provider_id == "runninghub":
+        return "runninghub"
+    if provider_id == "jimeng":
+        return "jimeng"
     protocol = str(getattr(payload, "protocol", "") or "openai").strip().lower()
     return protocol if protocol in SUPPORTED_PROVIDER_PROTOCOLS else "openai"
 
@@ -5501,12 +5929,15 @@ async def test_provider_connection(payload: TestConnectionPayload):
     if not re.match(r"^https?://", base_url):
         raise HTTPException(status_code=400, detail="请求地址必须以 http:// 或 https:// 开头")
     api_key = (payload.api_key or "").strip()
-    if not api_key and payload.provider_id:
+    if protocol == "volcengine":
+        api_key = volcengine_provider_api_key(api_key)
+    elif not api_key and payload.provider_id:
         api_key = os.getenv(runninghub_wallet_key_env(), "") if payload.provider_id == "runninghub" else ""
         if not api_key:
             api_key = os.getenv(provider_key_env(payload.provider_id), "")
     if not api_key:
-        raise HTTPException(status_code=400, detail="请先填写或保存 API Key")
+        key_name = "方舟 API Key" if protocol == "volcengine" else "API Key"
+        raise HTTPException(status_code=400, detail=f"请先填写或保存 {key_name}")
     url = upstream_models_url(base_url, protocol)
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -5515,6 +5946,9 @@ async def test_provider_connection(payload: TestConnectionPayload):
             return {"ok": False, "status": resp.status_code, "message": resp.text[:300]}
         data = resp.json() if resp.text else {}
         grouped, ids = parse_upstream_models(data, protocol)
+        if protocol == "volcengine" and not ids:
+            grouped["video"] = VOLCENGINE_DEFAULT_VIDEO_MODELS[:]
+            ids = VOLCENGINE_DEFAULT_VIDEO_MODELS[:]
         return {"ok": True, "status": resp.status_code, "model_count": len(ids), "image_models": grouped["image"], "chat_models": grouped["chat"], "video_models": grouped["video"], "all": ids}
     except httpx.HTTPError as e:
         return {"ok": False, "status": 0, "message": str(e)[:300]}
@@ -5586,9 +6020,10 @@ async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str 
         raise HTTPException(status_code=400, detail="请先填写请求地址")
     if not re.match(r"^https?://", base_url):
         raise HTTPException(status_code=400, detail="请求地址必须以 http:// 或 https:// 开头")
-    api_key = (api_key or "").strip()
+    api_key = volcengine_provider_api_key(api_key) if protocol == "volcengine" else (api_key or "").strip()
     if not api_key:
-        raise HTTPException(status_code=400, detail="请先填写或保存 API Key")
+        key_name = "方舟 API Key" if protocol == "volcengine" else "API Key"
+        raise HTTPException(status_code=400, detail=f"请先填写或保存 {key_name}")
     url = upstream_models_url(base_url, protocol)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -5600,6 +6035,9 @@ async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str 
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"请求上游模型列表失败：{e}")
     grouped, ids = parse_upstream_models(raw, protocol)
+    if protocol == "volcengine" and not ids:
+        grouped["video"] = VOLCENGINE_DEFAULT_VIDEO_MODELS[:]
+        ids = VOLCENGINE_DEFAULT_VIDEO_MODELS[:]
     return {"total": len(ids), "image_models": grouped["image"], "chat_models": grouped["chat"], "video_models": grouped["video"], "all": ids}
 
 @app.post("/api/providers/fetch-models")
@@ -6051,7 +6489,10 @@ async def canvas_video(payload: CanvasVideoRequest):
                         body["content"].append(item)
                         image_like_urls.add(url)
                     for url in (payload.videos or [])[:3]:
-                        media_url = volcengine_media_reference_url(url, max_image_size=None)
+                        text_url = str(url or "").strip()
+                        if not text_url:
+                            continue
+                        media_url = volcengine_media_reference_url(text_url, max_image_size=1536 if looks_like_image_media_url(text_url) else None)
                         if not media_url:
                             continue
                         if media_url in image_like_urls or looks_like_image_media_url(media_url):
@@ -6062,11 +6503,8 @@ async def canvas_video(payload: CanvasVideoRequest):
                             })
                             image_like_urls.add(media_url)
                             continue
-                        body["content"].append({
-                            "type": "video_url",
-                            "video_url": {"url": media_url},
-                            "role": "reference_video",
-                        })
+                        video_items = await volcengine_video_reference_content_items(media_url)
+                        body["content"].extend(video_items)
                     if payload.seed is not None:
                         body["seed"] = payload.seed
                 else:
@@ -6342,11 +6780,8 @@ async def touch_canvas(canvas_id: str):
 async def smart_canvas_prompt_templates():
     try:
         template_path = prompt_template_markdown_path()
-        if not template_path:
-            return {"templates": []}
-        with open(template_path, "r", encoding="utf-8") as f:
-            text = f.read()
-        return {"templates": parse_prompt_template_markdown(text), "source": os.path.relpath(template_path, BASE_DIR).replace("\\", "/")}
+        source = os.path.relpath(template_path, BASE_DIR).replace("\\", "/") if template_path else ""
+        return {"templates": builtin_prompt_templates(), "source": source}
     except Exception as e:
         print(f"读取提示词模板失败: {e}")
         return {"templates": []}
@@ -6489,19 +6924,182 @@ async def export_smart_canvas_group(payload: SmartCanvasGroupExportRequest):
 async def get_asset_library():
     return {"library": load_asset_library()}
 
+@app.get("/api/prompt-libraries")
+async def get_prompt_libraries():
+    return {"library": public_prompt_libraries()}
+
+@app.post("/api/prompt-libraries")
+async def create_prompt_library(payload: PromptLibraryRequest):
+    data = load_prompt_libraries()
+    library = {
+        "id": f"plib_{uuid.uuid4().hex[:12]}",
+        "name": sanitize_asset_name(payload.name, "提示词库"),
+        "type": "prompt",
+        "readonly": False,
+        "categories": defaultPromptTemplateCategories(),
+        "items": [],
+    }
+    data.setdefault("libraries", []).append(library)
+    data["active_library_id"] = library["id"]
+    data = save_prompt_libraries(data)
+    return {"library": public_prompt_libraries(data), "prompt_library": library}
+
+@app.patch("/api/prompt-libraries/{library_id}")
+async def rename_prompt_library(library_id: str, payload: PromptLibraryRequest):
+    data = load_prompt_libraries()
+    library = find_prompt_library(data, library_id)
+    if not library or library.get("id") != library_id:
+        raise HTTPException(status_code=404, detail="提示词库不存在")
+    library["name"] = sanitize_asset_name(payload.name, library.get("name") or "提示词库")
+    data = save_prompt_libraries(data)
+    return {"library": public_prompt_libraries(data), "prompt_library": library}
+
+@app.delete("/api/prompt-libraries/{library_id}")
+async def delete_prompt_library(library_id: str):
+    data = load_prompt_libraries()
+    libraries = data.get("libraries") or []
+    if len(libraries) <= 1:
+        raise HTTPException(status_code=400, detail="至少保留一个提示词库")
+    if not any(item.get("id") == library_id for item in libraries):
+        raise HTTPException(status_code=404, detail="提示词库不存在")
+    data["libraries"] = [item for item in libraries if item.get("id") != library_id]
+    if data.get("active_library_id") == library_id:
+        data["active_library_id"] = data["libraries"][0].get("id")
+    data = save_prompt_libraries(data)
+    return {"library": public_prompt_libraries(data)}
+
+@app.post("/api/prompt-libraries/items")
+async def add_prompt_library_item(payload: PromptLibraryItemRequest):
+    data = load_prompt_libraries()
+    library = find_prompt_library(data, payload.library_id)
+    if not library:
+        raise HTTPException(status_code=404, detail="提示词库不存在")
+    if not str(payload.positive or "").strip():
+        raise HTTPException(status_code=400, detail="提示词内容不能为空")
+    item = normalize_prompt_library_item({
+        "id": f"tpl_{uuid.uuid4().hex[:12]}",
+        "name": payload.name,
+        "category": payload.category,
+        "positive": payload.positive,
+        "negative": payload.negative,
+        "scene": payload.scene,
+        "created_at": now_ms(),
+        "updated_at": now_ms(),
+    })
+    library.setdefault("items", []).insert(0, item)
+    data["active_library_id"] = library.get("id") or data.get("active_library_id")
+    data = save_prompt_libraries(data)
+    return {"library": public_prompt_libraries(data), "item": item}
+
+@app.patch("/api/prompt-libraries/items/{item_id}")
+async def update_prompt_library_item(item_id: str, payload: PromptLibraryItemRequest):
+    data = load_prompt_libraries()
+    for library in data.get("libraries", []) or []:
+        if payload.library_id and library.get("id") != payload.library_id:
+            continue
+        for index, item in enumerate(library.get("items", []) or []):
+            if item.get("id") == item_id:
+                next_item = normalize_prompt_library_item({
+                    **item,
+                    "name": payload.name or item.get("name"),
+                    "category": payload.category or item.get("category"),
+                    "positive": payload.positive or item.get("positive"),
+                    "negative": payload.negative,
+                    "scene": payload.scene,
+                    "updated_at": now_ms(),
+                })
+                library["items"][index] = next_item
+                data = save_prompt_libraries(data)
+                return {"library": public_prompt_libraries(data), "item": next_item}
+    raise HTTPException(status_code=404, detail="提示词不存在")
+
+@app.delete("/api/prompt-libraries/items/{item_id}")
+async def delete_prompt_library_item(item_id: str):
+    data = load_prompt_libraries()
+    removed = None
+    for library in data.get("libraries", []) or []:
+        keep = []
+        for item in library.get("items", []) or []:
+            if item.get("id") == item_id:
+                removed = item
+            else:
+                keep.append(item)
+        library["items"] = keep
+    if not removed:
+        raise HTTPException(status_code=404, detail="提示词不存在")
+    data = save_prompt_libraries(data)
+    return {"library": public_prompt_libraries(data), "removed": 1}
+
+@app.post("/api/prompt-libraries/items/delete")
+async def batch_delete_prompt_library_items(payload: PromptLibraryBatchDeleteRequest):
+    ids = {str(item) for item in (payload.ids or []) if str(item)}
+    if not ids:
+        raise HTTPException(status_code=400, detail="没有选择提示词")
+    data = load_prompt_libraries()
+    removed = 0
+    for library in data.get("libraries", []) or []:
+        keep = []
+        for item in library.get("items", []) or []:
+            if item.get("id") in ids:
+                removed += 1
+            else:
+                keep.append(item)
+        library["items"] = keep
+    data = save_prompt_libraries(data)
+    return {"library": public_prompt_libraries(data), "removed": removed}
+
+@app.post("/api/asset-library/libraries")
+async def create_asset_library(payload: AssetLibraryRequest):
+    lib = load_asset_library()
+    library = {"id": f"lib_{uuid.uuid4().hex[:12]}", "name": sanitize_asset_name(payload.name, "资产库"), "type": "asset", "categories": []}
+    library["categories"].append({"id": f"cat_{uuid.uuid4().hex[:12]}", "name": "默认分组", "type": "image", "items": []})
+    library["categories"].append({"id": f"wf_{uuid.uuid4().hex[:12]}", "name": "工作流", "type": "workflow", "items": []})
+    lib.setdefault("libraries", []).append(library)
+    lib["active_library_id"] = library["id"]
+    save_asset_library(lib)
+    return {"library": lib, "asset_library": library}
+
+@app.patch("/api/asset-library/libraries/{library_id}")
+async def rename_asset_library(library_id: str, payload: AssetLibraryRenameRequest):
+    lib = load_asset_library()
+    library = find_asset_library(lib, library_id)
+    if not library or library.get("id") != library_id:
+        raise HTTPException(status_code=404, detail="资产库不存在")
+    library["name"] = sanitize_asset_name(payload.name, library.get("name") or "资产库")
+    save_asset_library(lib)
+    return {"library": lib, "asset_library": library}
+
+@app.delete("/api/asset-library/libraries/{library_id}")
+async def delete_asset_library(library_id: str):
+    lib = load_asset_library()
+    libraries = lib.get("libraries") or []
+    if len(libraries) <= 1:
+        raise HTTPException(status_code=400, detail="至少保留一个资产库")
+    if not any(item.get("id") == library_id for item in libraries):
+        raise HTTPException(status_code=404, detail="资产库不存在")
+    lib["libraries"] = [item for item in libraries if item.get("id") != library_id]
+    if lib.get("active_library_id") == library_id:
+        lib["active_library_id"] = lib["libraries"][0].get("id")
+    save_asset_library(lib)
+    return {"library": lib}
+
 @app.post("/api/asset-library/categories")
 async def create_asset_library_category(payload: AssetLibraryCategoryRequest):
     lib = load_asset_library()
+    library = find_asset_library(lib, payload.library_id)
+    if not library:
+        raise HTTPException(status_code=404, detail="资产库不存在")
     cat_type = "workflow" if str(payload.type or "").lower() == "workflow" else "image"
     category = {"id": f"cat_{uuid.uuid4().hex[:12]}", "name": sanitize_asset_name(payload.name, "新文件夹"), "type": cat_type, "items": []}
-    lib.setdefault("categories", []).append(category)
+    library.setdefault("categories", []).append(category)
+    lib["active_library_id"] = library.get("id") or lib.get("active_library_id")
     save_asset_library(lib)
     return {"library": lib, "category": category}
 
 @app.patch("/api/asset-library/categories/{category_id}")
 async def rename_asset_library_category(category_id: str, payload: AssetLibraryRenameRequest):
     lib = load_asset_library()
-    cat = find_asset_category(lib, category_id)
+    _, cat = find_asset_category_with_library(lib, category_id)
     if not cat:
         raise HTTPException(status_code=404, detail="分类不存在")
     cat["name"] = sanitize_asset_name(payload.name, cat.get("name") or "新文件夹")
@@ -6511,67 +7109,100 @@ async def rename_asset_library_category(category_id: str, payload: AssetLibraryR
 @app.delete("/api/asset-library/categories/{category_id}")
 async def delete_asset_library_category(category_id: str):
     lib = load_asset_library()
-    cat = find_asset_category(lib, category_id)
+    library, cat = find_asset_category_with_library(lib, category_id)
     if not cat:
         raise HTTPException(status_code=404, detail="分类不存在")
     if cat.get("type") == "workflow" and category_id == "workflows":
         raise HTTPException(status_code=400, detail="默认工作流分类不能删除")
-    lib["categories"] = [c for c in lib.get("categories", []) if c.get("id") != category_id]
+    library["categories"] = [c for c in library.get("categories", []) if c.get("id") != category_id]
     save_asset_library(lib)
     return {"library": lib}
 
 @app.post("/api/asset-library/items")
 async def add_asset_library_item(payload: AssetLibraryAddRequest):
     lib = load_asset_library()
-    cat = find_asset_category(lib, payload.category_id)
+    cat = find_asset_category_in_library(lib, payload.category_id, payload.library_id)
     if not cat:
         raise HTTPException(status_code=404, detail="分类不存在")
     if cat.get("type") != "image":
-        raise HTTPException(status_code=400, detail="该分类暂不支持添加图片")
+        raise HTTPException(status_code=400, detail="该分类暂不支持添加媒体")
     src = output_file_from_url(payload.url)
     if not src:
-        raise HTTPException(status_code=400, detail="只支持保存本地 /assets 或 /output 图片")
-    ext = os.path.splitext(src)[1].lower() or ".png"
-    if ext not in [".png", ".jpg", ".jpeg", ".webp", ".gif"]:
-        ext = ".png"
-    safe_name = sanitize_asset_name(payload.name or os.path.basename(src), "asset")
-    if not os.path.splitext(safe_name)[1]:
-        safe_name += ext
-    dest_name = f"lib_{uuid.uuid4().hex[:12]}_{safe_name}"
-    dest_path = os.path.join(ASSET_LIBRARY_DIR, dest_name)
-    shutil.copy2(src, dest_path)
-    item = {"id": f"asset_{uuid.uuid4().hex[:12]}", "name": os.path.splitext(safe_name)[0][:120], "url": f"/assets/library/{dest_name}", "created_at": now_ms()}
+        raise HTTPException(status_code=400, detail="只支持保存本地 /assets 或 /output 媒体")
+    _, item = make_asset_library_item(src, payload.name or os.path.basename(src))
     cat.setdefault("items", []).append(item)
     save_asset_library(lib)
     return {"library": lib, "item": item}
 
+@app.post("/api/asset-library/items/batch")
+async def batch_add_asset_library_items(payload: AssetLibraryBatchAddRequest):
+    added = []
+    lib = load_asset_library()
+    cat = find_asset_category_in_library(lib, payload.category_id, payload.library_id)
+    if not cat:
+        raise HTTPException(status_code=404, detail="分类不存在")
+    for entry in (payload.items or [])[:200]:
+        entry.category_id = payload.category_id
+        entry.library_id = payload.library_id
+        src = output_file_from_url(entry.url)
+        if not src:
+            continue
+        _, item = make_asset_library_item(src, entry.name or os.path.basename(src))
+        cat.setdefault("items", []).append(item)
+        added.append(item)
+    save_asset_library(lib)
+    return {"library": lib, "items": added}
+
 @app.patch("/api/asset-library/items/{item_id}")
 async def rename_asset_library_item(item_id: str, payload: AssetLibraryRenameRequest):
     lib = load_asset_library()
-    for cat in lib.get("categories", []):
-        for item in cat.get("items", []):
-            if item.get("id") == item_id:
-                item["name"] = sanitize_asset_name(payload.name, item.get("name") or "asset")
-                save_asset_library(lib)
-                return {"library": lib, "item": item}
+    for library in lib.get("libraries", []):
+        for cat in library.get("categories", []):
+            for item in cat.get("items", []):
+                if item.get("id") == item_id:
+                    item["name"] = sanitize_asset_name(payload.name, item.get("name") or "asset")
+                    save_asset_library(lib)
+                    return {"library": lib, "item": item}
     raise HTTPException(status_code=404, detail="资产不存在")
 
 @app.delete("/api/asset-library/items/{item_id}")
 async def delete_asset_library_item(item_id: str):
     lib = load_asset_library()
     removed = None
-    for cat in lib.get("categories", []):
-        keep = []
-        for item in cat.get("items", []):
-            if item.get("id") == item_id:
-                removed = item
-            else:
-                keep.append(item)
-        cat["items"] = keep
+    for library in lib.get("libraries", []):
+        for cat in library.get("categories", []):
+            keep = []
+            for item in cat.get("items", []):
+                if item.get("id") == item_id:
+                    removed = item
+                else:
+                    keep.append(item)
+            cat["items"] = keep
     if not removed:
         raise HTTPException(status_code=404, detail="资产不存在")
     save_asset_library(lib)
     return {"library": lib}
+
+@app.post("/api/asset-library/items/delete")
+async def batch_delete_asset_library_items(payload: AssetLibraryBatchDeleteRequest):
+    ids = {str(item) for item in (payload.ids or []) if str(item)}
+    if not ids:
+        raise HTTPException(status_code=400, detail="没有选择资产")
+    lib = load_asset_library()
+    removed = 0
+    for library in lib.get("libraries", []):
+        if payload.library_id and library.get("id") != payload.library_id:
+            continue
+        for cat in library.get("categories", []):
+            keep = []
+            for item in cat.get("items", []):
+                if item.get("id") in ids:
+                    removed += 1
+                else:
+                    keep.append(item)
+            cat["items"] = keep
+    save_asset_library(lib)
+    return {"library": lib, "removed": removed}
 
 @app.put("/api/canvases/{canvas_id}")
 async def update_canvas(canvas_id: str, payload: CanvasSaveRequest):

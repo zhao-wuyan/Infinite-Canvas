@@ -16,10 +16,10 @@
             } catch(e) {}
         })();
     </script>
-    <script src="/static/vendor/js/lucide.js?v=2026.05.29.2"></script>
-    <script src="/static/js/theme.js?v=2026.05.29.2"></script>
-    <script src="/static/js/i18n.js?v=2026.05.29.2"></script>
-    <link rel="stylesheet" href="/static/css/smart-canvas.css?v=2026.05.29.2">
+    <script src="/static/vendor/js/lucide.js?v=2026.05.30"></script>
+    <script src="/static/js/theme.js?v=2026.05.30"></script>
+    <script src="/static/js/i18n.js?v=2026.05.30"></script>
+    <link rel="stylesheet" href="/static/css/smart-canvas.css?v=2026.05.30">
 </head>
 <body>
     <div id="shell" class="shell">
@@ -116,6 +116,7 @@
                 </div>
                 <button id="promptTemplateClose" type="button" title="关闭"><i data-lucide="x"></i></button>
             </div>
+            <select id="promptTemplateLibrarySelect" class="prompt-template-library-select" title="选择提示词库"></select>
             <div class="prompt-template-search">
                 <i data-lucide="search"></i>
                 <input id="promptTemplateSearch" type="search" placeholder="搜索模板...">
@@ -141,6 +142,7 @@
                 <button class="asset-tab" type="button" data-asset-tab="workflow" data-i18n="smart.assetWorkflows">工作流</button>
             </div>
             <div id="assetImageControls">
+                <select id="assetLibrarySelect" class="asset-category-select asset-library-select" title="选择资产库"></select>
                 <div class="asset-category-row">
                     <select id="assetCategorySelect" class="asset-category-select"></select>
                     <button id="assetAddCategoryBtn" class="asset-mini-btn" type="button" title="新建文件夹" data-i18n-title="smart.assetNewFolder"><i data-lucide="folder-plus"></i></button>
@@ -151,7 +153,7 @@
             <div id="assetGrid" class="asset-grid"></div>
             <div id="workflowEmpty" class="workflow-empty" style="display:none" data-i18n="smart.assetWorkflowEmpty">工作流资产先预留在这里，后续接入。</div>
         </aside>
-        <div id="assetDialogBackdrop" class="asset-dialog-backdrop">
+        <div id="assetDialogBackdrop" class="asset-dialog-backdrop" hidden>
             <div class="asset-dialog">
                 <div class="asset-dialog-title"><i data-lucide="folder-pen"></i><span id="assetDialogTitle">命名</span></div>
                 <textarea id="assetDialogInput" class="asset-dialog-input" rows="1" autocomplete="off"></textarea>
@@ -161,7 +163,7 @@
                 </div>
             </div>
         </div>
-        <div id="assetHoverPreview" class="asset-hover-preview">
+        <div id="assetHoverPreview" class="asset-hover-preview" hidden>
             <img alt="asset preview">
             <div class="asset-hover-name"></div>
         </div>
@@ -344,6 +346,6 @@
         <div id="toast" class="toast"></div>
         <div id="mentionPreview" class="mention-preview"><img alt="preview"></div>
     </div>
-    <script src="/static/js/smart-canvas.js?v=2026.05.29.2"></script>
+    <script src="/static/js/smart-canvas.js?v=2026.05.30"></script>
 </body>
 </html>
