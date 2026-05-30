@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": 1779719884395,
+  "generatedAt": 1780147690014,
   "entries": [
     {
       "id": "spec:project:architecture-constraints",
@@ -119,13 +119,91 @@
         "enforcement"
       ],
       "status": "active",
-      "created": "2026-05-24T07:56:56.587Z",
-      "updated": "2026-05-24T07:56:56.587Z",
+      "created": "2026-05-30T13:11:00.649Z",
+      "updated": "2026-05-30T13:11:00.649Z",
       "scope": "project",
       "category": "review",
       "createdBy": null,
       "sourceRef": null,
       "parent": null,
+      "related": [],
+      "source": {
+        "kind": "file",
+        "path": "specs/quality-rules.md"
+      }
+    },
+    {
+      "id": "spec:project:quality-rules-001",
+      "type": "spec",
+      "title": "上游同步、fork 适配与上游 PR 准备流程",
+      "summary": "### 上游同步、fork 适配与上游 PR 准备流程 当任务涉及“同步上游代码、保持当前 fork 的桌面客户端或 Docker 适配、准备提交上游 PR”时，下列内容是必须遵守的流程规则，不是收到规则时立即执行的动作。 执行前必须先确认远程与分支角色：`main` 以跟踪和同步 `upstream/main` 为主，只保留当前 fork 的最小 Docker 适配，原则上不承载桌面客户端、打包发布或高侵入产品化改动；`pkg` 是当前 fork 的桌面端打包适配主线，",
+      "tags": [
+        "upstream-sync",
+        "pkg-compatibility",
+        "pr-prep",
+        "gitnexus",
+        "repo-url"
+      ],
+      "status": "active",
+      "created": "2026-05-30T13:11:00.649Z",
+      "updated": "2026-05-30T13:11:00.649Z",
+      "scope": "project",
+      "category": "rule",
+      "createdBy": null,
+      "sourceRef": null,
+      "parent": "spec:project:quality-rules",
+      "related": [],
+      "source": {
+        "kind": "file",
+        "path": "specs/quality-rules.md"
+      }
+    },
+    {
+      "id": "spec:project:quality-rules-002",
+      "type": "spec",
+      "title": "AI 协作资产只允许存在于 pkg，不得进入上游 PR",
+      "summary": "### AI 协作资产只允许存在于 pkg，不得进入上游 PR 当前 fork 允许为了长期手动同步、AI 辅助开发和历史决策追踪，在 `pkg` 分支提交 AI 协作资产，例如 `.workflow/`、`AGENTS.md`、`CLAUDE.md`、`.claude/` 以及类似的本地代理配置或工作流说明。这些内容属于 fork 内部工程资产，不属于上游项目功能实现。 `pkg` 分支可以跟踪 AI 协作资产，但必须把它们视为 fork-only 内容。提交前需要确认",
+      "tags": [
+        "ai-assets",
+        "pkg-only",
+        "pr-cleanup",
+        "workflow",
+        "upstream-pr"
+      ],
+      "status": "active",
+      "created": "2026-05-30T13:11:00.649Z",
+      "updated": "2026-05-30T13:11:00.649Z",
+      "scope": "project",
+      "category": "rule",
+      "createdBy": null,
+      "sourceRef": null,
+      "parent": "spec:project:quality-rules",
+      "related": [],
+      "source": {
+        "kind": "file",
+        "path": "specs/quality-rules.md"
+      }
+    },
+    {
+      "id": "spec:project:quality-rules-003",
+      "type": "spec",
+      "title": "本 fork 的上游同步分支流向与推送授权规则",
+      "summary": "### 本 fork 的上游同步分支流向与推送授权规则 当前 fork 的 `main` 分支是唯一允许直接同步上游 `hero8152/Infinite-Canvas` 的基线分支。即使本地没有配置 `upstream` remote，也可以把本 fork 的 `origin/main` 视为已经由人工同步后的上游基线；自动化流程不得在 `pkg` 或 `pr` 分支直接从 `hero8152/Infinite-Canvas`、其他 fork 或任意外部分支合入代码。 ",
+      "tags": [
+        "upstream-sync",
+        "branch-flow",
+        "origin-main",
+        "pkg",
+        "pr-authorization"
+      ],
+      "status": "active",
+      "created": "2026-05-30T13:11:00.649Z",
+      "updated": "2026-05-30T13:11:00.649Z",
+      "scope": "project",
+      "category": "rule",
+      "createdBy": null,
+      "sourceRef": null,
+      "parent": "spec:project:quality-rules",
       "related": [],
       "source": {
         "kind": "file",

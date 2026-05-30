@@ -6,6 +6,7 @@ import os
 import shlex
 import signal
 import subprocess
+import ssl
 import sys
 import tempfile
 import threading
@@ -16,6 +17,11 @@ import webbrowser
 import zipfile
 from pathlib import Path
 from typing import Any
+
+try:
+    import certifi
+except Exception:  # pragma: no cover - source runs may omit optional packaging deps.
+    certifi = None
 
 from app_runtime import DEFAULT_APP_PORT, app_base_url
 from packaging.macos.launcher.layout import app_bundle_from_executable, compute_layout
@@ -50,6 +56,7 @@ LAUNCH_COMPLETE_NOTICE = "Infinite Canvas 启动完成。"
 TERMINAL_STARTUP_NOTICE = (
     LAUNCH_STARTING_NOTICE
 )
+UPDATE_NETWORK_ERRORS = (urllib.error.URLError, TimeoutError, OSError, ssl.SSLError)
 
 
 def default_app_bundle() -> Path:
@@ -148,8 +155,28 @@ def join_update_url(base_url: str, endpoint: str) -> str:
     return base_url.rstrip("/") + "/" + endpoint.lstrip("/")
 
 
+def update_ssl_context() -> ssl.SSLContext | None:
+    if certifi is None:
+        return None
+    try:
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return None
+
+
+def open_update_url(url: str, timeout: int):
+    context = update_ssl_context()
+    if context is None:
+        return urllib.request.urlopen(url, timeout=timeout)
+    return urllib.request.urlopen(url, timeout=timeout, context=context)
+
+
+def update_network_error_detail(action: str, exc: BaseException) -> str:
+    return f"{action}失败：{exc}"
+
+
 def fetch_text(url: str) -> str:
-    with urllib.request.urlopen(url, timeout=15) as response:
+    with open_update_url(url, timeout=15) as response:
         return response.read().decode("utf-8", errors="replace")
 
 
@@ -167,7 +194,7 @@ def fetch_remote_version(base_url: str, endpoint: str) -> str | None:
 def download_update_payload(base_url: str, endpoint: str, output_path: Path) -> str | None:
     payload_url = join_update_url(base_url, endpoint)
     try:
-        with urllib.request.urlopen(payload_url, timeout=60) as response:
+        with open_update_url(payload_url, timeout=60) as response:
             output_path.write_bytes(response.read())
     except urllib.error.HTTPError as exc:
         if exc.code != 404:
@@ -193,7 +220,15 @@ def check_for_updates(app_bundle: Path, storage_root: Path | None = None) -> dic
     if not base_url:
         return {"ok": False, "detail": "未配置 update_base_url。"}
     current = current_payload_version(app_bundle, storage_root=layout.storage_root)
-    remote = fetch_remote_version(base_url, str(manifest.get("version_endpoint") or DEFAULT_VERSION_ENDPOINT))
+    try:
+        remote = fetch_remote_version(base_url, str(manifest.get("version_endpoint") or DEFAULT_VERSION_ENDPOINT))
+    except UPDATE_NETWORK_ERRORS as exc:
+        return {
+            "ok": False,
+            "current_version": current,
+            "has_update": False,
+            "detail": update_network_error_detail("更新检查", exc),
+        }
     if remote is None:
         return {
             "ok": True,
@@ -286,7 +321,10 @@ def apply_update_result(app_bundle: Path, storage_root: Path | None = None) -> d
 
     with tempfile.TemporaryDirectory() as tempdir:
         payload_file = Path(tempdir) / "app-base.zip"
-        payload_url = download_update_payload(base_url, str(manifest.get("payload_endpoint") or DEFAULT_PAYLOAD_ENDPOINT), payload_file)
+        try:
+            payload_url = download_update_payload(base_url, str(manifest.get("payload_endpoint") or DEFAULT_PAYLOAD_ENDPOINT), payload_file)
+        except UPDATE_NETWORK_ERRORS as exc:
+            return {**check, "ok": False, "detail": update_network_error_detail("更新包下载", exc)}
         if not payload_url:
             return {**check, "ok": False, "detail": "远端 payload 不存在。"}
         payload_version = read_update_payload_version(payload_file)

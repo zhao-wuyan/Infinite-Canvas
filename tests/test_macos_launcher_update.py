@@ -9,6 +9,7 @@ from packaging.macos.launcher.launcher_main import (
     apply_update_result,
     check_for_updates_and_remember,
     check_for_updates,
+    fetch_text,
     has_management_action,
     launch_in_terminal,
     print_launch_complete,
@@ -162,6 +163,20 @@ class MacLauncherUpdateTests(unittest.TestCase):
         self.assertTrue(result["skipped"])
         self.assertFalse(result["has_update"])
 
+    def test_check_for_updates_reports_network_error_without_raising(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
+            error = urllib.error.URLError("certificate verify failed")
+
+            with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", side_effect=error):
+                result = check_for_updates(app_bundle, storage_root=storage_root)
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["has_update"])
+        self.assertEqual(result["current_version"], "2026.05.24.1")
+        self.assertIn("更新检查失败", result["detail"])
+        self.assertIn("certificate verify failed", result["detail"])
+
     def test_check_for_updates_uses_prefixed_version_asset(self):
         with tempfile.TemporaryDirectory() as tempdir:
             app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
@@ -176,6 +191,26 @@ class MacLauncherUpdateTests(unittest.TestCase):
 
         self.assertTrue(result["has_update"])
         self.assertEqual(requested_urls, ["https://example.com/releases/macos-VERSION"])
+
+    def test_fetch_text_uses_certifi_context_when_available(self):
+        fake_response = mock.Mock()
+        fake_response.__enter__ = mock.Mock(return_value=fake_response)
+        fake_response.__exit__ = mock.Mock(return_value=None)
+        fake_response.read.return_value = b"2026.05.25.3\n"
+        certifi_module = mock.Mock()
+        certifi_module.where.return_value = "/tmp/cacert.pem"
+        ssl_context = mock.Mock()
+
+        with mock.patch("packaging.macos.launcher.launcher_main.certifi", certifi_module), \
+            mock.patch("packaging.macos.launcher.launcher_main.ssl.create_default_context", return_value=ssl_context) as create_context, \
+            mock.patch("packaging.macos.launcher.launcher_main.urllib.request.urlopen", return_value=fake_response) as urlopen:
+            result = fetch_text("https://example.com/releases/macos-VERSION")
+
+        self.assertEqual(result, "2026.05.25.3\n")
+        create_context.assert_called_once_with(cafile="/tmp/cacert.pem")
+        self.assertEqual(urlopen.call_args.args[0], "https://example.com/releases/macos-VERSION")
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 15)
+        self.assertIs(urlopen.call_args.kwargs["context"], ssl_context)
 
     def test_apply_update_downloads_payload_and_invokes_updater(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -263,7 +298,7 @@ class MacLauncherUpdateTests(unittest.TestCase):
             fake_response.read.return_value = update_payload_bytes()
             requested_urls: list[str] = []
 
-            def fake_urlopen(url: str, timeout: int = 0):
+            def fake_urlopen(url: str, timeout: int = 0, **_kwargs):
                 requested_urls.append(url)
                 return fake_response
 
@@ -276,6 +311,24 @@ class MacLauncherUpdateTests(unittest.TestCase):
 
         self.assertTrue(result["updated"])
         self.assertEqual(requested_urls, ["https://example.com/releases/macos-app-base.zip"])
+
+    def test_apply_update_reports_payload_download_network_error(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
+            updater = app_bundle / "Contents" / "MacOS" / "Infinite Canvas Updater"
+            updater.parent.mkdir(parents=True, exist_ok=True)
+            updater.write_text("updater", encoding="utf-8")
+            error = urllib.error.URLError("certificate verify failed")
+
+            with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"), \
+                mock.patch("packaging.macos.launcher.launcher_main.open_update_url", side_effect=error), \
+                mock.patch("packaging.macos.launcher.launcher_main.subprocess.run") as run:
+                result = apply_update_result(app_bundle, storage_root=storage_root)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("更新包下载失败", result["detail"])
+        self.assertIn("certificate verify failed", result["detail"])
+        run.assert_not_called()
 
     def test_auto_update_can_be_disabled(self):
         with tempfile.TemporaryDirectory() as tempdir:

@@ -43,6 +43,7 @@ def run_pyinstaller(
     *,
     onefile: bool = False,
     hidden_imports: list[str] | None = None,
+    collect_data: list[str] | None = None,
     windowed: bool = False,
     icon_path: Path | None = None,
 ) -> None:
@@ -64,6 +65,9 @@ def run_pyinstaller(
     for item in hidden_imports or []:
         if item:
             command.extend(["--hidden-import", item])
+    for item in collect_data or []:
+        if item:
+            command.extend(["--collect-data", item])
     command.append(str(entrypoint))
     subprocess.run(command, cwd=str(ROOT), check=True)
 
@@ -197,6 +201,7 @@ def build_pyinstaller_target(
     *,
     onefile: bool = False,
     hidden_imports: list[str] | None = None,
+    collect_data: list[str] | None = None,
     windowed: bool = False,
     icon_path: Path | None = None,
 ) -> None:
@@ -208,6 +213,7 @@ def build_pyinstaller_target(
         dist_dir,
         onefile=onefile,
         hidden_imports=hidden_imports,
+        collect_data=collect_data,
         windowed=windowed,
         icon_path=icon_path,
     )
@@ -242,6 +248,8 @@ def build_app(dist_dir: Path, venv_dir: Path = DEFAULT_VENV_DIR) -> Path:
         ROOT / "packaging" / "macos" / "launcher" / "launcher_main.py",
         APP_NAME,
         build_bin_dir,
+        hidden_imports=["certifi"],
+        collect_data=["certifi"],
         icon_path=icon_path,
     )
     build_pyinstaller_target(

@@ -1,0 +1,4 @@
+id,title,status,findings
+H1,"Remote update probe exception",confirmed,"Observed root cause: packaged macOS launcher fails GitHub HTTPS with SSLCertVerificationError, exits non-zero, and API maps that to HTTP 500."
+H2,"Launcher executable unavailable",confirmed_possible,"Possible 500 path, but not the observed local failure."
+H3,"Mac bundle bootstrap failure",confirmed_possible,"Possible 500 path, but not the observed local failure."

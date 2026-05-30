@@ -8,6 +8,7 @@ from packaging.macos.build_app import (
     APP_NAME,
     APP_ICON_NAME,
     appdir_name,
+    build_app,
     install_pyinstaller_output,
     prepare_app_icon,
     prepare_build_venv,
@@ -40,6 +41,18 @@ class MacBuildAppTests(unittest.TestCase):
         self.assertIn("--hidden-import", args)
         self.assertIn("fastapi.staticfiles", args)
         self.assertIn("PIL.Image", args)
+
+    def test_run_pyinstaller_accepts_collect_data(self):
+        dist_dir = Path("/tmp/dist")
+        entrypoint = Path("/tmp/launcher_main.py")
+        python_exe = Path("/tmp/venv/bin/python")
+
+        with patch("packaging.macos.build_app.subprocess.run") as mocked_run:
+            run_pyinstaller(python_exe, entrypoint, APP_NAME, dist_dir, collect_data=["certifi"])
+
+        args = mocked_run.call_args.args[0]
+        self.assertIn("--collect-data", args)
+        self.assertIn("certifi", args)
 
     def test_run_pyinstaller_accepts_onefile_mode(self):
         dist_dir = Path("/tmp/dist")
@@ -177,6 +190,28 @@ class MacBuildAppTests(unittest.TestCase):
         pip_command = mocked_run.call_args.args[0]
         self.assertEqual(pip_command[:4], [str(python_exe), "-m", "pip", "install"])
         self.assertEqual(resolved, python_exe)
+
+    def test_build_app_collects_certifi_for_launcher(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            dist_dir = Path(tempdir) / "dist"
+            venv_dir = Path(tempdir) / "venv"
+
+            with (
+                patch("packaging.macos.build_app.prepare_build_venv", return_value=Path("/tmp/venv/bin/python")),
+                patch("packaging.macos.build_app.prepare_app_icon", return_value=Path("/tmp/InfiniteCanvas.icns")),
+                patch("packaging.macos.build_app.build_pyinstaller_target") as build_target,
+                patch("packaging.macos.build_app.install_pyinstaller_output"),
+                patch("packaging.macos.build_app.build_payload"),
+                patch("packaging.macos.build_app.shutil.copy2"),
+                patch("packaging.macos.build_app.write_info_plist"),
+                patch("packaging.macos.build_app.sign_app_bundle"),
+            ):
+                build_app(dist_dir, venv_dir)
+
+        launcher_call = build_target.call_args_list[0]
+        self.assertEqual(launcher_call.args[2], APP_NAME)
+        self.assertIn("certifi", launcher_call.kwargs["hidden_imports"])
+        self.assertIn("certifi", launcher_call.kwargs["collect_data"])
 
 
 if __name__ == "__main__":
