@@ -129,6 +129,12 @@ function trf(key, vars={}){
     return text;
 }
 function setStatus(text){ statusEl.textContent = text || ''; }
+function broadcastStudioApiChange(type='providers-changed'){
+    const message = { type, updated_at:Date.now() };
+    try { new BroadcastChannel('studio-api').postMessage(message); } catch(e) {}
+    try { window.parent?.postMessage(message, '*'); } catch(e) {}
+    try { window.top?.postMessage(message, '*'); } catch(e) {}
+}
 function rhEditorSideScrollEl(){
     return rhWorkflowEditorNodeList?.closest?.('.rh-workflow-editor-side') || rhWorkflowEditorNodeList;
 }
@@ -1079,7 +1085,7 @@ async function saveRhWorkflowEditor(){
             setStatus('应用参数配置已保存');
             setRhWorkflowSaveButtonState('saved', '已保存');
             setTimeout(() => setRhWorkflowSaveButtonState('idle', '保存'), 1600);
-            try { new BroadcastChannel('studio-api').postMessage({ type:'providers-changed' }); } catch(e) {}
+            broadcastStudioApiChange('providers-changed');
             renderRhWorkflowEditor();
             return;
         }
@@ -1115,7 +1121,7 @@ async function saveRhWorkflowEditor(){
         setStatus('工作流配置已保存');
         setRhWorkflowSaveButtonState('saved', '已保存');
         setTimeout(() => setRhWorkflowSaveButtonState('idle', '保存'), 1600);
-        try { new BroadcastChannel('studio-api').postMessage({ type:'workflows-changed' }); } catch(e) {}
+        broadcastStudioApiChange('workflows-changed');
         renderRhWorkflowEditor();
     } catch(err) {
         setRhWorkflowSaveButtonState('idle', '保存');
@@ -2729,7 +2735,7 @@ async function saveProviders(){
         renderEditor();
         setStatus(tr('api.saved'));
         // 广播变更，画布等其他 iframe 立即重新拉取最新平台/模型列表
-        try { new BroadcastChannel('studio-api').postMessage({ type:'providers-changed' }); } catch(e) {}
+        broadcastStudioApiChange('providers-changed');
         return true;
     } catch(err) {
         setStatus(err.message || tr('api.saveFailed'));

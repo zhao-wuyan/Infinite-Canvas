@@ -12,6 +12,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY docker-entrypoint.py /usr/local/bin/docker-entrypoint.py
+COPY main.py app_runtime.py ./
 COPY . .
 
 RUN mkdir -p API data assets/input assets/output assets/library output workflows/custom \
