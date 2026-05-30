@@ -1,0 +1,28 @@
+main.py
+  s_7d1b10838a3c52::t_984d1b9b988c87 189-196,200-210,212-214
+tests/test_main_runtime_config.py
+  s_7d1b10838a3c52::t_db3c1d87c56aea 1-14
+VERSION
+  s_7d1b10838a3c52::t_ddd7a9a861996a 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6d707cb187ed61b1eab88f51489eadcec92b7277",
+  "prompts": {},
+  "humans": {
+    "h_cb0e2129f6578c": {
+      "author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  },
+  "sessions": {
+    "s_7d1b10838a3c52": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e78ae-de69-7943-ba85-803f7512068e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
