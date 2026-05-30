@@ -1,0 +1,28 @@
+.dockerignore
+  s_48b000595cace9::t_7dbb6d3e15a252 4-5,14-23
+.gitignore
+  h_cb0e2129f6578c 14
+Dockerfile
+  s_48b000595cace9::t_ca9c01f0942569 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "75f42137e57babae0a6f3d697bca37ad41559ca8",
+  "prompts": {},
+  "humans": {
+    "h_cb0e2129f6578c": {
+      "author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  },
+  "sessions": {
+    "s_48b000595cace9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7835-a8b2-7fb2-902e-4c44495210fb",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
