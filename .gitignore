@@ -8,6 +8,8 @@
 # Python/runtime cache
 __pycache__/
 *.py[cod]
+.codex-*
+*.codex-*
 .pytest_cache/
 .DS_Store
 python/

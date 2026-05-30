@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import zipfile
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from packaging.payload_filters import should_include_payload_file
+
 PAYLOAD_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = PAYLOAD_DIR / "app-base.zip"
 DEFAULT_MANIFEST = PAYLOAD_DIR / "manifest.json"
@@ -30,7 +36,7 @@ def build_payload(output_path: Path) -> list[str]:
                 raise FileNotFoundError(f"Missing payload entry: {source}")
             if source.is_dir():
                 for child in sorted(source.rglob("*")):
-                    if child.is_dir():
+                    if child.is_dir() or not should_include_payload_file(child, ROOT):
                         continue
                     arcname = child.relative_to(ROOT).as_posix()
                     archive.write(child, arcname)
