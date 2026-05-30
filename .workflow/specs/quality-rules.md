@@ -66,6 +66,20 @@ GitNexus 或其他影响分析工具可以使用 AI 协作资产理解 fork 的�
 
 </spec-entry>
 
+<spec-entry category="rule" keywords="pr-filtering,gitignore,ai-assets,defensive-filters,upstream-pr" date="2026-05-30" source="user:2026-05-30">
+
+### PR 过滤规则允许 .gitignore 与防御性排除例外
+
+`pr` 分支合并和上游 PR 准备过程中的 AI 资产、fork-only 路径和不需要目录过滤规则，必须按语义判断命中结果。过滤规则默认阻断的是实际进入上游 PR 的 AI 协作资产、fork 内部目录、缓存、会话文件、私有配置或以这些资产为运行依赖的代码，而不是阻断所有文本引用。
+
+`.gitignore` 是 PR 过滤规则的明确例外。`.gitignore` 中包含 `.workflow/`、`.claude/`、AI 产物目录、缓存目录、临时输出目录或其他不应进入仓库的路径时，通常属于合法排除声明；这些条目的目的正是防止不需要的目录和产物进入 PR 或版本库。不得仅因为 `.gitignore` 文本命中 AI 资产 denylist 就判定 PR 不干净。
+
+代码中的防御性过滤、扫描排除、打包排除、测试夹具排除或文件同步排除也可以作为例外。例如代码为了避免读取、上传、打包、同步或提交不想要的文件而显式过滤 AI 产物目录、缓存目录、临时目录或 fork-only 路径时，应视为防御性处理，而不是把这些资产引入上游的违规内容。
+
+审查这类命中时必须区分“排除声明”和“引入依赖”：如果改动只是 `.gitignore`、denylist、ignore pattern、exclude pattern 或防御性过滤逻辑，并且不会让上游运行时依赖 fork-only 资产，可以放行；如果改动新增、恢复、引用、打包、发布或运行依赖 AI 协作资产和 fork 内部目录，仍然必须阻断并清理。
+
+</spec-entry>
+
 <spec-entry category="rule" keywords="upstream-sync,branch-flow,origin-main,pkg,pr-authorization" date="2026-05-27" source="user:2026-05-27">
 
 ### 本 fork 的上游同步分支流向与推送授权规则

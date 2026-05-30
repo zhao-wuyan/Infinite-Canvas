@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": 1780147690014,
+  "generatedAt": 1780153008194,
   "entries": [
     {
       "id": "spec:project:architecture-constraints",
@@ -16,8 +16,8 @@
         "structure"
       ],
       "status": "active",
-      "created": "2026-05-24T07:56:56.587Z",
-      "updated": "2026-05-24T07:56:56.587Z",
+      "created": "2026-05-30T14:52:47.891Z",
+      "updated": "2026-05-30T14:52:47.891Z",
       "scope": "project",
       "category": "arch",
       "createdBy": null,
@@ -43,8 +43,8 @@
         "formatting"
       ],
       "status": "active",
-      "created": "2026-05-24T07:56:56.587Z",
-      "updated": "2026-05-24T07:56:56.587Z",
+      "created": "2026-05-30T14:52:47.891Z",
+      "updated": "2026-05-30T14:52:47.892Z",
       "scope": "project",
       "category": "coding",
       "createdBy": null,
@@ -69,8 +69,8 @@
         "gotcha"
       ],
       "status": "active",
-      "created": "2026-05-24T07:56:56.587Z",
-      "updated": "2026-05-24T07:56:56.587Z",
+      "created": "2026-05-30T14:52:47.892Z",
+      "updated": "2026-05-30T14:52:47.893Z",
       "scope": "project",
       "category": "debug",
       "createdBy": null,
@@ -94,8 +94,8 @@
         "learning"
       ],
       "status": "active",
-      "created": "2026-05-24T07:56:56.587Z",
-      "updated": "2026-05-24T07:56:56.587Z",
+      "created": "2026-05-30T14:52:47.893Z",
+      "updated": "2026-05-30T14:52:47.893Z",
       "scope": "project",
       "category": "learning",
       "createdBy": null,
@@ -119,8 +119,8 @@
         "enforcement"
       ],
       "status": "active",
-      "created": "2026-05-30T13:11:00.649Z",
-      "updated": "2026-05-30T13:11:00.649Z",
+      "created": "2026-05-30T14:52:47.893Z",
+      "updated": "2026-05-30T14:52:47.894Z",
       "scope": "project",
       "category": "review",
       "createdBy": null,
@@ -145,8 +145,8 @@
         "repo-url"
       ],
       "status": "active",
-      "created": "2026-05-30T13:11:00.649Z",
-      "updated": "2026-05-30T13:11:00.649Z",
+      "created": "2026-05-30T14:52:47.893Z",
+      "updated": "2026-05-30T14:52:47.894Z",
       "scope": "project",
       "category": "rule",
       "createdBy": null,
@@ -171,8 +171,8 @@
         "upstream-pr"
       ],
       "status": "active",
-      "created": "2026-05-30T13:11:00.649Z",
-      "updated": "2026-05-30T13:11:00.649Z",
+      "created": "2026-05-30T14:52:47.893Z",
+      "updated": "2026-05-30T14:52:47.894Z",
       "scope": "project",
       "category": "rule",
       "createdBy": null,
@@ -197,8 +197,8 @@
         "pr-authorization"
       ],
       "status": "active",
-      "created": "2026-05-30T13:11:00.649Z",
-      "updated": "2026-05-30T13:11:00.649Z",
+      "created": "2026-05-30T14:52:47.893Z",
+      "updated": "2026-05-30T14:52:47.894Z",
       "scope": "project",
       "category": "rule",
       "createdBy": null,
@@ -223,8 +223,8 @@
         "standard"
       ],
       "status": "active",
-      "created": "2026-05-24T07:56:56.588Z",
-      "updated": "2026-05-24T07:56:56.588Z",
+      "created": "2026-05-30T14:52:47.894Z",
+      "updated": "2026-05-30T14:52:47.895Z",
       "scope": "project",
       "category": "review",
       "createdBy": null,
@@ -250,8 +250,8 @@
         "framework"
       ],
       "status": "active",
-      "created": "2026-05-24T07:56:56.587Z",
-      "updated": "2026-05-24T07:56:56.587Z",
+      "created": "2026-05-30T14:52:47.895Z",
+      "updated": "2026-05-30T14:52:47.895Z",
       "scope": "project",
       "category": "test",
       "createdBy": null,
@@ -278,8 +278,8 @@
         "component"
       ],
       "status": "active",
-      "created": "2026-05-24T07:56:56.587Z",
-      "updated": "2026-05-24T07:56:56.588Z",
+      "created": "2026-05-30T14:52:47.895Z",
+      "updated": "2026-05-30T14:52:47.896Z",
       "scope": "project",
       "category": "ui",
       "createdBy": null,
