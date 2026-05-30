@@ -1,6 +1,8 @@
 .git
 .github
 .workflow
+.claude
+.gitnexus
 __pycache__/
 *.py[cod]
 *.pyo
@@ -9,6 +11,16 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .DS_Store
+.env
+.env.*
+!.env.example
+Dockerfile
+docker-compose.yml
+DOCKER.md
+tests/
+build/
+dist/
+*.spec
 
 # Windows portable runtime and offline wheels are not usable inside Linux images.
 python/
