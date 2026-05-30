@@ -13,7 +13,12 @@ class LauncherEnvTests(unittest.TestCase):
             bootstrap = install_dir / "bootstrap"
             bootstrap.mkdir()
             (bootstrap / "manifest.json").write_text(
-                '{"update_base_url":"https://example.com/releases"}\n',
+                (
+                    '{"update_base_url":"https://example.com/releases",'
+                    '"version_endpoint":"custom-VERSION",'
+                    '"manifest_endpoint":"custom-manifest.json",'
+                    '"payload_endpoint":"custom-app-base.zip"}\n'
+                ),
                 encoding="utf-8",
             )
             layout = LaunchLayout(
@@ -31,6 +36,9 @@ class LauncherEnvTests(unittest.TestCase):
         self.assertEqual(env["INFINITE_CANVAS_MANAGED_BY_LAUNCHER"], "1")
         self.assertEqual(env["INFINITE_CANVAS_LAUNCHER_MODE"], MODE_IN_PLACE)
         self.assertEqual(env["INFINITE_CANVAS_UPDATE_BASE_URL"], "https://example.com/releases")
+        self.assertEqual(env["INFINITE_CANVAS_UPDATE_VERSION_ENDPOINT"], "custom-VERSION")
+        self.assertEqual(env["INFINITE_CANVAS_UPDATE_MANIFEST_ENDPOINT"], "custom-manifest.json")
+        self.assertEqual(env["INFINITE_CANVAS_UPDATE_PAYLOAD_ENDPOINT"], "custom-app-base.zip")
         self.assertEqual(env["INFINITE_CANVAS_LAUNCHER_EXE"], "C:/Infinite Canvas.exe")
         self.assertEqual(env["INFINITE_CANVAS_PORT"], "3012")
         self.assertEqual(env["INFINITE_CANVAS_HOST"], "0.0.0.0")

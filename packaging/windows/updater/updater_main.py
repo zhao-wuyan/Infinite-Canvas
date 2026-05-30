@@ -9,6 +9,9 @@ from packaging.windows.launcher.config import load_install_config
 from packaging.windows.launcher.layout import MODE_RUNTIME, compute_layout
 from packaging.windows.launcher.runtime_manager import (
     CURRENT_RELEASE_FILE,
+    PAYLOAD_FINGERPRINT_FILE,
+    payload_fingerprint,
+    payload_ready_marker,
     replace_in_place_payload,
 )
 
@@ -36,11 +39,18 @@ def main() -> int:
     if layout.mode == MODE_RUNTIME:
         target_dir = layout.runtime_root / args.release_name
         extract_payload(target_dir, args.payload.resolve())
+        (target_dir / PAYLOAD_FINGERPRINT_FILE).write_text(
+            f"{payload_fingerprint(args.payload.resolve())}\n",
+            encoding="utf-8",
+        )
         (layout.install_dir / CURRENT_RELEASE_FILE).write_text(f"{args.release_name}\n", encoding="utf-8")
     else:
         target_dir = layout.install_dir
         replace_in_place_payload(target_dir, args.payload.resolve())
-        (layout.install_dir / ".payload-ready").write_text("ok\n", encoding="utf-8")
+        (layout.install_dir / ".payload-ready").write_text(
+            f"{payload_ready_marker(layout.install_dir)}\n",
+            encoding="utf-8",
+        )
     return 0
 
 

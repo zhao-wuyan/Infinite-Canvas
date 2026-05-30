@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
@@ -25,6 +26,7 @@ LAUNCHER_BACKUPS_DIR = "launcher"
 BACKUP_METADATA_FILE = "metadata.json"
 BACKUP_PAYLOAD_FILE = "payload.zip"
 LAUNCHER_STATE_FILE = "launcher-state.json"
+PAYLOAD_FINGERPRINT_FILE = ".payload-fingerprint"
 PORT_SCAN_LIMIT = 100
 
 
@@ -50,6 +52,21 @@ def read_version_from_payload(install_dir: Path) -> str:
                 return text[0].strip() if text else ""
     except Exception:
         return ""
+
+
+def payload_fingerprint(payload: Path) -> str:
+    digest = hashlib.sha256()
+    with payload.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def payload_ready_marker(install_dir: Path, fallback: str = "ready") -> str:
+    payload = install_dir / PAYLOAD_PATH
+    if payload.exists():
+        return payload_fingerprint(payload)
+    return fallback
 
 
 def current_release_name(install_dir: Path) -> str:
@@ -159,11 +176,19 @@ def persist_selected_port(layout: LaunchLayout, port: int) -> None:
 
 def ensure_runtime_release(layout: LaunchLayout, install_dir: Path, release_name: str) -> Path:
     release_dir = layout.runtime_root / release_name
-    if release_dir.exists():
+    payload = install_dir / PAYLOAD_PATH
+    fingerprint = payload_fingerprint(payload)
+    fingerprint_file = release_dir / PAYLOAD_FINGERPRINT_FILE
+    if release_dir.exists() and read_version_from_text(fingerprint_file) == fingerprint:
         return release_dir
+    if release_dir.exists() and compare_versions(read_version_from_text(release_dir / "VERSION"), read_version_from_payload(install_dir)) > 0:
+        return release_dir
+    if release_dir.exists():
+        shutil.rmtree(release_dir)
     release_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(install_dir / PAYLOAD_PATH) as archive:
+    with zipfile.ZipFile(payload) as archive:
         archive.extractall(release_dir)
+    fingerprint_file.write_text(f"{fingerprint}\n", encoding="utf-8")
     (install_dir / CURRENT_RELEASE_FILE).write_text(f"{release_name}\n", encoding="utf-8")
     return release_dir
 
@@ -175,6 +200,9 @@ def build_launch_env(layout: LaunchLayout, launcher_exe: str = "", port: int = D
     env["INFINITE_CANVAS_MANAGED_BY_LAUNCHER"] = "1"
     env["INFINITE_CANVAS_LAUNCHER_MODE"] = layout.mode
     env["INFINITE_CANVAS_UPDATE_BASE_URL"] = str(manifest.get("update_base_url") or "").strip()
+    env["INFINITE_CANVAS_UPDATE_VERSION_ENDPOINT"] = str(manifest.get("version_endpoint") or "windows-VERSION").strip()
+    env["INFINITE_CANVAS_UPDATE_MANIFEST_ENDPOINT"] = str(manifest.get("manifest_endpoint") or "windows-manifest.json").strip()
+    env["INFINITE_CANVAS_UPDATE_PAYLOAD_ENDPOINT"] = str(manifest.get("payload_endpoint") or "windows-app-base.zip").strip()
     env["INFINITE_CANVAS_PORT"] = str(resolve_app_port(port, DEFAULT_APP_PORT))
     env["INFINITE_CANVAS_HOST"] = DEFAULT_APP_HOST
     if launcher_exe:
@@ -245,14 +273,47 @@ def prepare_layout(install_dir: Path) -> LaunchLayout:
 
 def copy_payload_for_in_place(install_dir: Path) -> None:
     manifest = read_manifest(install_dir)
-    if not manifest.get("payload_entries"):
+    payload_entries = normalized_payload_entries(manifest.get("payload_entries") or [])
+    if not payload_entries:
         return
+    payload = install_dir / PAYLOAD_PATH
+    fingerprint = payload_fingerprint(payload)
     payload_marker = install_dir / ".payload-ready"
-    if payload_marker.exists():
+    marker_value = payload_marker.read_text(encoding="utf-8").strip() if payload_marker.exists() else ""
+    if marker_value == fingerprint and payload_matches_install(install_dir, payload, payload_entries):
         return
-    with zipfile.ZipFile(install_dir / PAYLOAD_PATH) as archive:
+    with zipfile.ZipFile(payload) as archive:
         archive.extractall(install_dir)
-    payload_marker.write_text("ok\n", encoding="utf-8")
+    payload_marker.write_text(f"{fingerprint}\n", encoding="utf-8")
+
+
+def normalized_payload_entries(raw_entries: list[Any]) -> list[str]:
+    entries = []
+    for value in raw_entries:
+        item = str(value or "").replace("\\", "/").lstrip("/")
+        if not item or item.endswith("/") or ".." in item.split("/"):
+            continue
+        entries.append(item)
+    return sorted(dict.fromkeys(entries))
+
+
+def payload_matches_install(install_dir: Path, payload: Path, entries: list[str]) -> bool:
+    try:
+        with zipfile.ZipFile(payload) as archive:
+            for relative in entries:
+                try:
+                    info = archive.getinfo(relative)
+                except KeyError:
+                    return False
+                target = install_dir / relative
+                if not target.is_file() or target.stat().st_size != info.file_size:
+                    return False
+                with archive.open(info) as source:
+                    if target.read_bytes() != source.read():
+                        return False
+    except Exception:
+        return False
+    return True
 
 
 def replace_in_place_payload(target_dir: Path, payload_zip: Path) -> None:
@@ -485,7 +546,10 @@ def rollback_launcher_backup(install_dir: Path, backup_id: str) -> dict[str, Any
         if not snapshot_zip.exists():
             raise FileNotFoundError(f"backup snapshot missing: {snapshot_zip}")
         replace_in_place_payload(layout.install_dir, snapshot_zip)
-        (layout.install_dir / ".payload-ready").write_text("ok\n", encoding="utf-8")
+        (layout.install_dir / ".payload-ready").write_text(
+            f"{payload_ready_marker(layout.install_dir, fallback='restored')}\n",
+            encoding="utf-8",
+        )
         restored_count = int(metadata.get("file_count") or 0)
     else:
         raise ValueError(f"unsupported backup kind: {kind}")

@@ -16,6 +16,9 @@ from packaging.macos.payload.build_payload import DEFAULT_MANIFEST, DEFAULT_OUTP
 
 
 APP_NAME = "Infinite Canvas"
+APP_ICON_SOURCE = ROOT / "static" / "images" / "logo.png"
+APP_ICON_NAME = "InfiniteCanvas.icns"
+APP_ICON_PATH = ROOT / "build" / "icons" / APP_ICON_NAME
 DEFAULT_DIST_DIR = ROOT / "dist" / "macos"
 DEFAULT_VENV_DIR = ROOT / "build" / "macos-packaging-venv"
 MAC_SERVICE_HIDDEN_IMPORTS = [
@@ -41,6 +44,7 @@ def run_pyinstaller(
     onefile: bool = False,
     hidden_imports: list[str] | None = None,
     windowed: bool = False,
+    icon_path: Path | None = None,
 ) -> None:
     command = [
         str(python_exe),
@@ -55,11 +59,30 @@ def run_pyinstaller(
     command.append("--onefile" if onefile else "--onedir")
     if windowed:
         command.append("--windowed")
+    if icon_path:
+        command.extend(["--icon", str(icon_path)])
     for item in hidden_imports or []:
         if item:
             command.extend(["--hidden-import", item])
     command.append(str(entrypoint))
     subprocess.run(command, cwd=str(ROOT), check=True)
+
+
+def prepare_app_icon(python_exe: Path, source: Path = APP_ICON_SOURCE, output: Path = APP_ICON_PATH) -> Path:
+    if not source.is_file():
+        raise FileNotFoundError(f"Missing app icon source: {source}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    script = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from PIL import Image\n"
+        "source = Path(sys.argv[1])\n"
+        "output = Path(sys.argv[2])\n"
+        "with Image.open(source) as image:\n"
+        "    image.convert('RGBA').save(output, format='ICNS', sizes=[(16, 16), (32, 32), (128, 128), (256, 256), (512, 512)])\n"
+    )
+    subprocess.run([str(python_exe), "-c", script, str(source), str(output)], cwd=str(ROOT), check=True)
+    return output
 
 
 def venv_python(venv_dir: Path) -> Path:
@@ -90,6 +113,7 @@ def write_info_plist(app_bundle: Path, version: str) -> None:
         "CFBundleDisplayName": APP_NAME,
         "CFBundleExecutable": APP_NAME,
         "CFBundleIdentifier": "com.infinitecanvas.app",
+        "CFBundleIconFile": APP_ICON_NAME,
         "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleName": APP_NAME,
         "CFBundlePackageType": "APPL",
@@ -174,6 +198,7 @@ def build_pyinstaller_target(
     onefile: bool = False,
     hidden_imports: list[str] | None = None,
     windowed: bool = False,
+    icon_path: Path | None = None,
 ) -> None:
     remove_path(dist_dir / name)
     run_pyinstaller(
@@ -184,6 +209,7 @@ def build_pyinstaller_target(
         onefile=onefile,
         hidden_imports=hidden_imports,
         windowed=windowed,
+        icon_path=icon_path,
     )
 
 
@@ -209,12 +235,14 @@ def build_app(dist_dir: Path, venv_dir: Path = DEFAULT_VENV_DIR) -> Path:
     build_bin_dir = dist_dir / "bin"
     build_bin_dir.mkdir(parents=True, exist_ok=True)
     python_exe = prepare_build_venv(venv_dir)
+    icon_path = prepare_app_icon(python_exe)
 
     build_pyinstaller_target(
         python_exe,
         ROOT / "packaging" / "macos" / "launcher" / "launcher_main.py",
         APP_NAME,
         build_bin_dir,
+        icon_path=icon_path,
     )
     build_pyinstaller_target(
         python_exe,
@@ -222,12 +250,14 @@ def build_app(dist_dir: Path, venv_dir: Path = DEFAULT_VENV_DIR) -> Path:
         f"{APP_NAME} Service",
         build_bin_dir,
         hidden_imports=MAC_SERVICE_HIDDEN_IMPORTS,
+        icon_path=icon_path,
     )
     build_pyinstaller_target(
         python_exe,
         ROOT / "packaging" / "macos" / "updater" / "updater_main.py",
         f"{APP_NAME} Updater",
         build_bin_dir,
+        icon_path=icon_path,
     )
 
     app_bundle = dist_dir / f"{APP_NAME}.app"
@@ -250,6 +280,7 @@ def build_app(dist_dir: Path, venv_dir: Path = DEFAULT_VENV_DIR) -> Path:
     build_payload(DEFAULT_OUTPUT)
     shutil.copy2(DEFAULT_OUTPUT, bootstrap_dir / "app-base.zip")
     shutil.copy2(DEFAULT_MANIFEST, bootstrap_dir / "manifest.json")
+    shutil.copy2(icon_path, resources_dir / APP_ICON_NAME)
     write_info_plist(app_bundle, read_version())
     sign_app_bundle(app_bundle)
     return app_bundle

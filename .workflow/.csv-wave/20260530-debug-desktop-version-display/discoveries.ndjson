@@ -1,0 +1,2 @@
+{"id":"H1","status":"confirmed","finding":"Desktop version badge stayed v- because checkForUpdates read undeclared updateCheckInFlight, aborting before /api/app-info populated appInfo.version.","evidence":"static/index.html default appInfo.version is empty; versionLabel('') returns v-; checkForUpdates referenced missing state variable."}
+{"id":"FIX-H1","status":"fixed","finding":"Declared update-check and launcher recheck state before checkForUpdates; added static regression test."}

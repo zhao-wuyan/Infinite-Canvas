@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from packaging.windows.launcher.runtime_manager import (
+    copy_payload_for_in_place,
     create_update_backup,
     current_payload_version,
     current_release_name,
@@ -46,6 +47,37 @@ class RuntimeManagerTests(unittest.TestCase):
             release = ensure_runtime_release(layout, install_dir, "v1")
 
             self.assertTrue((release / "main.py").exists())
+
+    def test_ensure_runtime_release_refreshes_when_same_version_payload_changes(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            base = Path(tempdir)
+            install_dir = base / "install"
+            install_dir.mkdir()
+            bootstrap = install_dir / "bootstrap"
+            bootstrap.mkdir()
+            payload = bootstrap / "app-base.zip"
+            with zipfile.ZipFile(payload, "w") as archive:
+                archive.writestr("VERSION", "2026.05.30\n")
+                archive.writestr("main.py", "print('new bootstrap')\n")
+            release_dir = base / "storage" / "runtime" / "2026.05.30"
+            release_dir.mkdir(parents=True)
+            (release_dir / "VERSION").write_text("2026.05.30\n", encoding="utf-8")
+            (release_dir / "main.py").write_text("print('old runtime')\n", encoding="utf-8")
+            layout = LaunchLayout(
+                install_dir=install_dir,
+                storage_root=base / "storage",
+                data_root=base / "storage" / "data",
+                logs_root=base / "storage" / "logs",
+                backups_root=base / "storage" / "backups",
+                runtime_root=base / "storage" / "runtime",
+                mode=MODE_RUNTIME,
+                work_dir=release_dir,
+            )
+
+            release = ensure_runtime_release(layout, install_dir, "2026.05.30")
+
+            self.assertEqual(release, release_dir)
+            self.assertEqual((release / "main.py").read_text(encoding="utf-8"), "print('new bootstrap')\n")
 
     def test_current_release_name_falls_back_to_payload_version(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -128,6 +160,72 @@ class RuntimeManagerTests(unittest.TestCase):
             self.assertTrue((target / "bootstrap" / "manifest.json").exists())
             self.assertTrue((target / "main.py").exists())
             self.assertTrue((target / "static" / "index.html").exists())
+
+    def test_copy_payload_for_in_place_refreshes_after_overwrite_install(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            install_dir = Path(tempdir)
+            bootstrap = install_dir / "bootstrap"
+            bootstrap.mkdir()
+            (bootstrap / "manifest.json").write_text('{"payload_entries":["VERSION","static/index.html"]}\n', encoding="utf-8")
+            (install_dir / ".payload-ready").write_text("ok\n", encoding="utf-8")
+            (install_dir / "VERSION").write_text("2026.05.30\n", encoding="utf-8")
+            static_dir = install_dir / "static"
+            static_dir.mkdir()
+            (static_dir / "index.html").write_text("old html\n", encoding="utf-8")
+            with zipfile.ZipFile(bootstrap / "app-base.zip", "w") as archive:
+                archive.writestr("VERSION", "2026.05.30\n")
+                archive.writestr("static/index.html", "new html with updateCheckInFlight\n")
+
+            copy_payload_for_in_place(install_dir)
+
+            self.assertEqual((install_dir / "static" / "index.html").read_text(encoding="utf-8"), "new html with updateCheckInFlight\n")
+            self.assertNotEqual((install_dir / ".payload-ready").read_text(encoding="utf-8").strip(), "ok")
+
+    def test_copy_payload_for_in_place_repairs_stale_files_when_marker_matches_payload(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            install_dir = Path(tempdir)
+            bootstrap = install_dir / "bootstrap"
+            bootstrap.mkdir()
+            (bootstrap / "manifest.json").write_text('{"payload_entries":["VERSION","static/js/i18n.js"]}\n', encoding="utf-8")
+            (install_dir / "VERSION").write_text("2026.05.30\n", encoding="utf-8")
+            i18n_dir = install_dir / "static" / "js"
+            i18n_dir.mkdir(parents=True)
+            (i18n_dir / "i18n.js").write_text("const VERSION = '2026.05.29.7';\n", encoding="utf-8")
+            with zipfile.ZipFile(bootstrap / "app-base.zip", "w") as archive:
+                archive.writestr("VERSION", "2026.05.29\n")
+                archive.writestr("static/js/i18n.js", "const VERSION = currentStaticVersion();\n")
+            from packaging.windows.launcher.runtime_manager import payload_fingerprint
+            (install_dir / ".payload-ready").write_text(
+                f"{payload_fingerprint(bootstrap / 'app-base.zip')}\n",
+                encoding="utf-8",
+            )
+
+            copy_payload_for_in_place(install_dir)
+
+            self.assertEqual(
+                (i18n_dir / "i18n.js").read_text(encoding="utf-8"),
+                "const VERSION = currentStaticVersion();\n",
+            )
+
+    def test_copy_payload_for_in_place_allows_explicit_downgrade_install(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            install_dir = Path(tempdir)
+            bootstrap = install_dir / "bootstrap"
+            bootstrap.mkdir()
+            (bootstrap / "manifest.json").write_text('{"payload_entries":["VERSION","static/index.html"]}\n', encoding="utf-8")
+            (install_dir / ".payload-ready").write_text("ok\n", encoding="utf-8")
+            (install_dir / "VERSION").write_text("2026.05.31\n", encoding="utf-8")
+            static_dir = install_dir / "static"
+            static_dir.mkdir()
+            (static_dir / "index.html").write_text("hot update html\n", encoding="utf-8")
+            with zipfile.ZipFile(bootstrap / "app-base.zip", "w") as archive:
+                archive.writestr("VERSION", "2026.05.30\n")
+                archive.writestr("static/index.html", "old bootstrap html\n")
+
+            copy_payload_for_in_place(install_dir)
+
+            self.assertEqual((install_dir / "VERSION").read_text(encoding="utf-8"), "2026.05.30\n")
+            self.assertEqual((install_dir / "static" / "index.html").read_text(encoding="utf-8"), "old bootstrap html\n")
 
     def test_in_place_backup_can_be_rolled_back(self):
         with tempfile.TemporaryDirectory() as tempdir:

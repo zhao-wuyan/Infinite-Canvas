@@ -1,6 +1,7 @@
 #define MyAppName "Infinite Canvas"
 #define MyAppPublisher "Infinite Canvas"
 #define MyAppExeName "Infinite Canvas.exe"
+#define MyAppIcon "..\..\..\build\icons\infinite-canvas.ico"
 
 [Setup]
 AppId={{8A1D924E-3776-41DE-95AB-F85CDA0B42D8}
@@ -10,6 +11,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\InfiniteCanvas
 DefaultGroupName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile={#MyAppIcon}
 OutputDir=..\..\..\dist\windows
 OutputBaseFilename=Infinite Canvas 安装程序
 Compression=lzma

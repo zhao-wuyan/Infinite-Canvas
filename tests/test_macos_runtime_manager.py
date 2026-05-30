@@ -67,6 +67,41 @@ class MacRuntimeManagerTests(unittest.TestCase):
             self.assertTrue((release / "main.py").exists())
             self.assertEqual((layout.current_release_file).read_text(encoding="utf-8").strip(), "2026.05.24.1")
 
+    def test_ensure_runtime_release_refreshes_when_same_version_payload_changes(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            app_bundle = create_bundle_with_payload(root, version="2026.05.30")
+            storage_root = root / "storage"
+            layout = compute_layout(app_bundle, storage_root=storage_root, release_name="2026.05.30")
+            release = layout.runtime_root / "2026.05.30"
+            release.mkdir(parents=True)
+            (release / "VERSION").write_text("2026.05.30\n", encoding="utf-8")
+            (release / "main.py").write_text("print('old runtime')\n", encoding="utf-8")
+            with zipfile.ZipFile(layout.bootstrap_dir / "app-base.zip", "w") as archive:
+                archive.writestr("VERSION", "2026.05.30\n")
+                archive.writestr("main.py", "print('new bootstrap')\n")
+
+            refreshed = ensure_runtime_release(layout, "2026.05.30")
+
+            self.assertEqual(refreshed, release)
+            self.assertEqual((release / "main.py").read_text(encoding="utf-8"), "print('new bootstrap')\n")
+
+    def test_ensure_runtime_release_preserves_runtime_newer_than_bootstrap(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            app_bundle = create_bundle_with_payload(root, version="2026.05.30")
+            storage_root = root / "storage"
+            layout = compute_layout(app_bundle, storage_root=storage_root, release_name="2026.05.31")
+            release = layout.runtime_root / "2026.05.31"
+            release.mkdir(parents=True)
+            (release / "VERSION").write_text("2026.05.31\n", encoding="utf-8")
+            (release / "main.py").write_text("print('hot update')\n", encoding="utf-8")
+
+            preserved = ensure_runtime_release(layout, "2026.05.31")
+
+            self.assertEqual(preserved, release)
+            self.assertEqual((release / "main.py").read_text(encoding="utf-8"), "print('hot update')\n")
+
     def test_runtime_backup_and_rollback_switch_current_pointer(self):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)

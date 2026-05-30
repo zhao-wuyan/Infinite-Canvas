@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -24,6 +25,7 @@ LAUNCHER_BACKUPS_DIR = "launcher"
 BACKUP_METADATA_FILE = "metadata.json"
 BACKUP_PAYLOAD_FILE = "payload.zip"
 LAUNCHER_STATE_FILE = "launcher-state.json"
+PAYLOAD_FINGERPRINT_FILE = ".payload-fingerprint"
 PORT_SCAN_LIMIT = 100
 
 
@@ -49,6 +51,14 @@ def read_version_from_payload(layout: MacLaunchLayout) -> str:
                 return lines[0].strip() if lines else ""
     except Exception:
         return ""
+
+
+def payload_fingerprint(payload: Path) -> str:
+    digest = hashlib.sha256()
+    with payload.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def current_release_name(app_bundle: Path, storage_root: str | Path | None = None) -> str:
@@ -148,11 +158,19 @@ def persist_selected_port(layout: MacLaunchLayout, port: int) -> None:
 
 def ensure_runtime_release(layout: MacLaunchLayout, release_name: str) -> Path:
     release_dir = layout.runtime_root / release_name
-    if release_dir.exists():
+    payload = layout.bootstrap_dir / "app-base.zip"
+    fingerprint = payload_fingerprint(payload)
+    fingerprint_file = release_dir / PAYLOAD_FINGERPRINT_FILE
+    if release_dir.exists() and read_version_from_text(fingerprint_file) == fingerprint:
         return release_dir
+    if release_dir.exists() and compare_versions(read_version_from_text(release_dir / "VERSION"), read_version_from_payload(layout)) > 0:
+        return release_dir
+    if release_dir.exists():
+        shutil.rmtree(release_dir)
     release_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(layout.bootstrap_dir / "app-base.zip") as archive:
+    with zipfile.ZipFile(payload) as archive:
         archive.extractall(release_dir)
+    fingerprint_file.write_text(f"{fingerprint}\n", encoding="utf-8")
     layout.current_release_file.write_text(f"{release_name}\n", encoding="utf-8")
     return release_dir
 
@@ -173,6 +191,9 @@ def build_launch_env(layout: MacLaunchLayout, launcher_exe: str = "", port: int 
     env["INFINITE_CANVAS_MANAGED_BY_LAUNCHER"] = "1"
     env["INFINITE_CANVAS_LAUNCHER_MODE"] = layout.mode
     env["INFINITE_CANVAS_UPDATE_BASE_URL"] = str(manifest.get("update_base_url") or "").strip()
+    env["INFINITE_CANVAS_UPDATE_VERSION_ENDPOINT"] = str(manifest.get("version_endpoint") or "macos-VERSION").strip()
+    env["INFINITE_CANVAS_UPDATE_MANIFEST_ENDPOINT"] = str(manifest.get("manifest_endpoint") or "macos-manifest.json").strip()
+    env["INFINITE_CANVAS_UPDATE_PAYLOAD_ENDPOINT"] = str(manifest.get("payload_endpoint") or "macos-app-base.zip").strip()
     env["INFINITE_CANVAS_PORT"] = str(resolve_app_port(port, DEFAULT_APP_PORT))
     env["INFINITE_CANVAS_HOST"] = DEFAULT_APP_HOST
     if launcher_exe:

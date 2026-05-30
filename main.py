@@ -20,6 +20,7 @@ import shlex
 import tempfile
 import textwrap
 import math
+import hashlib
 from typing import List, Dict, Any, Optional
 from threading import Lock
 import httpx
@@ -1221,8 +1222,44 @@ def current_app_version():
     except Exception:
         return ""
 
-def versioned_static_html(html: str) -> str:
+STATIC_ASSET_VERSION_CACHE: Dict[str, str] = {"key": "", "value": ""}
+
+def static_asset_fingerprint_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        content = f.read()
+    if path.lower().endswith(".html"):
+        return re.sub(rb'([?&]v=)[^"\'`\s<>)]*', rb'\1', content)
+    return content
+
+def static_asset_version() -> str:
     version = current_app_version()
+    watched_paths = [
+        os.path.join(BASE_DIR, "VERSION"),
+        os.path.join(STATIC_DIR, "index.html"),
+        os.path.join(STATIC_DIR, "js", "i18n.js"),
+    ]
+    parts = [version]
+    for path in watched_paths:
+        try:
+            stat = os.stat(path)
+            parts.append(f"{path}:{stat.st_mtime_ns}:{stat.st_size}")
+        except OSError:
+            parts.append(f"{path}:missing")
+    cache_key = "|".join(parts)
+    digest = hashlib.sha256()
+    digest.update(version.encode("utf-8", errors="replace"))
+    for path in watched_paths:
+        try:
+            digest.update(static_asset_fingerprint_bytes(path))
+        except OSError:
+            digest.update(b"\0")
+    fingerprint = digest.hexdigest()[:10]
+    value = f"{version}.{fingerprint}" if version else fingerprint
+    STATIC_ASSET_VERSION_CACHE.update({"key": cache_key, "value": value})
+    return value
+
+def versioned_static_html(html: str) -> str:
+    version = static_asset_version()
     if not version:
         return html
     safe_version = urllib.parse.quote(version, safe="._-")
@@ -1230,7 +1267,7 @@ def versioned_static_html(html: str) -> str:
     return pattern.sub(lambda m: f"{m.group('prefix')}{m.group('url')}?v={safe_version}", html)
 
 def sync_static_html_versions():
-    version = current_app_version()
+    version = static_asset_version()
     if not version:
         return
     safe_version = urllib.parse.quote(version, safe="._-")
@@ -1378,10 +1415,15 @@ def app_info():
         "port": APP_PORT,
     }
     if LAUNCHER_MANAGED:
+        launcher_update = launcher_update_config()
         info.update({
             "managed_by_launcher": True,
             "launcher_mode": os.getenv("INFINITE_CANVAS_LAUNCHER_MODE", ""),
             "launcher_storage_root": APP_DATA_ROOT,
+            "update_base_url": launcher_update["update_base_url"],
+            "version_endpoint": launcher_update["version_endpoint"],
+            "manifest_endpoint": launcher_update["manifest_endpoint"],
+            "payload_endpoint": launcher_update["payload_endpoint"],
             "version_url": "",
             "preferred_local_url": f"http://127.0.0.1:{APP_PORT}/",
         })
@@ -1397,6 +1439,9 @@ def connectivity_probe(name: str, url: str, timeout: float = 8.0) -> Dict[str, A
         "elapsed_ms": 0,
         "error": "",
     }
+    if not str(url or "").strip():
+        item["error"] = "URL 未配置"
+        return item
     try:
         response = requests.get(
             url,
@@ -1416,20 +1461,60 @@ def connectivity_probe(name: str, url: str, timeout: float = 8.0) -> Dict[str, A
         item["elapsed_ms"] = int((time.time() - started) * 1000)
     return item
 
-@app.get("/api/update-connectivity")
-def update_connectivity():
-    targets = [
-        ("GitHub 更新列表", GITHUB_TREE_URL),
-        ("GitHub 版本文件", GITHUB_VERSION_URL),
-        ("GitHub 主页", "https://github.com/"),
+def join_update_url(base_url: str, endpoint: str) -> str:
+    return str(base_url or "").rstrip("/") + "/" + str(endpoint or "").lstrip("/")
+
+def launcher_update_endpoint_defaults() -> Dict[str, str]:
+    prefix = "macos" if sys.platform == "darwin" else "windows"
+    return {
+        "version_endpoint": f"{prefix}-VERSION",
+        "manifest_endpoint": f"{prefix}-manifest.json",
+        "payload_endpoint": f"{prefix}-app-base.zip",
+    }
+
+def launcher_update_config() -> Dict[str, str]:
+    defaults = launcher_update_endpoint_defaults()
+    return {
+        "update_base_url": os.getenv("INFINITE_CANVAS_UPDATE_BASE_URL", "").strip(),
+        "version_endpoint": os.getenv("INFINITE_CANVAS_UPDATE_VERSION_ENDPOINT", defaults["version_endpoint"]).strip() or defaults["version_endpoint"],
+        "manifest_endpoint": os.getenv("INFINITE_CANVAS_UPDATE_MANIFEST_ENDPOINT", defaults["manifest_endpoint"]).strip() or defaults["manifest_endpoint"],
+        "payload_endpoint": os.getenv("INFINITE_CANVAS_UPDATE_PAYLOAD_ENDPOINT", defaults["payload_endpoint"]).strip() or defaults["payload_endpoint"],
+    }
+
+def launcher_update_connectivity_targets() -> List[tuple[str, str]]:
+    config = launcher_update_config()
+    base_url = config["update_base_url"]
+    return [
+        ("打包版本文件", join_update_url(base_url, config["version_endpoint"]) if base_url else ""),
+        ("打包清单文件", join_update_url(base_url, config["manifest_endpoint"]) if base_url else ""),
+        ("打包更新包", join_update_url(base_url, config["payload_endpoint"]) if base_url else ""),
         ("Google 连通性", "https://www.google.com/generate_204"),
     ]
+
+@app.get("/api/update-connectivity")
+def update_connectivity():
+    if LAUNCHER_MANAGED:
+        targets = launcher_update_connectivity_targets()
+        required = ["打包版本文件", "打包清单文件", "打包更新包"]
+        optional = ["Google 连通性"]
+        mode = "launcher"
+    else:
+        targets = [
+            ("GitHub 更新列表", GITHUB_TREE_URL),
+            ("GitHub 版本文件", GITHUB_VERSION_URL),
+            ("GitHub 主页", "https://github.com/"),
+            ("Google 连通性", "https://www.google.com/generate_204"),
+        ]
+        required = ["GitHub 更新列表", "GitHub 版本文件"]
+        optional = ["GitHub 主页", "Google 连通性"]
+        mode = "source"
     results = [connectivity_probe(name, url) for name, url in targets]
     return {
-        "ok": all(item["ok"] for item in results[:2]),
+        "ok": all(item["ok"] for item in results if item["name"] in required),
         "results": results,
-        "required": ["GitHub 更新列表", "GitHub 版本文件"],
-        "optional": ["GitHub 主页", "Google 连通性"],
+        "required": required,
+        "optional": optional,
+        "mode": mode,
     }
 
 @app.get("/api/launcher/status")
@@ -1437,10 +1522,10 @@ def launcher_status_api():
     if not LAUNCHER_MANAGED:
         raise HTTPException(status_code=404, detail="launcher unavailable")
     return {
+        **launcher_update_config(),
         "managed_by_launcher": True,
         "mode": os.getenv("INFINITE_CANVAS_LAUNCHER_MODE", ""),
         "storage_root": APP_DATA_ROOT,
-        "update_base_url": os.getenv("INFINITE_CANVAS_UPDATE_BASE_URL", ""),
         "port": APP_PORT,
         "preferred_local_url": f"http://127.0.0.1:{APP_PORT}/",
     }

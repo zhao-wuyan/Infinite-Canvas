@@ -5,7 +5,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from packaging.macos.launcher.runtime_manager import CURRENT_RELEASE_FILE
+from packaging.macos.launcher.runtime_manager import CURRENT_RELEASE_FILE, PAYLOAD_FINGERPRINT_FILE, payload_fingerprint
 from packaging.macos.launcher.layout import compute_layout
 
 
@@ -31,6 +31,10 @@ def main() -> int:
     layout = compute_layout(args.app_bundle.resolve(), storage_root=args.storage_root.resolve(), release_name=args.release_name)
     target_dir = layout.runtime_root / args.release_name
     extract_payload(target_dir, args.payload.resolve())
+    (target_dir / PAYLOAD_FINGERPRINT_FILE).write_text(
+        f"{payload_fingerprint(args.payload.resolve())}\n",
+        encoding="utf-8",
+    )
     (layout.storage_root / CURRENT_RELEASE_FILE).write_text(f"{args.release_name}\n", encoding="utf-8")
     return 0
 

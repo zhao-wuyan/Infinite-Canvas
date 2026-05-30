@@ -1464,6 +1464,11 @@
         let appInfo = { version:'', repo_url:PROJECT_URL, version_url:'https://raw.githubusercontent.com/hero8152/Infinite-Canvas/main/VERSION' };
         let updateConnectivityResult = null;
         let projectUpdateRunning = false;
+        let updateCheckInFlight = false;
+        let launcherUpdateRecheckTimer = 0;
+        let launcherUpdateRecheckCount = 0;
+        const LAUNCHER_UPDATE_RECHECK_LIMIT = 3;
+        const LAUNCHER_UPDATE_RECHECK_INTERVAL_MS = 1200;
 
         function setSidebarPinned(pinned, options = {}) {
             const sidebar = document.getElementById('studioSidebar');
@@ -1840,6 +1845,9 @@
                 'GitHub 更新列表': ['GitHub 更新列表', 'GitHub update API'],
                 'GitHub 版本文件': ['GitHub 版本文件', 'GitHub version file'],
                 'GitHub 主页': ['GitHub 主页', 'GitHub home page'],
+                '打包版本文件': ['打包版本文件', 'Packaged version file'],
+                '打包清单文件': ['打包清单文件', 'Packaged manifest file'],
+                '打包更新包': ['打包更新包', 'Packaged update payload'],
                 'Google 连通性': ['Google 连通性', 'Google connectivity'],
             };
             const item = labels[name] || [name, name];
@@ -1866,6 +1874,16 @@
         }
 
         function updateConnectivityTargets() {
+            if(appInfo.managed_by_launcher) {
+                const baseUrl = appInfo.update_base_url || '';
+                const join = endpoint => baseUrl ? `${baseUrl.replace(/\/+$/, '')}/${String(endpoint || '').replace(/^\/+/, '')}` : '';
+                return [
+                    { name:'打包版本文件', url:join(appInfo.version_endpoint || 'windows-VERSION') },
+                    { name:'打包清单文件', url:join(appInfo.manifest_endpoint || 'windows-manifest.json') },
+                    { name:'打包更新包', url:join(appInfo.payload_endpoint || 'windows-app-base.zip') },
+                    { name:'Google 连通性', url:'https://www.google.com/generate_204' },
+                ];
+            }
             return [
                 { name:'GitHub 更新列表', url:appInfo.tree_url || 'https://api.github.com/repos/hero8152/Infinite-Canvas/git/trees/main?recursive=1' },
                 { name:'GitHub 版本文件', url:appInfo.version_url || 'https://raw.githubusercontent.com/hero8152/Infinite-Canvas/main/VERSION' },
@@ -1910,9 +1928,14 @@
             const gitBtn = document.getElementById('github-entry-btn');
             const remoteVersion = gitBtn?.dataset.remoteVersion || '';
             const localVersion = gitBtn?.dataset.localVersion || appInfo.version || '';
+            const launcherManaged = !!appInfo.managed_by_launcher;
             const title = remoteVersion
-                ? updateUiText(`更新到 ${versionLabel(remoteVersion)}`, `Update to ${versionLabel(remoteVersion)}`)
-                : updateUiText('一键更新', 'One-click update');
+                ? (launcherManaged
+                    ? updateUiText(`更新打包版到 ${versionLabel(remoteVersion)}`, `Update packaged app to ${versionLabel(remoteVersion)}`)
+                    : updateUiText(`更新到 ${versionLabel(remoteVersion)}`, `Update to ${versionLabel(remoteVersion)}`))
+                : (launcherManaged
+                    ? updateUiText('打包版更新', 'Packaged app update')
+                    : updateUiText('一键更新', 'One-click update'));
             const titleEl = document.getElementById('project-update-title');
             const copyEl = document.getElementById('project-update-copy');
             const testText = document.getElementById('connectivity-test-text');
@@ -1920,13 +1943,18 @@
             const confirmText = document.getElementById('project-update-confirm-text');
             const closeBtn = document.querySelector('#project-update-modal .studio-modal-close');
             if(titleEl) titleEl.textContent = title;
-            if(copyEl) copyEl.textContent = updateUiText(
-                `将从 GitHub 更新 main.py、VERSION 和 static 文件。更新前会自动备份，更新完成后后端会自动重启。当前 ${versionLabel(localVersion)}，最新 ${versionLabel(remoteVersion || localVersion)}。`,
-                `This updates main.py, VERSION, and static files from GitHub. A backup is created first, then the backend restarts automatically. Current ${versionLabel(localVersion)}, latest ${versionLabel(remoteVersion || localVersion)}.`
-            );
+            if(copyEl) copyEl.textContent = launcherManaged
+                ? updateUiText(
+                    `将通过启动器下载并安装完整客户端更新包。更新前会自动备份，更新完成后后端会自动重启。当前 ${versionLabel(localVersion)}，最新 ${versionLabel(remoteVersion || localVersion)}。`,
+                    `The launcher will download and install the packaged client update. A backup is created first, then the backend restarts automatically. Current ${versionLabel(localVersion)}, latest ${versionLabel(remoteVersion || localVersion)}.`
+                )
+                : updateUiText(
+                    `将从 GitHub 更新 main.py、VERSION 和 static 文件。更新前会自动备份，更新完成后后端会自动重启。当前 ${versionLabel(localVersion)}，最新 ${versionLabel(remoteVersion || localVersion)}。`,
+                    `This updates main.py, VERSION, and static files from GitHub. A backup is created first, then the backend restarts automatically. Current ${versionLabel(localVersion)}, latest ${versionLabel(remoteVersion || localVersion)}.`
+                );
             if(testText) testText.textContent = updateConnectivityResult ? updateUiText('重新测试', 'Retest') : updateUiText('测试连通性', 'Test connectivity');
             if(cancelText) cancelText.textContent = updateUiText('取消', 'Cancel');
-            if(confirmText && !projectUpdateRunning) confirmText.textContent = updateUiText('开始更新', 'Start update');
+            if(confirmText && !projectUpdateRunning) confirmText.textContent = launcherManaged ? updateUiText('安装更新', 'Install update') : updateUiText('开始更新', 'Start update');
             if(closeBtn) {
                 closeBtn.title = updateUiText('关闭', 'Close');
                 closeBtn.setAttribute('aria-label', closeBtn.title);
@@ -1935,10 +1963,15 @@
                 setUpdateSummary(
                     'warn',
                     updateUiText('建议先测试连通性', 'Connectivity test recommended'),
-                    updateUiText(
-                        '能打开 GitHub 网页不代表一定能更新，更新还需要访问 GitHub API 和 raw.githubusercontent.com。',
-                        'Opening github.com is not enough; updates also need the GitHub API and raw.githubusercontent.com.'
-                    )
+                    launcherManaged
+                        ? updateUiText(
+                            '启动器更新需要访问版本文件和完整更新包。建议先测试，避免下载阶段才失败。',
+                            'Launcher updates need the version file and full update payload. Test first to avoid failing during download.'
+                        )
+                        : updateUiText(
+                            '能打开 GitHub 网页不代表一定能更新，更新还需要访问 GitHub API 和 raw.githubusercontent.com。',
+                            'Opening github.com is not enough; updates also need the GitHub API and raw.githubusercontent.com.'
+                        )
                 );
             } else if(updateConnectivityResult.backend_missing) {
                 setUpdateSummary(
@@ -1955,8 +1988,12 @@
                     google?.ok ? 'ok' : 'warn',
                     updateUiText('更新节点可访问', 'Update endpoints reachable'),
                     google?.ok
-                        ? updateUiText('GitHub 更新节点和 Google 都连通，可以开始更新。', 'GitHub update endpoints and Google are reachable.')
-                        : updateUiText('GitHub 更新节点可用；Google 不通只作为参考，不影响 GitHub 更新。', 'GitHub update endpoints are reachable; Google is only a reference check.')
+                        ? (launcherManaged
+                            ? updateUiText('版本文件、更新包和 Google 都连通，可以安装更新。', 'Version file, update payload, and Google are reachable.')
+                            : updateUiText('GitHub 更新节点和 Google 都连通，可以开始更新。', 'GitHub update endpoints and Google are reachable.'))
+                        : (launcherManaged
+                            ? updateUiText('版本文件和更新包可用；Google 不通只作为参考，不影响启动器更新。', 'Version file and update payload are reachable; Google is only a reference check.')
+                            : updateUiText('GitHub 更新节点可用；Google 不通只作为参考，不影响 GitHub 更新。', 'GitHub update endpoints are reachable; Google is only a reference check.'))
                 );
             } else {
                 setUpdateSummary(
@@ -1995,10 +2032,6 @@
         });
 
         async function runProjectUpdate() {
-            if(appInfo.managed_by_launcher) {
-                await runLauncherUpdate();
-                return;
-            }
             openProjectUpdateModal();
         }
 
@@ -2050,12 +2083,17 @@
 
         async function confirmProjectUpdate() {
             const isEn = window.StudioI18n?.lang?.() === 'en';
+            if(appInfo.managed_by_launcher) {
+                await confirmLauncherUpdate();
+                return;
+            }
             const btn = document.getElementById('update-now-btn');
             const text = document.getElementById('update-now-text');
             const confirmBtn = document.getElementById('project-update-confirm-btn');
             const confirmText = document.getElementById('project-update-confirm-text');
             const testBtn = document.getElementById('connectivity-test-btn');
             const oldText = text?.textContent || '';
+            let keepDisabledAfterSuccess = false;
             projectUpdateRunning = true;
             if(btn) btn.disabled = true;
             if(confirmBtn) confirmBtn.disabled = true;
@@ -2086,10 +2124,14 @@
                 document.getElementById('github-entry-btn')?.classList.remove('update-available');
                 btn?.classList.remove('show');
                 setProjectVersionBadge(data.version || document.getElementById('github-entry-btn')?.dataset.remoteVersion || appInfo.version);
-                if(restarting) waitForBackendAndReload();
+                if(restarting) {
+                    keepDisabledAfterSuccess = true;
+                    waitForBackendAndReload();
+                }
             } catch(e) {
                 setUpdateSummary('fail', isEn ? 'Update failed' : '更新失败', describeNetworkError(e, isEn));
             } finally {
+                if(keepDisabledAfterSuccess) return;
                 projectUpdateRunning = false;
                 if(btn) btn.disabled = false;
                 if(confirmBtn) confirmBtn.disabled = false;
@@ -2100,16 +2142,24 @@
             }
         }
         async function runLauncherUpdate() {
+            openProjectUpdateModal();
+        }
+        async function confirmLauncherUpdate() {
             const isEn = window.StudioI18n?.lang?.() === 'en';
-            const askMessage = isEn
-                ? 'Download and install the packaged update now? The backend will restart and this page will reload when it is back.'
-                : '现在下载并安装打包版更新吗？后端会自动重启，本页面会在恢复后自动刷新。';
-            if(!confirm(askMessage)) return;
             const btn = document.getElementById('update-now-btn');
             const text = document.getElementById('update-now-text');
+            const confirmBtn = document.getElementById('project-update-confirm-btn');
+            const confirmText = document.getElementById('project-update-confirm-text');
+            const testBtn = document.getElementById('connectivity-test-btn');
             const oldText = text?.textContent || '';
+            let keepDisabledAfterSuccess = false;
+            projectUpdateRunning = true;
             if(btn) btn.disabled = true;
+            if(confirmBtn) confirmBtn.disabled = true;
+            if(testBtn) testBtn.disabled = true;
             if(text) text.textContent = isEn ? 'Updating...' : '更新中...';
+            if(confirmText) confirmText.textContent = isEn ? 'Installing...' : '安装中...';
+            setUpdateSummary('warn', isEn ? 'Installing update' : '正在安装更新', isEn ? 'The launcher is downloading the packaged update and creating a local backup.' : '启动器正在下载打包更新包，并创建本地备份。');
             try {
                 const res = await fetch('/api/launcher/apply-update', {
                     method:'POST',
@@ -2118,26 +2168,38 @@
                 });
                 const data = await res.json().catch(() => ({}));
                 if(!res.ok || data.ok === false) throw new Error(data.detail || (isEn ? 'Update failed' : '更新失败'));
-                const done = data.updated
-                    ? (data.restart_scheduled
+                if(data.updated) {
+                    setUpdateSummary(
+                        'ok',
+                        isEn ? 'Update installed' : '更新已安装',
+                        data.restart_scheduled
                         ? (isEn
                             ? `Update ${data.remote_version || ''} installed. The backend is restarting.`
                             : `已安装更新 ${data.remote_version || ''}。后端正在重启。`)
                         : (isEn
                             ? `Update ${data.remote_version || ''} installed. Restart the app to use it.`
-                            : `已安装更新 ${data.remote_version || ''}。重启应用后生效。`))
-                    : (isEn ? 'No update is available.' : '当前没有可用更新。');
-                alert(done);
-                if(data.updated) {
+                            : `已安装更新 ${data.remote_version || ''}。重启应用后生效。`)
+                    );
                     document.getElementById('github-entry-btn')?.classList.remove('update-available');
                     btn?.classList.remove('show');
-                    if(data.restart_scheduled) waitForBackendAndReload();
+                    if(data.restart_scheduled) {
+                        keepDisabledAfterSuccess = true;
+                        waitForBackendAndReload();
+                    }
+                } else {
+                    setUpdateSummary('ok', isEn ? 'Already up to date' : '已是最新版本', isEn ? 'No packaged update is available.' : '当前没有可用的打包版更新。');
                 }
             } catch(e) {
-                alert((isEn ? 'Update failed: ' : '更新失败：') + describeNetworkError(e, isEn));
+                setUpdateSummary('fail', isEn ? 'Update failed' : '更新失败', describeNetworkError(e, isEn));
             } finally {
+                if(keepDisabledAfterSuccess) return;
+                projectUpdateRunning = false;
                 if(btn) btn.disabled = false;
+                if(confirmBtn) confirmBtn.disabled = false;
+                if(testBtn) testBtn.disabled = false;
                 if(text) text.textContent = oldText || (isEn ? 'Update' : '一键更新');
+                if(confirmText) confirmText.textContent = isEn ? 'Install update' : '安装更新';
+                refreshUpdateButtonText();
             }
         }
         async function waitForBackendAndReload() {

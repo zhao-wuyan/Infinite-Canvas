@@ -6,11 +6,14 @@ from unittest.mock import patch
 
 from packaging.macos.build_app import (
     APP_NAME,
+    APP_ICON_NAME,
     appdir_name,
     install_pyinstaller_output,
+    prepare_app_icon,
     prepare_build_venv,
     run_pyinstaller,
     venv_python,
+    write_info_plist,
 )
 
 
@@ -60,6 +63,19 @@ class MacBuildAppTests(unittest.TestCase):
 
         args = mocked_run.call_args.args[0]
         self.assertIn("--windowed", args)
+
+    def test_run_pyinstaller_accepts_icon_path(self):
+        dist_dir = Path("/tmp/dist")
+        entrypoint = Path("/tmp/launcher_main.py")
+        python_exe = Path("/tmp/venv/bin/python")
+        icon_path = Path("/tmp/icon.icns")
+
+        with patch("packaging.macos.build_app.subprocess.run") as mocked_run:
+            run_pyinstaller(python_exe, entrypoint, APP_NAME, dist_dir, icon_path=icon_path)
+
+        args = mocked_run.call_args.args[0]
+        self.assertIn("--icon", args)
+        self.assertIn(str(icon_path), args)
 
     def test_run_pyinstaller_skips_windowed_flag_by_default(self):
         dist_dir = Path("/tmp/dist")
@@ -116,6 +132,33 @@ class MacBuildAppTests(unittest.TestCase):
 
     def test_venv_python_uses_bin_python(self):
         self.assertEqual(venv_python(Path("/tmp/build-venv")), Path("/tmp/build-venv/bin/python"))
+
+    def test_prepare_app_icon_generates_icns_from_png(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "logo.png"
+            output = root / "InfiniteCanvas.icns"
+            python_exe = root / "venv" / "bin" / "python"
+            source.write_bytes(b"png")
+
+            with patch("packaging.macos.build_app.subprocess.run") as mocked_run:
+                resolved = prepare_app_icon(python_exe, source, output)
+
+            self.assertEqual(resolved, output)
+            command = mocked_run.call_args.args[0]
+            self.assertEqual(command[0], str(python_exe))
+            self.assertIn(str(source), command)
+            self.assertIn(str(output), command)
+            self.assertTrue(output.parent.exists())
+
+    def test_write_info_plist_declares_app_icon(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            app_bundle = Path(tempdir) / f"{APP_NAME}.app"
+
+            write_info_plist(app_bundle, "2026.05.30")
+
+            plist_path = app_bundle / "Contents" / "Info.plist"
+            self.assertIn(APP_ICON_NAME, plist_path.read_text(encoding="utf-8", errors="ignore"))
 
     def test_prepare_build_venv_creates_missing_venv_and_installs_dependencies(self):
         venv_dir = Path("/tmp/build-venv")
