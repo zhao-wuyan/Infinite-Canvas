@@ -17,6 +17,8 @@ import requests
 import zipfile
 import mimetypes
 import tempfile
+import math
+import shlex
 from typing import List, Dict, Any, Optional
 from threading import Lock
 import httpx
@@ -130,6 +132,18 @@ class ConnectionManager:
                 print(f"Broadcast canvas error: {e}")
                 self.active_connections.remove(connection)
 
+    async def broadcast_asset_library_updated(self, updated_at: int = 0):
+        data = json.dumps({
+            "type": "asset_library_updated",
+            "updated_at": updated_at or now_ms(),
+        })
+        for connection in self.active_connections[:]:
+            try:
+                await connection.send_text(data)
+            except Exception as e:
+                print(f"Broadcast asset library error: {e}")
+                self.active_connections.remove(connection)
+
     async def send_personal_message(self, message: dict, client_id: str):
         ws = self.user_connections.get(client_id)
         if ws:
@@ -207,8 +221,33 @@ NEXT_TASK_ID = 1
 UPDATE_LOCK = Lock()
 
 PROVIDER_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{2,40}$")
-SUPPORTED_PROVIDER_PROTOCOLS = {"openai", "apimart", "gemini", "volcengine", "runninghub"}
+SUPPORTED_PROVIDER_PROTOCOLS = {"openai", "apimart", "gemini", "volcengine", "runninghub", "jimeng"}
 RUNNINGHUB_DEFAULT_BASE_URL = "https://www.runninghub.cn"
+JIMENG_DEFAULT_IMAGE_MODELS = [
+    "jimeng-image-2k",
+    "jimeng-image-4k",
+]
+JIMENG_DEFAULT_VIDEO_MODELS = [
+    "jimeng-video-720p",
+    "jimeng-video-1080p",
+    "seedance2.0fast_vip",
+    "seedance2.0_vip",
+]
+try:
+    JIMENG_DEFAULT_POLL_SECONDS = max(1, min(3600, int(os.getenv("JIMENG_POLL_SECONDS", "900"))))
+except Exception:
+    JIMENG_DEFAULT_POLL_SECONDS = 900
+VOLCENGINE_DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+VOLCENGINE_DEFAULT_PROJECT_NAME = "default"
+VOLCENGINE_DEFAULT_REGION = "cn-beijing"
+VOLCENGINE_DEFAULT_VIDEO_MODELS = [
+    "doubao-seedance-2-0-260128",
+    "doubao-seedance-2-0-fast-260128",
+    "doubao-seedance-1-5-pro-251215",
+    "doubao-seedance-1-0-pro-250528",
+    "doubao-seedance-1-0-lite-t2v-250428",
+    "doubao-seedance-1-0-lite-i2v-250428",
+]
 RUNNINGHUB_DEFAULT_IMAGE_MODELS = [
     "seedream-v5-lite/text-to-image",
     "seedream-v5-lite/image-to-image",
@@ -505,10 +544,18 @@ def provider_key_env(provider_id):
         return "MODELSCOPE_API_KEY"
     if provider_id == "runninghub":
         return "RUNNINGHUB_API_KEY"
+    if provider_id == "volcengine":
+        return "ARK_API_KEY"
     return f"API_PROVIDER_{re.sub(r'[^A-Za-z0-9]', '_', provider_id).upper()}_KEY"
 
 def runninghub_wallet_key_env():
     return "RUNNINGHUB_WALLET_API_KEY"
+
+def volcengine_access_key_env():
+    return "VOLCENGINE_ACCESS_KEY_ID"
+
+def volcengine_secret_key_env():
+    return "VOLCENGINE_SECRET_ACCESS_KEY"
 
 def read_api_env_value(key: str) -> str:
     key = str(key or "").strip()
@@ -541,6 +588,14 @@ def runninghub_wallet_key_value() -> str:
     env_key = runninghub_wallet_key_env()
     return os.getenv(env_key, "") or read_api_env_value(env_key)
 
+def volcengine_access_key_value() -> str:
+    env_key = volcengine_access_key_env()
+    return os.getenv(env_key, "") or read_api_env_value(env_key)
+
+def volcengine_secret_key_value() -> str:
+    env_key = volcengine_secret_key_env()
+    return os.getenv(env_key, "") or read_api_env_value(env_key)
+
 def mask_secret(value):
     if not value:
         return ""
@@ -559,7 +614,7 @@ def bearer_auth_value(value):
     return f"Bearer {token}" if token else ""
 
 def default_api_providers():
-    # 只保留 ModelScope 为强制默认平台，其他平台均可自定义增删
+    # 独立入口平台强制保留，其他平台均可自定义增删
     return [
         {
             "id": "modelscope",
@@ -592,6 +647,38 @@ def default_api_providers():
             "ms_defaults_version": 0,
             "rh_apps": RUNNINGHUB_DEFAULT_APPS,
             "rh_workflows": RUNNINGHUB_DEFAULT_WORKFLOWS,
+        },
+        {
+            "id": "jimeng",
+            "name": "即梦 CLI",
+            "base_url": "",
+            "protocol": "jimeng",
+            "image_generation_endpoint": "",
+            "image_edit_endpoint": "",
+            "enabled": True,
+            "primary": False,
+            "image_models": JIMENG_DEFAULT_IMAGE_MODELS,
+            "chat_models": [],
+            "video_models": JIMENG_DEFAULT_VIDEO_MODELS,
+            "ms_loras": [],
+            "ms_defaults_version": 0,
+        },
+        {
+            "id": "volcengine",
+            "name": "火山引擎",
+            "base_url": VOLCENGINE_DEFAULT_BASE_URL,
+            "protocol": "volcengine",
+            "image_generation_endpoint": "",
+            "image_edit_endpoint": "",
+            "enabled": True,
+            "primary": False,
+            "image_models": [],
+            "chat_models": [],
+            "video_models": VOLCENGINE_DEFAULT_VIDEO_MODELS,
+            "ms_loras": [],
+            "ms_defaults_version": 0,
+            "volcengine_project_name": VOLCENGINE_DEFAULT_PROJECT_NAME,
+            "volcengine_region": VOLCENGINE_DEFAULT_REGION,
         },
     ]
 
@@ -628,6 +715,39 @@ def merge_default_api_providers(providers):
             current["image_models"] = model_list_from_values([*(current.get("image_models") or []), *(rh_default.get("image_models") or [])])
             current["rh_apps"] = merge_runninghub_system_entries(rh_default.get("rh_apps") or [], current.get("rh_apps") or [], "app")
             current["rh_workflows"] = merge_runninghub_system_entries(rh_default.get("rh_workflows") or [], current.get("rh_workflows") or [], "workflow")
+    volc_default = next((d for d in default_api_providers() if d["id"] == "volcengine"), None)
+    if volc_default:
+        current = next((item for item in merged if item.get("id") == "volcengine"), None)
+        legacy = next((item for item in merged if item.get("id") != "volcengine" and str(item.get("protocol") or "").lower() == "volcengine"), None)
+        if not current:
+            if legacy:
+                current = {
+                    **volc_default,
+                    "base_url": legacy.get("base_url") or volc_default["base_url"],
+                    "image_models": model_list_from_values([*(legacy.get("image_models") or []), *(volc_default.get("image_models") or [])]),
+                    "chat_models": model_list_from_values(legacy.get("chat_models") or []),
+                    "video_models": model_list_from_values([*(legacy.get("video_models") or []), *(volc_default.get("video_models") or [])]),
+                }
+                merged.append(current)
+            else:
+                merged.append(volc_default)
+        else:
+            if not current.get("base_url"):
+                current["base_url"] = volc_default["base_url"]
+            current["protocol"] = "volcengine"
+            current["video_models"] = model_list_from_values([*(current.get("video_models") or []), *(volc_default.get("video_models") or [])])
+            current["volcengine_project_name"] = str(current.get("volcengine_project_name") or VOLCENGINE_DEFAULT_PROJECT_NAME).strip() or VOLCENGINE_DEFAULT_PROJECT_NAME
+            current["volcengine_region"] = str(current.get("volcengine_region") or VOLCENGINE_DEFAULT_REGION).strip() or VOLCENGINE_DEFAULT_REGION
+    jimeng_default = next((d for d in default_api_providers() if d["id"] == "jimeng"), None)
+    if jimeng_default:
+        current = next((item for item in merged if item.get("id") == "jimeng"), None)
+        if not current:
+            merged.append(jimeng_default)
+        else:
+            current["protocol"] = "jimeng"
+            current["base_url"] = ""
+            current["image_models"] = model_list_from_values([*(current.get("image_models") or []), *JIMENG_DEFAULT_IMAGE_MODELS])
+            current["video_models"] = model_list_from_values([*(current.get("video_models") or []), *JIMENG_DEFAULT_VIDEO_MODELS])
     return merged
 
 def normalize_model_list(values):
@@ -890,6 +1010,16 @@ def normalize_provider(item):
         protocol = "openai"
     image_generation_endpoint = normalize_endpoint_override(item.get("image_generation_endpoint"), "文生图端口")
     image_edit_endpoint = normalize_endpoint_override(item.get("image_edit_endpoint"), "图生图/编辑端口")
+    volc_project = re.sub(r"\s+", " ", str(item.get("volcengine_project_name") or "").strip())[:80]
+    volc_region = re.sub(r"\s+", " ", str(item.get("volcengine_region") or "").strip())[:40]
+    if provider_id == "volcengine":
+        protocol = "volcengine"
+        base_url = base_url or VOLCENGINE_DEFAULT_BASE_URL
+        volc_project = volc_project or VOLCENGINE_DEFAULT_PROJECT_NAME
+        volc_region = volc_region or VOLCENGINE_DEFAULT_REGION
+    if provider_id == "jimeng":
+        protocol = "jimeng"
+        base_url = ""
     return {
         "id": provider_id,
         "name": name,
@@ -906,6 +1036,8 @@ def normalize_provider(item):
         "ms_defaults_version": int(item.get("ms_defaults_version") or 0),
         "rh_apps": normalize_runninghub_entries(item.get("rh_apps") or [], "app"),
         "rh_workflows": normalize_runninghub_entries(item.get("rh_workflows") or [], "workflow"),
+        "volcengine_project_name": volc_project,
+        "volcengine_region": volc_region,
     }
 
 def load_api_providers():
@@ -946,6 +1078,19 @@ def public_provider(provider):
             "has_wallet_key": bool(wallet_key),
             "wallet_key_preview": mask_secret(wallet_key),
             "wallet_key_env": runninghub_wallet_key_env(),
+        })
+    if provider.get("id") == "volcengine":
+        ak = volcengine_access_key_value()
+        sk = volcengine_secret_key_value()
+        item.update({
+            "has_volcengine_access_key": bool(ak),
+            "volcengine_access_key_preview": mask_secret(ak),
+            "volcengine_access_key_env": volcengine_access_key_env(),
+            "has_volcengine_secret_key": bool(sk),
+            "volcengine_secret_key_preview": mask_secret(sk),
+            "volcengine_secret_key_env": volcengine_secret_key_env(),
+            "volcengine_project_name": provider.get("volcengine_project_name") or VOLCENGINE_DEFAULT_PROJECT_NAME,
+            "volcengine_region": provider.get("volcengine_region") or VOLCENGINE_DEFAULT_REGION,
         })
     return item
 
@@ -1109,8 +1254,7 @@ def static_html_response(filename: str):
     )
 
 STATIC_PROMPT_TEMPLATE_MD = os.path.join(STATIC_DIR, "system-prompts", "infinite-canvas-prompt-templates.md")
-LEGACY_PROMPT_TEMPLATE_MD = os.path.join(BASE_DIR, "功能点", "无限画布_预设提示词标准库_v2.0.md")
-PROMPT_TEMPLATE_PATHS = [STATIC_PROMPT_TEMPLATE_MD, LEGACY_PROMPT_TEMPLATE_MD]
+PROMPT_TEMPLATE_PATHS = [STATIC_PROMPT_TEMPLATE_MD]
 PROMPT_TEMPLATE_EN = {
     "多机位九宫格": {
         "name": "9-Angle Multi-Camera Grid",
@@ -1148,6 +1292,10 @@ PROMPT_TEMPLATE_EN = {
         "name": "6 Basic Expression Busts",
         "scene": "Six basic expressions of the same character for expression consistency, emotion baselines, and Seedance Talk-to-Edit reference.",
     },
+    "360全景图": {
+        "name": "360 Panorama VR Image",
+        "scene": "Generate a seamless 360-degree VR panorama with continuous left and right edges and natural pole transitions.",
+    },
 }
 
 def prompt_template_markdown_path() -> str:
@@ -1160,6 +1308,8 @@ def prompt_template_category(name: str, scene: str) -> str:
     text = f"{name} {scene}"
     if any(k in text for k in ["光影", "灯光", "光效", "电影级"]):
         return "lighting"
+    if any(k in text for k in ["视角", "全景", "VR", "镜头", "俯拍", "仰拍", "景别", "构图", "透视"]):
+        return "view"
     if any(k in text for k in ["角色", "脸部", "表情", "Actor", "服装"]):
         return "character"
     if any(k in name for k in ["产品", "电商", "工业"]):
@@ -1767,10 +1917,16 @@ class ApiProviderPayload(BaseModel):
     ms_defaults_version: int = 0
     rh_apps: List[Dict[str, Any]] = []
     rh_workflows: List[Dict[str, Any]] = []
+    volcengine_project_name: str = VOLCENGINE_DEFAULT_PROJECT_NAME
+    volcengine_region: str = VOLCENGINE_DEFAULT_REGION
+    volcengine_access_key_id: Optional[str] = None
+    volcengine_secret_access_key: Optional[str] = None
     api_key: Optional[str] = None
     wallet_api_key: Optional[str] = None
     clear_key: bool = False
     clear_wallet_key: bool = False
+    clear_volcengine_access_key_id: bool = False
+    clear_volcengine_secret_access_key: bool = False
 
 class ChatRequest(BaseModel):
     conversation_id: str = ""
@@ -2476,6 +2632,457 @@ def is_volcengine_provider(provider):
 def is_runninghub_provider(provider):
     return provider_protocol(provider) == "runninghub" or str((provider or {}).get("id") or "").strip().lower() == "runninghub"
 
+def is_jimeng_provider(provider):
+    return provider_protocol(provider) == "jimeng" or str((provider or {}).get("id") or "").strip().lower() == "jimeng"
+
+def jimeng_env_value(key):
+    return os.getenv(key, "") or read_api_env_value(key)
+
+def jimeng_use_wsl():
+    value = str(jimeng_env_value("JIMENG_USE_WSL") or "").strip().lower()
+    return value in {"1", "true", "yes", "on", "wsl"}
+
+def jimeng_cli_executable():
+    if jimeng_use_wsl():
+        return shutil.which("wsl.exe") or shutil.which("wsl") or "wsl.exe"
+    configured = str(
+        jimeng_env_value("JIMENG_BIN")
+        or jimeng_env_value("DREAMINA_BIN")
+        or ""
+    ).strip()
+    if configured:
+        return configured
+    return shutil.which("dreamina") or shutil.which("dreamina.exe") or shutil.which("dreamina.cmd") or ""
+
+def decode_wsl_output(data: bytes) -> str:
+    data = data or b""
+    if not data:
+        return ""
+    if b"\x00" in data[:200]:
+        try:
+            return data.decode("utf-16le", errors="ignore")
+        except Exception:
+            pass
+    return data.decode("utf-8-sig", errors="ignore")
+
+def jimeng_wsl_base_args(exe="wsl.exe"):
+    configured = str(jimeng_env_value("JIMENG_WSL_DISTRO") or "").strip()
+    if configured:
+        return ["-d", configured]
+    try:
+        proc = subprocess.run(
+            [exe, "-l", "-q"],
+            cwd=BASE_DIR,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+        )
+        names = [
+            line.replace("\x00", "").strip()
+            for line in decode_wsl_output(proc.stdout).splitlines()
+        ]
+        ubuntu = next((name for name in names if re.match(r"^Ubuntu($|-)", name)), "")
+        if ubuntu:
+            return ["-d", ubuntu]
+    except Exception:
+        pass
+    return ["-d", "Ubuntu"]
+
+def jimeng_clean_wsl_stderr(text):
+    lines = []
+    for line in str(text or "").splitlines():
+        clean = line.replace("\x00", "").strip()
+        low = clean.lower()
+        is_proxy_warning = "localhost" in low and "wsl" in low and ("nat" in low or "proxy" in low or "代理" in clean)
+        if clean and not is_proxy_warning:
+            lines.append(clean)
+    return "\n".join(lines).strip()
+
+def windows_path_to_wsl(path):
+    text = str(path or "").replace("\\", "/")
+    match = re.match(r"^([A-Za-z]):/(.*)$", text)
+    if match:
+        return f"/mnt/{match.group(1).lower()}/{match.group(2)}"
+    return text
+
+def wsl_path_to_windows(path):
+    text = str(path or "").strip()
+    match = re.match(r"^/mnt/([A-Za-z])/(.*)$", text)
+    if match:
+        tail = match.group(2).replace("/", "\\")
+        return f"{match.group(1).upper()}:\\{tail}"
+    return text
+
+def jimeng_cli_path_arg(path):
+    return windows_path_to_wsl(path) if jimeng_use_wsl() else path
+
+def jimeng_poll_seconds(default=JIMENG_DEFAULT_POLL_SECONDS):
+    try:
+        return max(1, min(3600, int(os.getenv("JIMENG_POLL_SECONDS", str(default)) or default)))
+    except Exception:
+        return default
+
+def jimeng_extract_json(text):
+    text = str(text or "").strip()
+    if not text:
+        return {}
+    decoder = json.JSONDecoder()
+    parsed = []
+    for i, ch in enumerate(text):
+        if ch not in "[{":
+            continue
+        try:
+            obj, _end = decoder.raw_decode(text[i:])
+            if not text[:i].strip():
+                return obj
+            parsed.append((i, obj))
+        except Exception:
+            continue
+    def score(item):
+        _idx, obj = item
+        if not isinstance(obj, dict):
+            return 1
+        keys = {str(key).lower() for key in obj.keys()}
+        weight = 0
+        for key in ("submit_id", "gen_status", "result_json", "images", "videos", "data", "total_credit"):
+            if key in keys:
+                weight += 10
+        return weight
+    return max(parsed, key=score)[1] if parsed else {"text": text}
+
+async def run_jimeng_cli(args, timeout=120):
+    exe = jimeng_cli_executable()
+    if not exe:
+        raise HTTPException(status_code=400, detail="未找到 dreamina CLI。请先安装：curl -fsSL https://jimeng.jianying.com/cli | bash，并完成 dreamina login。")
+    clean_args = [str(arg) for arg in args if str(arg) != ""]
+    if jimeng_use_wsl():
+        shell_line = (
+            ". ~/.profile >/dev/null 2>&1 || true; . ~/.bashrc >/dev/null 2>&1 || true; "
+            "DREAMINA_BIN=$(command -v dreamina || find \"$HOME\" -maxdepth 4 -type f -name dreamina 2>/dev/null | head -n 1); "
+            "if [ -z \"$DREAMINA_BIN\" ]; then echo 'dreamina CLI not found in WSL' >&2; exit 127; fi; "
+            "\"$DREAMINA_BIN\" " + " ".join(shlex.quote(arg) for arg in clean_args)
+        )
+        command = [exe, *jimeng_wsl_base_args(exe), "-e", "sh", "-lc", shell_line]
+    else:
+        command = [exe, *clean_args]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=BASE_DIR,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=f"即梦 CLI 执行超时：{' '.join(command[:3])}") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=f"未找到即梦 CLI：{exe}") from exc
+    out_text = stdout.decode("utf-8", errors="replace").strip()
+    err_text = stderr.decode("utf-8", errors="replace").strip()
+    clean_err_text = jimeng_clean_wsl_stderr(err_text) if jimeng_use_wsl() else err_text
+    raw = jimeng_extract_json(f"{out_text}\n{clean_err_text}".strip())
+    if proc.returncode != 0:
+        message = clean_err_text or out_text or f"exit={proc.returncode}"
+        raise HTTPException(status_code=502, detail=f"即梦 CLI 调用失败：{message[:1000]}")
+    if isinstance(raw, dict):
+        raw.setdefault("_stdout", out_text)
+        if clean_err_text:
+            raw.setdefault("_stderr", clean_err_text)
+    return raw
+
+def jimeng_submit_id(raw):
+    found = []
+    def visit(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).lower() in {"submit_id", "submitid", "task_id", "taskid"} and item:
+                    found.append(str(item))
+                else:
+                    visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+    visit(raw)
+    return found[0] if found else ""
+
+def jimeng_failure_reason(raw):
+    found = []
+    def visit(value):
+        if isinstance(value, dict):
+            status = str(value.get("gen_status") or value.get("status") or "").strip().lower()
+            reason = value.get("fail_reason") or value.get("failReason") or value.get("error") or value.get("message") or value.get("msg")
+            if reason and (status in {"fail", "failed", "error"} or "fail" in str(reason).lower() or "invalid param" in str(reason).lower()):
+                found.append(str(reason))
+            for item in value.values():
+                if isinstance(item, (dict, list)):
+                    visit(item)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item)
+    visit(raw)
+    return found[0] if found else ""
+
+def jimeng_collect_media_values(value, outputs):
+    media_ext = re.compile(r"\.(png|jpe?g|webp|gif|bmp|mp4|webm|mov|m4v)(\?|#|$)", re.I)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return
+        if text.startswith(("http://", "https://", "/output/", "/assets/", "file://")) or media_ext.search(text):
+            outputs.append(text)
+        return
+    if isinstance(value, list):
+        for item in value:
+            jimeng_collect_media_values(item, outputs)
+        return
+    if isinstance(value, dict):
+        for key in (
+            "url", "urls", "image", "images", "image_url", "image_urls",
+            "video", "videos", "video_url", "video_urls", "output", "outputs",
+            "result", "results", "file", "files", "path", "paths",
+            "download_url", "download_urls", "downloadUrl", "file_path", "filePath",
+        ):
+            if key in value:
+                jimeng_collect_media_values(value.get(key), outputs)
+        for item in value.values():
+            if isinstance(item, (dict, list)):
+                jimeng_collect_media_values(item, outputs)
+
+def jimeng_output_values(raw):
+    outputs = []
+    jimeng_collect_media_values(raw, outputs)
+    deduped = []
+    for value in outputs:
+        if value not in deduped:
+            deduped.append(value)
+    return deduped
+
+JIMENG_RATIO_CHOICES = [(21, 9), (16, 9), (3, 2), (4, 3), (1, 1), (3, 4), (2, 3), (9, 16)]
+def jimeng_ratio_from_size(size, fallback="1:1"):
+    width, height = parse_size_pair(size)
+    if not width or not height:
+        return fallback
+    ratio = width / max(1, height)
+    left, right = min(JIMENG_RATIO_CHOICES, key=lambda item: abs(ratio - item[0] / item[1]))
+    return f"{left}:{right}"
+
+def jimeng_image_resolution(model, size):
+    text = str(model or "").lower()
+    if "4k" in text:
+        return "4k"
+    if "1k" in text:
+        return "1k"
+    if "2k" in text:
+        return "2k"
+    width, height = parse_size_pair(size)
+    return "4k" if max(width, height) > 2048 else "2k"
+
+def jimeng_video_resolution(model, resolution):
+    value = str(resolution or "").strip().upper()
+    if value in {"480P", "720P", "1080P"}:
+        return value
+    text = str(model or "").lower()
+    if "1080" in text:
+        return "1080P"
+    if "480" in text:
+        return "480P"
+    return "720P"
+
+def jimeng_video_duration(duration):
+    try:
+        text = str(duration).strip() if duration is not None else ""
+        value = 5 if text == "" else int(text)
+    except Exception:
+        value = 5
+    return max(4, min(15, value))
+
+def jimeng_local_output_url(path, kind="image"):
+    path = os.path.abspath(str(path or ""))
+    if not os.path.isfile(path):
+        return ""
+    output_root = os.path.abspath(OUTPUT_OUTPUT_DIR)
+    try:
+        if os.path.commonpath([output_root, path]) == output_root:
+            return output_url_for(os.path.basename(path), "output")
+    except Exception:
+        pass
+    ext = os.path.splitext(path)[1].lower()
+    allowed = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".mp4", ".webm", ".mov", ".m4v"}
+    if ext not in allowed:
+        ct = content_type_for_path(path)
+        ext = ".mp4" if ct.startswith("video/") else ".png"
+    prefix = "jimeng_video_" if kind == "video" else "jimeng_"
+    filename = f"{prefix}{uuid.uuid4().hex[:10]}{ext}"
+    dest = output_path_for(filename, "output")
+    shutil.copyfile(path, dest)
+    return output_url_for(filename, "output")
+
+async def jimeng_store_output_value(value, kind="image"):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("/output/") or text.startswith("/assets/"):
+        return text
+    if text.startswith("file://"):
+        text = urllib.parse.unquote(urllib.parse.urlparse(text).path)
+        if os.name == "nt" and re.match(r"^/[A-Za-z]:/", text):
+            text = text[1:]
+    if jimeng_use_wsl() and text.startswith("/mnt/"):
+        text = wsl_path_to_windows(text)
+    if text.startswith(("http://", "https://")):
+        if kind == "video":
+            return await save_remote_video_to_output(text, prefix="jimeng_video_")
+        return await save_ai_image_to_output({"type": "url", "value": text}, prefix="jimeng_")
+    if os.path.isfile(text):
+        return jimeng_local_output_url(text, kind)
+    return ""
+
+async def jimeng_query_result(submit_id, kind="image"):
+    args = [
+        "query_result",
+        f"--submit_id={submit_id}",
+        f"--download_dir={jimeng_cli_path_arg(OUTPUT_OUTPUT_DIR)}",
+    ]
+    return await run_jimeng_cli(args, timeout=min(300, jimeng_poll_seconds() + 60))
+
+async def jimeng_store_outputs(raw, kind="image", allow_query=True):
+    failure = jimeng_failure_reason(raw)
+    if failure:
+        raise HTTPException(status_code=502, detail=f"即梦生成失败：{failure}")
+    values = jimeng_output_values(raw)
+    urls = []
+    for value in values:
+        local_url = await jimeng_store_output_value(value, kind)
+        if local_url and local_url not in urls:
+            urls.append(local_url)
+    if urls:
+        return urls
+    submit_id = jimeng_submit_id(raw)
+    if submit_id and allow_query:
+        queried = await jimeng_query_result(submit_id, kind)
+        try:
+            return await jimeng_store_outputs(queried, kind, allow_query=False)
+        except HTTPException as exc:
+            if getattr(exc, "status_code", None) == 502:
+                status_text = json.dumps(queried, ensure_ascii=False)[:800] if isinstance(queried, (dict, list)) else str(queried)[:800]
+                raise HTTPException(status_code=502, detail=f"即梦任务已返回但没有下载到媒体：{status_text}") from exc
+            raise
+    status_text = json.dumps(raw, ensure_ascii=False)[:800] if isinstance(raw, (dict, list)) else str(raw)[:800]
+    if submit_id:
+        raise HTTPException(status_code=504, detail=f"即梦任务仍在生成中，submit_id={submit_id}。稍后可用 dreamina query_result --submit_id={submit_id} 查询。原始返回：{status_text}")
+    raise HTTPException(status_code=502, detail=f"即梦 CLI 未返回可用媒体结果：{status_text}")
+
+async def jimeng_prepare_local_media(ref_url, kind="image"):
+    text = str(ref_url or "").strip()
+    if not text:
+        return "", []
+    if text.startswith("/output/") or text.startswith("/assets/"):
+        path = output_file_from_url(text)
+        if path:
+            return path, []
+        raise HTTPException(status_code=404, detail=f"即梦参考素材不存在：{text}")
+    if text.startswith("file://"):
+        path = urllib.parse.unquote(urllib.parse.urlparse(text).path)
+        if os.name == "nt" and re.match(r"^/[A-Za-z]:/", path):
+            path = path[1:]
+        if os.path.isfile(path):
+            return path, []
+    if os.path.isfile(text):
+        return text, []
+    suffix = ".mp4" if kind == "video" else ".png"
+    temp_paths = []
+    if text.startswith("data:"):
+        if ";base64," not in text:
+            raise HTTPException(status_code=400, detail="即梦参考素材 data URL 缺少 base64 数据")
+        header, encoded = text.split(";base64,", 1)
+        mime = header.split(":", 1)[1].split(";", 1)[0] if ":" in header else ""
+        suffix = mimetypes.guess_extension(mime) or suffix
+        fd, path = tempfile.mkstemp(prefix="jimeng_ref_", suffix=suffix)
+        with os.fdopen(fd, "wb") as f:
+            f.write(base64.b64decode(encoded))
+        temp_paths.append(path)
+        return path, temp_paths
+    if text.startswith(("http://", "https://")):
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=20.0, read=300.0, write=60.0, pool=20.0), follow_redirects=True) as client:
+            response = await client.get(text)
+            response.raise_for_status()
+            clean_path = urllib.parse.urlparse(text).path
+            suffix = os.path.splitext(clean_path)[1] or mimetypes.guess_extension(response.headers.get("content-type", "")) or suffix
+            fd, path = tempfile.mkstemp(prefix="jimeng_ref_", suffix=suffix)
+            with os.fdopen(fd, "wb") as f:
+                f.write(response.content)
+            temp_paths.append(path)
+            return path, temp_paths
+    raise HTTPException(status_code=400, detail=f"即梦 CLI 只支持本地文件参考素材，无法读取：{text[:120]}")
+
+async def generate_jimeng_provider_image(prompt, size, model, reference_images=None, provider=None):
+    refs = [ref for ref in (reference_images or []) if ref.get("url")]
+    temp_paths = []
+    try:
+        args = []
+        if refs:
+            image_path, created = await jimeng_prepare_local_media(refs[0].get("url"), "image")
+            temp_paths.extend(created)
+            args = [
+                "image2image",
+                f"--images={jimeng_cli_path_arg(image_path)}",
+                f"--prompt={prompt}",
+                f"--resolution_type={jimeng_image_resolution(model, size)}",
+                f"--poll={jimeng_poll_seconds()}",
+            ]
+        else:
+            args = [
+                "text2image",
+                f"--prompt={prompt}",
+                f"--ratio={jimeng_ratio_from_size(size)}",
+                f"--resolution_type={jimeng_image_resolution(model, size)}",
+                f"--poll={jimeng_poll_seconds()}",
+            ]
+        raw = await run_jimeng_cli(args, timeout=jimeng_poll_seconds() + 120)
+        urls = await jimeng_store_outputs(raw, "image")
+        return {"type": "url", "value": urls[0]}, raw
+    finally:
+        for path in temp_paths:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
+async def generate_jimeng_video(payload: CanvasVideoRequest, provider):
+    image_refs = [ref for ref in (payload.images or []) if ref.url]
+    duration = jimeng_video_duration(payload.duration)
+    temp_paths = []
+    try:
+        if image_refs:
+            image_path, created = await jimeng_prepare_local_media(image_refs[0].url, "image")
+            temp_paths.extend(created)
+            args = [
+                "image2video",
+                f"--image={jimeng_cli_path_arg(image_path)}",
+                f"--prompt={payload.prompt}",
+                f"--duration={duration}",
+                f"--poll={jimeng_poll_seconds()}",
+            ]
+        else:
+            args = [
+                "text2video",
+                f"--prompt={payload.prompt}",
+                f"--duration={duration}",
+                f"--ratio={payload.aspect_ratio or '16:9'}",
+                f"--video_resolution={jimeng_video_resolution(payload.model, payload.resolution)}",
+                f"--poll={jimeng_poll_seconds()}",
+            ]
+        raw = await run_jimeng_cli(args, timeout=jimeng_poll_seconds() + 180)
+        urls = await jimeng_store_outputs(raw, "video")
+        return {"videos": urls, "task_id": jimeng_submit_id(raw) or None, "raw": raw}
+    finally:
+        for path in temp_paths:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
 async def wait_for_image_task(client, task_id, provider=None):
     base_url = (provider.get("base_url") if provider else AI_BASE_URL).rstrip("/")
     is_apimart = is_apimart_provider(provider)
@@ -2697,6 +3304,8 @@ def save_asset_library(lib):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(ASSET_LIBRARY_PATH, "w", encoding="utf-8") as f:
         json.dump(lib, f, ensure_ascii=False, indent=2)
+    if GLOBAL_LOOP:
+        asyncio.run_coroutine_threadsafe(manager.broadcast_asset_library_updated(int(lib["updated_at"])), GLOBAL_LOOP)
 
 def find_asset_category(lib, category_id):
     for cat in lib.get("categories", []):
@@ -2853,6 +3462,17 @@ def volcengine_media_reference_url(value, max_image_size=1536):
     if value.startswith("/output/") or value.startswith("/assets/"):
         return reference_to_data_url({"url": value}, max_size=max_image_size)
     return value
+
+def looks_like_image_media_url(value: str) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    if text.startswith("data:image/"):
+        return True
+    if text.startswith("asset://"):
+        return False
+    path = urllib.parse.urlparse(text).path or text
+    return bool(re.search(r"\.(png|jpe?g|webp|gif|bmp|tiff)$", path))
 
 def volcengine_content_role(role: str, kind: str = "image") -> str:
     value = str(role or "").strip().lower()
@@ -4080,6 +4700,8 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
     provider = get_api_provider(provider_id)
     if provider["id"] == "modelscope":
         return await generate_modelscope_provider_image(prompt, size, model, reference_images, provider)
+    if is_jimeng_provider(provider):
+        return await generate_jimeng_provider_image(prompt, size, model, reference_images, provider)
     if is_runninghub_provider(provider):
         return await generate_runninghub_provider_image(prompt, size, model, reference_images, provider)
     if is_gemini_provider(provider):
@@ -4679,6 +5301,17 @@ async def runninghub_upload_asset(payload: RunningHubUploadAssetRequest):
         return {"success": True, "data": {"fileName": raw["data"]["fileName"], "fileType": raw["data"].get("fileType") or content_type}}
     raise HTTPException(status_code=400, detail=(raw.get("msg") if isinstance(raw, dict) else "") or f"RunningHub 上传失败：{raw}")
 
+@app.get("/api/jimeng/status")
+async def jimeng_status():
+    exe = jimeng_cli_executable()
+    if not exe:
+        return {"installed": False, "logged_in": False, "message": "未找到 dreamina CLI"}
+    try:
+        raw = await run_jimeng_cli(["user_credit"], timeout=30)
+        return {"installed": True, "logged_in": True, "raw": raw}
+    except HTTPException as exc:
+        return {"installed": True, "logged_in": False, "message": str(exc.detail)}
+
 @app.get("/api/config")
 async def ai_config():
     preferred_chat_model = next((m for m in CHAT_MODELS if m == "gpt-5.5"), CHAT_MODELS[0] if CHAT_MODELS else CHAT_MODEL)
@@ -4729,6 +5362,17 @@ async def save_providers(payload: List[ApiProviderPayload]):
                 env_updates[wallet_env] = ""
             elif item.wallet_api_key is not None and item.wallet_api_key.strip():
                 env_updates[wallet_env] = item.wallet_api_key.strip()
+        if provider["id"] == "volcengine":
+            ak_env = volcengine_access_key_env()
+            sk_env = volcengine_secret_key_env()
+            if item.clear_volcengine_access_key_id:
+                env_updates[ak_env] = ""
+            elif item.volcengine_access_key_id is not None and item.volcengine_access_key_id.strip():
+                env_updates[ak_env] = item.volcengine_access_key_id.strip()
+            if item.clear_volcengine_secret_access_key:
+                env_updates[sk_env] = ""
+            elif item.volcengine_secret_access_key is not None and item.volcengine_secret_access_key.strip():
+                env_updates[sk_env] = item.volcengine_secret_access_key.strip()
         if provider["id"] == "comfly":
             env_updates["COMFLY_BASE_URL"] = provider["base_url"]
             env_updates["IMAGE_MODELS"] = ",".join(provider["image_models"])
@@ -4738,6 +5382,8 @@ async def save_providers(payload: List[ApiProviderPayload]):
             env_updates["MODELSCOPE_CHAT_MODELS"] = ",".join(provider["chat_models"])
         if provider["id"] == "runninghub":
             provider["protocol"] = "runninghub"
+        if provider["id"] == "volcengine":
+            provider["protocol"] = "volcengine"
     if not providers:
         raise HTTPException(status_code=400, detail="至少保留一个 API 平台")
     # 强制最多一个 primary（取最后被标记的；都没标记则保持原样不强制）
@@ -4835,6 +5481,20 @@ def parse_upstream_models(raw, protocol="openai"):
 @app.post("/api/providers/test-connection")
 async def test_provider_connection(payload: TestConnectionPayload):
     """测试请求地址是否可用：调上游 /v1/models。验证通过时同时把模型清单按类别返回，避免再调一次拉取接口。"""
+    protocol = protocol_from_payload(payload)
+    if protocol == "jimeng":
+        status = await jimeng_status()
+        return {
+            "ok": bool(status.get("installed") and status.get("logged_in")),
+            "status": 200 if status.get("logged_in") else 0,
+            "message": status.get("message") or "即梦 CLI 已登录",
+            "model_count": len(JIMENG_DEFAULT_IMAGE_MODELS) + len(JIMENG_DEFAULT_VIDEO_MODELS),
+            "image_models": JIMENG_DEFAULT_IMAGE_MODELS,
+            "chat_models": [],
+            "video_models": JIMENG_DEFAULT_VIDEO_MODELS,
+            "all": [*JIMENG_DEFAULT_IMAGE_MODELS, *JIMENG_DEFAULT_VIDEO_MODELS],
+            "raw": status.get("raw"),
+        }
     base_url = (payload.base_url or "").strip().rstrip("/")
     if not base_url:
         raise HTTPException(status_code=400, detail="请先填写请求地址")
@@ -4847,7 +5507,6 @@ async def test_provider_connection(payload: TestConnectionPayload):
             api_key = os.getenv(provider_key_env(payload.provider_id), "")
     if not api_key:
         raise HTTPException(status_code=400, detail="请先填写或保存 API Key")
-    protocol = protocol_from_payload(payload)
     url = upstream_models_url(base_url, protocol)
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -4913,6 +5572,15 @@ async def probe_async_endpoint(payload: TestConnectionPayload):
 
 async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str = "openai"):
     """从上游模型列表端点拉取模型，并按名称做轻量分类。"""
+    protocol = protocol if protocol in SUPPORTED_PROVIDER_PROTOCOLS else "openai"
+    if protocol == "jimeng":
+        return {
+            "total": len(JIMENG_DEFAULT_IMAGE_MODELS) + len(JIMENG_DEFAULT_VIDEO_MODELS),
+            "image_models": JIMENG_DEFAULT_IMAGE_MODELS,
+            "chat_models": [],
+            "video_models": JIMENG_DEFAULT_VIDEO_MODELS,
+            "all": [*JIMENG_DEFAULT_IMAGE_MODELS, *JIMENG_DEFAULT_VIDEO_MODELS],
+        }
     base_url = (base_url or "").strip().rstrip("/")
     if not base_url:
         raise HTTPException(status_code=400, detail="请先填写请求地址")
@@ -4921,7 +5589,6 @@ async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str 
     api_key = (api_key or "").strip()
     if not api_key:
         raise HTTPException(status_code=400, detail="请先填写或保存 API Key")
-    protocol = protocol if protocol in SUPPORTED_PROVIDER_PROTOCOLS else "openai"
     url = upstream_models_url(base_url, protocol)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -4978,6 +5645,10 @@ async def build_online_image_result(payload: OnlineImageRequest):
 
     local_urls = [url for url, _raw in generated if url]
     raw = generated[0][1] if generated else {}
+    if not local_urls:
+        provider_name = provider.get("name") or provider["id"]
+        raw_text = json.dumps(raw, ensure_ascii=False)[:800] if isinstance(raw, (dict, list)) else str(raw)[:800]
+        raise HTTPException(status_code=502, detail=f"{provider_name} 没有返回图片：{raw_text}")
     result = {
         "prompt": payload.prompt,
         "images": local_urls,
@@ -5224,6 +5895,8 @@ def volcengine_video_prompt_text(prompt, aspect_ratio="", duration=None):
 @app.post("/api/canvas-video")
 async def canvas_video(payload: CanvasVideoRequest):
     provider = get_api_provider(payload.provider_id)
+    if is_jimeng_provider(provider):
+        return await generate_jimeng_video(payload, provider)
     base_url = video_api_root(provider)
     if not base_url:
         raise HTTPException(status_code=400, detail=f"{provider.get('name') or provider['id']} 未配置 Base URL")
@@ -5363,6 +6036,7 @@ async def canvas_video(payload: CanvasVideoRequest):
                         body["generate_audio"] = True
                     if payload.camerafixed:
                         body["camerafixed"] = True
+                    image_like_urls = set()
                     for ref in payload.images[:9]:
                         url = volcengine_media_reference_url(ref.url, max_image_size=1536)
                         if not url:
@@ -5375,9 +6049,18 @@ async def canvas_video(payload: CanvasVideoRequest):
                         if role:
                             item["role"] = role
                         body["content"].append(item)
+                        image_like_urls.add(url)
                     for url in (payload.videos or [])[:3]:
                         media_url = volcengine_media_reference_url(url, max_image_size=None)
                         if not media_url:
+                            continue
+                        if media_url in image_like_urls or looks_like_image_media_url(media_url):
+                            body["content"].append({
+                                "type": "image_url",
+                                "image_url": {"url": media_url},
+                                "role": "reference_image",
+                            })
+                            image_like_urls.add(media_url)
                             continue
                         body["content"].append({
                             "type": "video_url",
@@ -5648,6 +6331,12 @@ async def get_canvas_meta(canvas_id: str):
 @app.get("/api/canvases/{canvas_id}")
 async def get_canvas(canvas_id: str):
     return {"canvas": load_canvas(canvas_id)}
+
+@app.post("/api/canvases/{canvas_id}/touch")
+async def touch_canvas(canvas_id: str):
+    canvas = load_canvas(canvas_id)
+    save_canvas(canvas)
+    return {"canvas": canvas_record(canvas), "updated_at": canvas.get("updated_at", 0)}
 
 @app.get("/api/smart-canvas/prompt-templates")
 async def smart_canvas_prompt_templates():
