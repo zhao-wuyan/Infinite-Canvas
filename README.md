@@ -18,33 +18,15 @@ https://www.fhl.mom/register?aff=86L574B4T2N9  （包含codex和GPT image 2模�
 【A version file has been added. I update the version number with each update. If you download the version file, the GitHub button in the navigation bar will indicate the new version after opening the project. If you don't want to see update notifications, delete the version file.】
 
 ----
-5/25日更新：
-1. 支持RunningHub的工作流/API/付费模型调用
-2. 支持火山引擎
-3. 支持上传视频/音频，支持comfyui的各种输出结果（视频/音频/文字）
 
-May 25th Update:
-
-1. Supports workflow/API/paid model calls from RunningHub
-
-2. Supports Volcano Engine
-
-3. Supports uploading video/audio, and supports various output results from Comfyui (video/audio/text)
-
---------
-
-已经申请著作权，禁止商业用途
-
-Commercial use is prohibited.
-
-
-* 可以自己使用和公司使用，禁止用于任何形式的修改封装成商业产品，商用须取得授权。
-
-* 根据代码二次开发的软件必须保持开源并注明来源作者
-
-* This software is for personal and company use only, but is prohibited from being modified or packaged into commercial products in any way. Commercial use requires authorization.
-
-* Software developed based on this code must remain open source and the original author must be credited.
+支持的功能：
+1. 支持几乎所有OpenAI协议的API/异步协议/Gemini协议
+2. RunningHub的工作流/AI应用/收费模型调用
+3. 火山引擎调用（人脸认证还在修复bug）
+4. Modelscope免费LLM模型和图像模型调用
+5. 即梦CLI调用，可直接调用即梦高级会员的积分，支持文生图/图生图/文生视频/图生视频（支持真人面部，不支持多参输入）
+6. 支持调用本地局域网的ComfyUI
+7. 扩展图片/360全景图预览截图/视频帧抽取/循环节点等诸多功能
 
 --------
 

@@ -1,7 +1,7 @@
 # 无限画布预设提示词 · 完整版 v2.0
 
 > **备份日期**：2026-05-28
-> **版本**：v2.0（统一背景为浅暖灰#F0EDE8，优化边缘处理）
+> **版本**：v2.1（新增视角类360全景图预设）
 > **用途**：直接复制粘贴到无限画布AI工具的预设提示词框中
 > **格式**：每个预设包含「预设名称」「适用场景」「正向提示词」「负向提示词」「平台参数建议」
 > **原则**：画面绝对无数字/文字/角标，一致性通过多重锚定锁定，边缘柔和过渡无硬边无发光晕
@@ -246,6 +246,28 @@ numbers, text, letters, labels, frame numbers, corner marks, annotations, captio
 
 ---
 
+## 预设10：360全景图
+
+### 适用场景
+用于生成360全景、VR全景、可左右循环拼接的空间视角图，适合室内空间、展厅、场景漫游、环境概念设计；封闭场景需要具备合理出入口。
+
+### 正向提示词
+```
+生成一个720度的全景VR图，左右边缘100%像素级无缝衔接，可无限循环拼接；上下极点(南北极)自然过渡，无明显断层或拉伸，场景一致性，以及场景的逻辑性，封闭场景需要有门
+```
+
+### 负向提示词
+```
+seam, visible seam, hard seam, broken panorama, discontinuous edge, mismatched left and right edges, distorted poles, stretched ceiling, stretched floor, warped horizon, inconsistent scene logic, impossible space, no exit in closed room, text, letters, labels, watermark, logo, blurry, low quality
+```
+
+### 平台参数建议
+- **Midjourney**: `--ar 2:1 --style raw --s 50`
+- **即梦/可灵**: 使用2:1宽幅比例，生成后用360预览检查左右接缝
+- **Flux**: 建议2:1比例，优先测试左右边缘连续性
+
+---
+
 ## 通用负面词库（所有预设共用补充）
 
 ```
@@ -272,6 +294,7 @@ numbers, text, letters, labels, frame numbers, corner marks, annotations, captio
 |------|------|---------|
 | v1.0 | 2026-05-22 | 初始版本，8个预设 |
 | v2.0 | 2026-05-28 | 统一背景为浅暖灰#F0EDE8，新增表情六宫格预设，优化边缘处理，所有预设增加边缘柔和过渡描述 |
+| v2.1 | 2026-05-30 | 新增视角类360全景图预设 |
 
 ---
 

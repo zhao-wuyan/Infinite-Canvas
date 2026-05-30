@@ -100,6 +100,6 @@
         "chat.requestFailed": { zh: "请求失败", en: "Request failed" },
         "chat.chatMode": { zh: "聊天", en: "Chat" },
         "chat.imageMode": { zh: "生图", en: "Image" },
-        "chat.resolution": { zh: "分辨率", en: "Resolution" }
+        "chat.resolution": { zh: "分辨率", en: "Resolution" },
     });
 })();

@@ -16,11 +16,10 @@
             } catch(e) {}
         })();
     </script>
-    <script src="/static/vendor/js/lucide.js?v=2026.05.29.1"></script>
-    <script src="/static/js/theme.js?v=2026.05.29.1"></script>
-    <script src="/static/js/i18n.js?v=2026.05.29.1"></script>
-    <link rel="stylesheet" href="/static/css/smart-canvas.css?v=2026.05.29.1">
-</head>
+    <script src="/static/vendor/js/lucide.js?v=2026.05.29.2"></script>
+    <script src="/static/js/theme.js?v=2026.05.29.2"></script>
+    <script src="/static/js/i18n.js?v=2026.05.29.2"></script>
+    <link rel="stylesheet" href="/static/css/smart-canvas.css?v=2026.05.29.2"></head>
 <body>
     <div id="shell" class="shell">
         <div id="world" class="world">
@@ -30,6 +29,7 @@
                         <div class="composer-head-left">
                             <select id="engineSelect" class="engine-select">
                                 <option value="api" data-i18n="smart.engineApi">API生成</option>
+                                <option value="volcengine" data-i18n="smart.engineVolcengine">火山引擎</option>
                                 <option value="modelscope" data-i18n="smart.engineMs">MS生成</option>
                                 <option value="comfy" data-i18n="smart.engineComfy">ComfyUI生成</option>
                                 <option value="runninghub" data-i18n="smart.engineRh">RunningHub</option>
@@ -67,8 +67,8 @@
                 <button class="create-card" type="button" data-create-type="image">
                     <span class="create-card-icon"><i data-lucide="upload-cloud"></i></span>
                     <span>
-                        <div class="create-card-title">上传节点</div>
-                        <div class="create-card-sub">支持图片/音频/视频/批量上传</div>
+                        <div class="create-card-title" data-i18n="smart.createImportNode">上传节点</div>
+                        <div class="create-card-sub" data-i18n="smart.createImportNodeSub">支持图片/音频/视频/批量上传</div>
                     </span>
                 </button>
                 <button class="create-card" type="button" data-create-type="prompt">
@@ -214,6 +214,28 @@
                 </div>
                 <div id="imagePreviewTools" class="image-edit-tools">
                     <span id="previewMetaHint" class="image-edit-sub" style="margin-left:auto"></span>
+                    <div id="panoramaControls" class="panorama-controls" style="display:none">
+                        <div class="panorama-control-group">
+                            <div class="panorama-control-line">
+                                <span class="panorama-control-label" data-i18n="smart.panoramaRatio">视窗比例</span>
+                                <button type="button" data-panorama-ratio="square">1:1</button>
+                                <button type="button" data-panorama-ratio="portrait">2:3</button>
+                                <button type="button" data-panorama-ratio="landscape">3:2</button>
+                                <button type="button" data-panorama-ratio="portrait43">3:4</button>
+                                <button type="button" data-panorama-ratio="landscape43">4:3</button>
+                                <button type="button" data-panorama-ratio="story">9:16</button>
+                                <button type="button" data-panorama-ratio="wide" class="active">16:9</button>
+                                <button type="button" data-panorama-ratio="ultrawide">21:9</button>
+                                <button type="button" data-panorama-ratio="ultratall">9:21</button>
+                                <button type="button" data-panorama-ratio="custom" data-i18n="smart.custom">自定义</button>
+                                <label id="panoramaCustomRatio" class="panorama-custom-ratio" style="display:none">
+                                    <input id="panoramaRatioW" type="number" min="1" max="999" step="1" value="16" aria-label="ratio width">
+                                    <span>:</span>
+                                    <input id="panoramaRatioH" type="number" min="1" max="999" step="1" value="9" aria-label="ratio height">
+                                </label>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div id="imageMaskTools" class="image-edit-tools">
                     <label><span data-i18n="canvas.brushSize">笔刷</span> <input id="maskBrushSize" type="range" min="4" max="160" value="42"></label>
@@ -227,6 +249,7 @@
                     <button class="image-edit-btn secondary" type="button" data-brush-tool="rect" onclick="setBrushTool('rect')" title="矩形"><i data-lucide="square" class="w-4 h-4"></i></button>
                     <button class="image-edit-btn secondary" type="button" data-brush-tool="ellipse" onclick="setBrushTool('ellipse')" title="椭圆"><i data-lucide="circle" class="w-4 h-4"></i></button>
                     <button class="image-edit-btn secondary" type="button" data-brush-tool="label" onclick="setBrushTool('label')" title="数字标签"><i data-lucide="list-ordered" class="w-4 h-4"></i></button>
+                    <button class="image-edit-btn secondary" type="button" data-brush-tool="text" onclick="setBrushTool('text')" title="文字标签"><i data-lucide="type" class="w-4 h-4"></i></button>
                     <label><span data-i18n="canvas.color">颜色</span> <input id="paintBrushColor" type="color" value="#ff2d55"></label>
                     <label><span data-i18n="canvas.brushSize">笔刷</span> <input id="paintBrushSize" type="range" min="2" max="80" value="14"></label>
                     <button id="brushUndoBtn" class="image-edit-btn secondary" type="button" onclick="undoEditDrawing()" title="撤销"><i data-lucide="undo-2" class="w-4 h-4"></i></button>
@@ -264,6 +287,11 @@
                         <div id="previewStage" class="preview-stage" style="display:none">
                             <div id="previewFrame" class="preview-frame">
                                 <img id="previewCurrentImage" class="preview-current" alt="current">
+                                <video id="previewCurrentVideo" class="preview-current preview-current-video" controls preload="metadata" crossorigin="anonymous" playsinline disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback" style="display:none"></video>
+                                <div id="panoramaStage" class="panorama-stage" style="display:none">
+                                    <canvas id="panoramaCanvas"></canvas>
+                                    <div id="panoramaLoading" class="panorama-loading" data-i18n="smart.panoramaLoading">加载中...</div>
+                                </div>
                                 <div id="previewCompareLayer" class="preview-compare-layer">
                                     <img id="previewCompareImage" alt="original">
                                 </div>
@@ -273,6 +301,7 @@
                         <div id="cropCanvas" class="crop-canvas">
                             <img id="cropImage" alt="crop source">
                             <canvas id="editDrawCanvas" class="edit-draw-canvas"></canvas>
+                            <canvas id="editTextCanvas" class="edit-text-canvas"></canvas>
                             <div id="cropBox" class="crop-box">
                                 <div id="cropHandle" class="crop-handle"></div>
                             </div>
@@ -292,12 +321,21 @@
                     </div>
                     <div class="preview-tools-overlay">
                         <div id="compareThumbs" class="compare-thumbs" style="display:none"></div>
-                        <button id="compareToggleBtn" class="compare-toggle" type="button" onclick="togglePreviewCompare()" style="display:none"><i data-lucide="columns-2" class="w-4 h-4"></i><span data-i18n="smart.compareSource">对比原图</span></button>
+                        <div class="preview-action-row">
+                            <button id="panoramaToggleBtn" class="compare-toggle" type="button" onclick="togglePanoramaPreview()" style="display:none"><i data-lucide="globe-2" class="w-4 h-4"></i><span data-i18n="smart.panorama360">360全景</span></button>
+                            <button id="panoramaExportBtn" class="compare-toggle" type="button" onclick="exportPanoramaFrame()" style="display:none"><i data-lucide="image-down" class="w-4 h-4"></i><span data-i18n="smart.panoramaExport">导出画面</span></button>
+                            <button id="compareToggleBtn" class="compare-toggle" type="button" onclick="togglePreviewCompare()" style="display:none"><i data-lucide="columns-2" class="w-4 h-4"></i><span data-i18n="smart.compareSource">对比原图</span></button>
+                        </div>
                     </div>
                 </div>
                 <div class="image-edit-actions">
                     <span id="imageEditZoomLabel" style="color:#94a3b8;font-size:11px;font-weight:800;padding:0 4px;margin-right:auto;cursor:pointer;user-select:none" title="双击重置缩放" ondblclick="resetImageEditZoom()">100%</span>
-                    <button class="image-edit-btn secondary" type="button" onclick="closeImageEditor()" data-i18n="common.cancel">取消</button>
+                    <div id="videoFrameTools" class="video-frame-tools" style="display:none">
+                        <button class="image-edit-btn secondary" type="button" onclick="exportVideoFrame('first')"><i data-lucide="skip-back" class="w-4 h-4"></i><span>导出首帧</span></button>
+                        <button class="image-edit-btn primary" type="button" onclick="exportVideoFrame('current')"><i data-lucide="image-down" class="w-4 h-4"></i><span>导出当前帧</span></button>
+                        <button class="image-edit-btn secondary" type="button" onclick="exportVideoFrame('last')"><i data-lucide="skip-forward" class="w-4 h-4"></i><span>导出尾帧</span></button>
+                    </div>
+                    <button id="imageEditCancelBtn" class="image-edit-btn secondary" type="button" onclick="closeImageEditor()" data-i18n="common.cancel">取消</button>
                     <button id="imageEditApplyBtn" class="image-edit-btn primary" type="button" onclick="applyImageEdit()"><i data-lucide="crop" class="w-4 h-4"></i><span data-i18n="canvas.applyCrop">应用裁剪</span></button>
                 </div>
             </div>
@@ -305,6 +343,5 @@
         <div id="toast" class="toast"></div>
         <div id="mentionPreview" class="mention-preview"><img alt="preview"></div>
     </div>
-    <script src="/static/js/smart-canvas.js?v=2026.05.29.1"></script>
-</body>
+    <script src="/static/js/smart-canvas.js?v=2026.05.29.2"></script></body>
 </html>

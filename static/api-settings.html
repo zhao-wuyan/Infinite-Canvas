@@ -15,13 +15,12 @@
             } catch(e) {}
         })();
     </script>
-    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.05.29.1"></script>
-    <script src="/static/vendor/js/lucide.js?v=2026.05.29.1"></script>
-    <script src="/static/js/theme.js?v=2026.05.29.1"></script>
-    <script src="/static/js/i18n.js?v=2026.05.29.1"></script>
-    <link rel="stylesheet" href="/static/css/theme.css?v=2026.05.29.1">
-    <link rel="stylesheet" href="/static/css/api-settings.css?v=2026.05.29.1">
-</head>
+    <script src="/static/vendor/js/tailwindcss-cdn.js?v=2026.05.29.2"></script>
+    <script src="/static/vendor/js/lucide.js?v=2026.05.29.2"></script>
+    <script src="/static/js/theme.js?v=2026.05.29.2"></script>
+    <script src="/static/js/i18n.js?v=2026.05.29.2"></script>
+    <link rel="stylesheet" href="/static/css/theme.css?v=2026.05.29.2">
+    <link rel="stylesheet" href="/static/css/api-settings.css?v=2026.05.29.2"></head>
 <body>
     <div class="page">
         <div class="wrap">
@@ -69,9 +68,9 @@
                                 <span class="hint"><span data-i18n="api.platformIdShown">平台 ID</span>: <span id="idPreview" style="font-family:ui-monospace,Menlo,monospace;color:var(--text)">—</span></span>
                                 <input id="idInput" type="hidden">
                             </label>
-                            <label class="field full">
+                            <label class="field full api-base-url-field">
                                 <span class="label" data-i18n="api.baseUrl">请求地址</span>
-                                <div class="field-frame"><input id="baseInput" type="text" placeholder="https://ai.comfly.chat"></div>
+                                <div class="field-frame"><input id="baseInput" type="text" placeholder="https://api.example.com/v1"></div>
                                 <div class="ms-hint">
                                     <span class="ms-line"><span data-i18n="api.msChinaEndpoint">国内默认请求地址：</span><span class="inline-code">https://api-inference.modelscope.cn/v1</span></span>
                                     <span class="ms-line"><span data-i18n="api.msGlobalEndpoint">国外使用请求地址：</span><span class="inline-code">https://api-inference.modelscope.ai/v1</span></span>
@@ -79,8 +78,12 @@
                                 <div class="runninghub-hint">
                                     <span class="ms-line">国外地址：<span class="inline-code">https://www.runninghub.ai</span></span>
                                 </div>
+                                <div class="volcengine-hint">
+                                    <span class="ms-line">方舟默认请求地址：<span class="inline-code">https://ark.cn-beijing.volces.com/api/v3</span></span>
+                                    <span class="ms-line">素材库接口使用 AK/SK 鉴权，视频生成仍使用方舟 API Key。</span>
+                                </div>
                             </label>
-                            <label class="field full">
+                            <label class="field full api-key-field">
                                 <span class="label api-key-label">API Key</span>
                                 <div class="key-panel api-standard-key-row">
                                     <div class="key-input-line">
@@ -136,6 +139,54 @@
                                         <span id="rhWalletKeyHint" class="hint"></span>
                                     </div>
                                 </div>
+                                <div class="volcengine-key-stack">
+                                    <div class="rh-key-item">
+                                        <div class="rh-key-head">
+                                            <div>
+                                                <div class="rh-key-title" data-i18n="api.volcengineArkKey">方舟 API Key · 生成视频</div>
+                                                <div class="rh-key-desc" data-i18n="api.volcengineArkKeyDesc">用于 Seedance 2.0 生成接口，Authorization: Bearer。</div>
+                                            </div>
+                                        </div>
+                                        <span id="volcArkKeyHint" class="hint"></span>
+                                    </div>
+                                    <div class="rh-key-item">
+                                        <div class="rh-key-head">
+                                            <div>
+                                                <div class="rh-key-title" data-i18n="api.volcengineAssetKeys">素材库 AK/SK · 上传素材</div>
+                                                <div class="rh-key-desc" data-i18n="api.volcengineAssetKeysDesc">用于 CreateAssetGroup / CreateAsset / GetAsset 的 Access Key 鉴权。</div>
+                                            </div>
+                                        </div>
+                                        <div class="key-input-line">
+                                            <div class="field-frame"><input id="volcAkInput" type="password" placeholder="Access Key ID"></div>
+                                        </div>
+                                        <div class="key-input-line">
+                                            <div class="field-frame"><input id="volcSkInput" type="password" placeholder="Secret Access Key"></div>
+                                            <div class="key-actions">
+                                                <button class="key-btn" type="button" onclick="saveVolcengineAssetKeys()" title="保存火山素材库 AK/SK"><i data-lucide="check" class="w-4 h-4"></i></button>
+                                                <button class="key-btn key-clear" type="button" onclick="clearVolcengineAssetKeys()" title="清除火山素材库 AK/SK"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                            </div>
+                                        </div>
+                                        <span id="volcAssetKeyHint" class="hint"></span>
+                                    </div>
+                                    <div class="rh-key-item volcengine-project-card">
+                                        <div class="rh-key-head">
+                                            <div>
+                                                <div class="rh-key-title" data-i18n="api.volcengineProject">素材库项目</div>
+                                                <div class="rh-key-desc" data-i18n="api.volcengineProjectDesc">ProjectName 必须和视频生成 API Key 所属项目一致。</div>
+                                            </div>
+                                        </div>
+                                        <div class="volcengine-project-grid">
+                                            <div class="rh-card-title-field">
+                                                <span>ProjectName</span>
+                                                <input id="volcProjectInput" type="text" value="default">
+                                            </div>
+                                            <div class="rh-card-title-field">
+                                                <span>Region</span>
+                                                <input id="volcRegionInput" type="text" value="cn-beijing">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="ms-hint">
                                     <span class="ms-line"><span data-i18n="api.msTokenCn">获取 Token · 国内：</span><a href="https://www.modelscope.cn/my/access/token" target="_blank">https://www.modelscope.cn/my/access/token</a></span>
                                     <span class="ms-line"><span data-i18n="api.msTokenGlobal">获取 Token · 国外：</span><a href="https://www.modelscope.ai/my/access/token" target="_blank">https://www.modelscope.ai/my/access/token</a></span>
@@ -156,7 +207,7 @@
                                         <option value="openai" data-i18n="api.protocolOpenAI">OpenAI 直连</option>
                                         <option value="apimart" data-i18n="api.protocolApimart">异步协议</option>
                                         <option value="gemini" data-i18n="api.protocolGemini">Gemini 协议</option>
-                                        <option value="volcengine" data-i18n="api.protocolVolcengine">火山引擎协议</option>
+                                        <option value="jimeng">即梦 CLI</option>
                                     </select>
                                 </div>
                             </div>
@@ -362,6 +413,5 @@
         </div>
     </div>
 
-    <script src="/static/js/api-settings.js?v=2026.05.29.1"></script>
-</body>
+    <script src="/static/js/api-settings.js?v=2026.05.29.2"></script></body>
 </html>

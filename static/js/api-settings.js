@@ -13,6 +13,12 @@ const rhFreeKeyInput = document.getElementById('rhFreeKeyInput');
 const rhWalletKeyInput = document.getElementById('rhWalletKeyInput');
 const rhFreeKeyHint = document.getElementById('rhFreeKeyHint');
 const rhWalletKeyHint = document.getElementById('rhWalletKeyHint');
+const volcArkKeyHint = document.getElementById('volcArkKeyHint');
+const volcAkInput = document.getElementById('volcAkInput');
+const volcSkInput = document.getElementById('volcSkInput');
+const volcAssetKeyHint = document.getElementById('volcAssetKeyHint');
+const volcProjectInput = document.getElementById('volcProjectInput');
+const volcRegionInput = document.getElementById('volcRegionInput');
 const runninghubConfigBlock = document.getElementById('runninghubConfigBlock');
 const rhPasteInput = document.getElementById('rhPasteInput');
 const rhAppsList = document.getElementById('rhAppsList');
@@ -42,6 +48,16 @@ const msLoraList = document.getElementById('msLoraList');
 const recommendApiOverlay = document.getElementById('recommendApiOverlay');
 const recommendApiList = document.getElementById('recommendApiList');
 const VOLCENGINE_DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+const VOLCENGINE_DEFAULT_PROJECT_NAME = 'default';
+const VOLCENGINE_DEFAULT_REGION = 'cn-beijing';
+const VOLCENGINE_DEFAULT_VIDEO_MODELS = [
+    'doubao-seedance-2-0-260128',
+    'doubao-seedance-2-0-fast-260128',
+    'doubao-seedance-1-5-pro-251215',
+    'doubao-seedance-1-0-pro-250528',
+    'doubao-seedance-1-0-lite-t2v-250428',
+    'doubao-seedance-1-0-lite-i2v-250428'
+];
 const MS_BUILTIN_IMAGE_MODELS = [
     'Tongyi-MAI/Z-Image-Turbo',
     'Qwen/Qwen-Image-2512',
@@ -50,7 +66,10 @@ const MS_BUILTIN_IMAGE_MODELS = [
 ];
 const MS_DEFAULT_BASE_URL = 'https://api-inference.modelscope.cn/v1';
 const RH_DEFAULT_BASE_URL = 'https://www.runninghub.cn';
+const EXAMPLE_BASE_URL = 'https://api.example.com/v1';
 const RH_DEFAULT_IMAGE_MODELS = ['/openapi/v2/text2image'];
+const JIMENG_DEFAULT_IMAGE_MODELS = ['jimeng-image-2k', 'jimeng-image-4k'];
+const JIMENG_DEFAULT_VIDEO_MODELS = ['jimeng-video-720p', 'jimeng-video-1080p', 'seedance2.0fast_vip', 'seedance2.0_vip'];
 const ONBOARDING_GUIDES = {
     modelscope:{
         titleKey:'api.msOnboardingTitle',
@@ -176,7 +195,7 @@ function deriveIdFromName(name, existingId){
 function updateIdPreview(){
     const item = provider();
     if(!item) return;
-    const isBuiltin = item.id === 'comfly' || item.id === 'modelscope' || item.id === 'runninghub';
+    const isBuiltin = item.id === 'comfly' || item.id === 'modelscope' || item.id === 'runninghub' || item.id === 'volcengine' || item.id === 'jimeng';
     const idPreview = document.getElementById('idPreview');
     if(!idPreview) return;
     if(isBuiltin){
@@ -189,14 +208,16 @@ function provider(){
     return visibleProviders().find(item => item.id === selectedId) || visibleProviders()[0] || providers[0];
 }
 function isProviderTemporarilyHidden(item){
-    return false;
+    if(!item || item.id === 'volcengine') return false;
+    const hasStandaloneVolcengine = (providers || []).some(provider => provider.id === 'volcengine');
+    return hasStandaloneVolcengine && String(item.protocol || '').toLowerCase() === 'volcengine';
 }
 function visibleProviders(){
     return (providers || []).filter(item => !isProviderTemporarilyHidden(item));
 }
 function isFixedProvider(itemOrId){
     const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
-    return id === 'modelscope' || id === 'runninghub';
+    return id === 'modelscope' || id === 'runninghub' || id === 'volcengine' || id === 'jimeng';
 }
 function unique(values){
     const seen = new Set();
@@ -288,7 +309,7 @@ const RH_EDITOR_KNOWN_FIELD_OPTIONS = {
     sampler_name:['euler','euler_ancestral','heun','dpm_2','dpm_2_ancestral','lms','dpmpp_2m','dpmpp_sde','ddim','uni_pc'],
     sampler:['euler','euler_ancestral','heun','dpm_2','dpm_2_ancestral','lms','dpmpp_2m','dpmpp_sde','ddim','uni_pc'],
     scheduler:['normal','karras','exponential','sgm_uniform','simple','ddim_uniform','beta'],
-    ratio:['1:1','16:9','9:16','4:3','3:4','4:5','5:4','3:2','2:3'],
+    ratio:['1:1','16:9','9:16','21:9','9:21','4:3','3:4','4:5','5:4','3:2','2:3'],
     aspectRatio:['1:1','16:9','9:16','4:3','3:4','4:5','5:4','3:2','2:3'],
     resolution:['512','768','1024','1280','1536','2048','1k','2k','4k'],
     size:['512','768','1024','1280','1536','2048'],
@@ -356,6 +377,14 @@ function rhFreeKeyHintText(item){
 }
 function rhWalletKeyHintText(item){
     return item?.has_wallet_key ? `${tr('api.rhWalletKeySaved')}${item.wallet_key_env || 'API/.env'} ${item.wallet_key_preview || ''}` : tr('api.rhNoWalletKey');
+}
+function volcengineArkKeyHintText(item){
+    return item?.has_key ? `方舟 API Key 已保存：${item.key_env || 'API/.env'} ${item.key_preview || ''}` : '还没有保存方舟 API Key。';
+}
+function volcengineAssetKeyHintText(item){
+    const ak = item?.has_volcengine_access_key ? `AK 已保存：${item.volcengine_access_key_env || 'API/.env'} ${item.volcengine_access_key_preview || ''}` : 'AK 未保存';
+    const sk = item?.has_volcengine_secret_key ? `SK 已保存：${item.volcengine_secret_key_env || 'API/.env'} ${item.volcengine_secret_key_preview || ''}` : 'SK 未保存';
+    return `${ak} · ${sk}`;
 }
 function isNewUserProvider(item){
     if(!item) return false;
@@ -498,6 +527,17 @@ function applyProviderOnboardingDefaults(id){
         item.protocol = 'runninghub';
         item.image_models = unique([...(item.image_models || []), ...RH_DEFAULT_IMAGE_MODELS]);
         ensureRunningHubLists(item);
+    } else if(id === 'volcengine'){
+        item.base_url = VOLCENGINE_DEFAULT_BASE_URL;
+        item.protocol = 'volcengine';
+        item.video_models = unique([...(item.video_models || []), ...VOLCENGINE_DEFAULT_VIDEO_MODELS]);
+        item.volcengine_project_name = item.volcengine_project_name || VOLCENGINE_DEFAULT_PROJECT_NAME;
+        item.volcengine_region = item.volcengine_region || VOLCENGINE_DEFAULT_REGION;
+    } else if(id === 'jimeng'){
+        item.base_url = '';
+        item.protocol = 'jimeng';
+        item.image_models = unique([...(item.image_models || []), ...JIMENG_DEFAULT_IMAGE_MODELS]);
+        item.video_models = unique([...(item.video_models || []), ...JIMENG_DEFAULT_VIDEO_MODELS]);
     }
     selectedId = item.id;
     renderEditor();
@@ -511,15 +551,16 @@ function syncEditor(){
     const item = provider();
     if(!item) return;
     const oldId = item.id;
-    const isBuiltin = item.id === 'comfly' || item.id === 'modelscope';
+    const isBuiltin = item.id === 'comfly' || item.id === 'modelscope' || item.id === 'runninghub' || item.id === 'volcengine' || item.id === 'jimeng';
     // 内置和自定义平台的 ID 都保持稳定；新建时若没有 ID 才生成一次。
     const nextId = isBuiltin ? item.id : deriveIdFromName(nameInput.value, item.id);
     item.id = nextId;
     if(oldId !== item.id) selectedId = item.id;
     item.name = nameInput.value.trim() || item.id;
-    item.base_url = baseInput.value.trim();
-    // MS 固定使用 OpenAI 协议，不从下拉读取
-    item.protocol = (item.id === 'modelscope') ? 'openai' : item.id === 'runninghub' ? 'runninghub' : (protocolInput?.value || 'openai');
+    const selectedProtocol = item.id === 'modelscope' ? 'openai' : item.id === 'runninghub' ? 'runninghub' : item.id === 'volcengine' ? 'volcengine' : item.id === 'jimeng' ? 'jimeng' : (protocolInput?.value || 'openai');
+    item.base_url = selectedProtocol === 'jimeng' ? '' : baseInput.value.trim();
+    // 固定平台不从协议下拉读取
+    item.protocol = selectedProtocol;
     item.image_generation_endpoint = '';
     item.image_edit_endpoint = '';
     item.rh_apps = normalizeRhEntries(item.rh_apps || [], 'app');
@@ -532,6 +573,14 @@ function syncEditor(){
         if(freeKey) item.api_key = freeKey;
         if(walletKey) item.wallet_api_key = walletKey;
     }
+    if(item.id === 'volcengine'){
+        const ak = volcAkInput?.value.trim() || '';
+        const sk = volcSkInput?.value.trim() || '';
+        if(ak) item.volcengine_access_key_id = ak;
+        if(sk) item.volcengine_secret_access_key = sk;
+        item.volcengine_project_name = (volcProjectInput?.value.trim() || VOLCENGINE_DEFAULT_PROJECT_NAME);
+        item.volcengine_region = (volcRegionInput?.value.trim() || VOLCENGINE_DEFAULT_REGION);
+    }
 }
 function ensureRunningHubLists(item){
     if(!item) return;
@@ -540,13 +589,11 @@ function ensureRunningHubLists(item){
 }
 function updateProtocolFromInput(){
     const item = provider();
-    if(!item || !protocolInput || item.id === 'modelscope' || item.id === 'runninghub') return;
+    if(!item || !protocolInput || item.id === 'modelscope' || item.id === 'runninghub' || item.id === 'volcengine' || item.id === 'jimeng') return;
     const value = String(protocolInput.value || 'openai').toLowerCase();
-    item.protocol = ['openai', 'apimart', 'gemini', 'volcengine'].includes(value) ? value : 'openai';
-    if(value === 'volcengine' && baseInput){
-        baseInput.value = VOLCENGINE_DEFAULT_BASE_URL;
-        item.base_url = VOLCENGINE_DEFAULT_BASE_URL;
-    }
+    item.protocol = ['openai', 'apimart', 'gemini', 'jimeng'].includes(value) ? value : 'openai';
+    if(item.protocol === 'jimeng') item.base_url = '';
+    document.body.classList.toggle('show-jimeng', item.protocol === 'jimeng');
     clearVerifyResult();
 }
 function isVolcengineProvider(item){
@@ -1930,7 +1977,7 @@ async function saveRecommendedApi(index){
     if(ok) setStatus(trf('api.recommendSaved', {name:api.name}));
 }
 function sortedProviders(){
-    const order = ['modelscope', 'runninghub'];
+    const order = ['modelscope', 'runninghub', 'volcengine', 'jimeng'];
     return visibleProviders().sort((a, b) => {
         const ai = order.indexOf(a.id);
         const bi = order.indexOf(b.id);
@@ -1974,6 +2021,20 @@ function renderProviderList(){
                             <span class="provider-logo-fallback">RunningHub</span>
                         </span>
                         <span class="provider-protocol-pill">RH</span>
+                    </span>
+                </button>
+            `;
+        }
+        if(item.id === 'volcengine'){
+            return `
+                <button class="provider-card provider-card-banner ${active} ${stateClass}" type="button" onclick="selectProvider('${escapeHtml(item.id)}')">
+                    <span class="provider-banner-inner">
+                        <span class="provider-logo-wrap">
+                            <img src="/static/images/volcengine-theme-light.svg" alt="火山引擎" class="volcengine-icon ms-icon-light">
+                            <img src="/static/images/volcengine-theme-dark.svg" alt="火山引擎" class="volcengine-icon ms-icon-dark">
+                            <span class="provider-logo-fallback">火山引擎</span>
+                        </span>
+                        <span class="provider-protocol-pill">Ark</span>
                     </span>
                 </button>
             `;
@@ -2042,13 +2103,16 @@ function renderEditor(){
     idInput.value = item.id || '';
     updateIdPreview();
     clearVerifyResult();
+    baseInput.placeholder = EXAMPLE_BASE_URL;
     baseInput.value = item.base_url || '';
-    if(protocolInput) protocolInput.value = item.id === 'runninghub' ? 'openai' : (item.protocol || 'openai');
+    if(protocolInput) protocolInput.value = item.id === 'runninghub' ? 'openai' : item.id === 'volcengine' ? 'volcengine' : item.id === 'jimeng' ? 'jimeng' : (item.protocol || 'openai');
     keyInput.value = '';
     keyInput.placeholder = item.has_key ? `${tr('api.keepCurrentKey')} ${item.key_preview || ''}` : tr('api.enterKey');
     keyHint.textContent = item.has_key ? `${tr('api.keySaved')}${item.key_env || 'API/.env'}` : tr('api.noKey');
     const isModelScope = item.id === 'modelscope';
     const isRunningHub = item.id === 'runninghub';
+    const isVolcengine = item.id === 'volcengine';
+    const isJimeng = item.id === 'jimeng' || String(protocolInput?.value || item.protocol || '').toLowerCase() === 'jimeng';
     if(isRunningHub){
         ensureRunningHubLists(item);
         if(rhFreeKeyInput){
@@ -2063,8 +2127,36 @@ function renderEditor(){
         if(rhWalletKeyHint) rhWalletKeyHint.textContent = rhWalletKeyHintText(item);
         renderRunningHubCards();
     }
+    if(isVolcengine){
+        item.base_url = item.base_url || VOLCENGINE_DEFAULT_BASE_URL;
+        item.protocol = 'volcengine';
+        item.volcengine_project_name = item.volcengine_project_name || VOLCENGINE_DEFAULT_PROJECT_NAME;
+        item.volcengine_region = item.volcengine_region || VOLCENGINE_DEFAULT_REGION;
+        keyInput.placeholder = item.has_key ? `保持当前方舟 API Key ${item.key_preview || ''}` : '输入方舟 API Key';
+        keyHint.textContent = volcengineArkKeyHintText(item);
+        if(volcArkKeyHint) volcArkKeyHint.textContent = volcengineArkKeyHintText(item);
+        if(volcAkInput){
+            volcAkInput.value = '';
+            volcAkInput.placeholder = item.has_volcengine_access_key ? `保持当前 AK ${item.volcengine_access_key_preview || ''}` : 'Access Key ID';
+        }
+        if(volcSkInput){
+            volcSkInput.value = '';
+            volcSkInput.placeholder = item.has_volcengine_secret_key ? `保持当前 SK ${item.volcengine_secret_key_preview || ''}` : 'Secret Access Key';
+        }
+        if(volcAssetKeyHint) volcAssetKeyHint.textContent = volcengineAssetKeyHintText(item);
+        if(volcProjectInput) volcProjectInput.value = item.volcengine_project_name || VOLCENGINE_DEFAULT_PROJECT_NAME;
+        if(volcRegionInput) volcRegionInput.value = item.volcengine_region || VOLCENGINE_DEFAULT_REGION;
+    }
+    if(isJimeng){
+        item.base_url = '';
+        item.protocol = 'jimeng';
+        keyInput.placeholder = '即梦 CLI 使用本机 dreamina login，无需 API Key';
+        keyHint.textContent = '请先在终端安装 dreamina CLI，并执行 dreamina login';
+    }
     document.body.classList.toggle('show-ms', isModelScope);
     document.body.classList.toggle('show-runninghub', isRunningHub);
+    document.body.classList.toggle('show-volcengine', isVolcengine);
+    document.body.classList.toggle('show-jimeng', isJimeng);
     renderProviderOnboarding(item);
     renderRecommendApi();
     if(runninghubConfigBlock){
@@ -2080,7 +2172,7 @@ function renderEditor(){
     }
     if(msLoraBlock) msLoraBlock.style.display = isModelScope ? 'flex' : 'none';
     const deleteBtn = document.getElementById('deleteBtn');
-    if(deleteBtn) deleteBtn.style.display = (item.id === 'modelscope' || item.id === 'runninghub') ? 'none' : 'inline-flex';
+    if(deleteBtn) deleteBtn.style.display = isFixedProvider(item) ? 'none' : 'inline-flex';
     renderModels('image');
     renderModels('chat');
     renderModels('video');
@@ -2117,7 +2209,7 @@ async function probeAsync(){
         });
         const isAsync = data.ok === true;
         // 自动设置协议下拉
-        if(protocolInput && !['gemini', 'volcengine'].includes(protocolInput.value)){
+        if(protocolInput && protocolInput.value !== 'gemini'){
             protocolInput.value = isAsync ? 'apimart' : 'openai';
             // 触发 change 以便其他地方同步
             protocolInput.dispatchEvent(new Event('change'));
@@ -2136,7 +2228,7 @@ async function probeAsync(){
                 <pre style="margin-top:6px;padding:10px 12px;border-radius:10px;background:var(--soft);border:1px solid var(--line-2);font-size:10.5px;font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap;word-break:break-all;color:var(--text);max-height:200px;overflow:auto">${escapeHtml(rawJson)}</pre>
             </details>`);
     } catch(e){
-        const keepManualProtocol = ['gemini', 'volcengine'].includes(protocolInput?.value || '');
+        const keepManualProtocol = (protocolInput?.value || '') === 'gemini';
         if(protocolInput && !keepManualProtocol){ protocolInput.value = 'openai'; protocolInput.dispatchEvent(new Event('change')); }
         const suffix = keepManualProtocol ? '，已保留当前手动选择的协议' : '，协议已设为 OpenAI 兼容';
         showVerifyResult(`<div style="font-size:11px;font-weight:800;color:#b45309">⚠ ${escapeHtml(e.message || String(e))}${suffix}</div>`);
@@ -2150,7 +2242,8 @@ async function testConnection(){
     if(!item) return;
     const btn = document.getElementById('testUrlBtn');
     const baseUrl = baseInput.value.trim();
-    if(!baseUrl){ alert('请先填写请求地址'); return; }
+    const isJimeng = item.id === 'jimeng' || (protocolInput?.value || '') === 'jimeng';
+    if(!baseUrl && !isJimeng){ alert('请先填写请求地址'); return; }
     if(btn){ btn.disabled = true; btn.querySelector('span').textContent = tr('api.testingUrl') || '验证中...'; }
     showVerifyResult(`<span style="color:var(--muted);font-size:11px;font-weight:700">验证中...</span>`);
     try {
@@ -2175,7 +2268,8 @@ async function testConnection(){
             const volcengineNote = isVolcengineProvider(item)
                 ? `<div style="margin-top:6px;color:#92400e;font-size:11px;font-weight:700">火山协议提示：模型列表只代表可见模型，聊天模型建议填写你在方舟控制台创建的 <code>ep-...</code> 推理接入点。</div>`
                 : '';
-            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 地址验证通过 · 找到 ${data.model_count} 个模型</span>${volcengineNote}`);
+            const jimengNote = isJimeng ? `<div style="margin-top:6px;color:#15803d;font-size:11px;font-weight:700">即梦 CLI 已可用，可在画布里选择“即梦 CLI”生成。</div>` : '';
+            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 地址验证通过 · 找到 ${data.model_count} 个模型</span>${volcengineNote}${jimengNote}`);
         } else {
             showVerifyResult(`
                 <div style="font-size:11px;font-weight:800;color:#b45309">⚠ 地址验证未通过 (HTTP ${data.status})</div>
@@ -2197,7 +2291,8 @@ async function fetchModels(){
     const btn = document.getElementById('fetchModelsBtn');
     const baseUrl = baseInput.value.trim();
     const apiKey = currentProviderApiKey(item);
-    if(!baseUrl){ alert('请先填写请求地址'); return; }
+    const isJimeng = item.id === 'jimeng' || (protocolInput?.value || '') === 'jimeng';
+    if(!baseUrl && !isJimeng){ alert('请先填写请求地址'); return; }
     if(btn){ btn.disabled = true; btn.querySelector('span').textContent = tr('api.fetchingModels') || '拉取中...'; }
     setStatus(tr('api.fetchingModels') || '正在从上游拉取模型列表...');
     try {
@@ -2459,14 +2554,14 @@ function addProvider(){
     let id = 'custom-api';
     let index = 2;
     while(providers.some(item => item.id === id)) id = `custom-api-${index++}`;
-    providers.push({id, name:'API', base_url:'https://', protocol:'openai', image_generation_endpoint:'', image_edit_endpoint:'', enabled:true, primary:false, image_models:[], chat_models:[], video_models:[], has_key:false, key_preview:''});
+    providers.push({id, name:'API', base_url:'', protocol:'openai', image_generation_endpoint:'', image_edit_endpoint:'', enabled:true, primary:false, image_models:[], chat_models:[], video_models:[], has_key:false, key_preview:''});
     selectedId = id;
     renderEditor();
 }
 function deleteProvider(){
     const item = provider();
     if(!item) return;
-    if(item.id === 'modelscope'){ alert(tr('api.modelscopeOnlyDelete') || 'ModelScope 是默认平台，不可删除'); return; }
+    if(isFixedProvider(item)){ alert(tr('api.defaultNoDelete') || '默认平台不能删除'); return; }
     if(providers.length <= 1){ alert(tr('api.keepOne')); return; }
     providers = providers.filter(p => p.id !== item.id);
     selectedId = providers[0]?.id || '';
@@ -2493,6 +2588,31 @@ async function clearRhKeyOnly(kind){
     if(ok){
         if(kind === 'wallet' && rhWalletKeyInput) rhWalletKeyInput.value = '';
         if(kind !== 'wallet' && rhFreeKeyInput) rhFreeKeyInput.value = '';
+    }
+}
+async function saveVolcengineAssetKeys(){
+    const item = provider();
+    if(!item || item.id !== 'volcengine') return;
+    const ak = volcAkInput?.value.trim() || '';
+    const sk = volcSkInput?.value.trim() || '';
+    if(!ak && !sk){ alert('请输入火山素材库 AK 或 SK'); return; }
+    syncEditor();
+    const ok = await saveProviders();
+    if(ok){
+        if(volcAkInput) volcAkInput.value = '';
+        if(volcSkInput) volcSkInput.value = '';
+    }
+}
+async function clearVolcengineAssetKeys(){
+    const item = provider();
+    if(!item || item.id !== 'volcengine') return;
+    if(!confirm('确认清除火山素材库 AK/SK？')) return;
+    item._clearVolcengineAccessKey = true;
+    item._clearVolcengineSecretKey = true;
+    const ok = await saveProviders();
+    if(ok){
+        if(volcAkInput) volcAkInput.value = '';
+        if(volcSkInput) volcSkInput.value = '';
     }
 }
 function addModel(kind){
@@ -2533,7 +2653,12 @@ async function saveProviders(){
         item.id = normalizeId(item.id);
         item.protocol = item.id === 'runninghub'
             ? 'runninghub'
-            : ['openai', 'apimart', 'gemini', 'volcengine'].includes(String(item.protocol || '').toLowerCase()) ? String(item.protocol).toLowerCase() : 'openai';
+            : item.id === 'volcengine'
+            ? 'volcengine'
+            : item.id === 'jimeng'
+            ? 'jimeng'
+            : ['openai', 'apimart', 'gemini', 'jimeng'].includes(String(item.protocol || '').toLowerCase()) ? String(item.protocol).toLowerCase() : 'openai';
+        if(item.id === 'jimeng') item.base_url = '';
         item.image_generation_endpoint = '';
         item.image_edit_endpoint = '';
         item.image_models = unique(item.image_models || []);
@@ -2563,7 +2688,7 @@ async function saveProviders(){
                 id:item.id,
                 name:item.name,
                 base_url:item.base_url,
-                protocol:(item.id === 'modelscope') ? 'openai' : item.id === 'runninghub' ? 'runninghub' : (item.protocol || 'openai'),
+                protocol:(item.id === 'modelscope') ? 'openai' : item.id === 'runninghub' ? 'runninghub' : item.id === 'volcengine' ? 'volcengine' : item.id === 'jimeng' ? 'jimeng' : (item.protocol || 'openai'),
                 image_generation_endpoint:item.image_generation_endpoint || '',
                 image_edit_endpoint:item.image_edit_endpoint || '',
                 enabled:item.enabled !== false,
@@ -2575,10 +2700,16 @@ async function saveProviders(){
                 ms_defaults_version:item.id === 'modelscope' ? (item.ms_defaults_version || 1) : 0,
                 rh_apps:item.id === 'runninghub' ? (item.rh_apps || []) : [],
                 rh_workflows:item.id === 'runninghub' ? (item.rh_workflows || []) : [],
+                volcengine_project_name:item.id === 'volcengine' ? (item.volcengine_project_name || VOLCENGINE_DEFAULT_PROJECT_NAME) : '',
+                volcengine_region:item.id === 'volcengine' ? (item.volcengine_region || VOLCENGINE_DEFAULT_REGION) : '',
+                volcengine_access_key_id:item.volcengine_access_key_id || undefined,
+                volcengine_secret_access_key:item.volcengine_secret_access_key || undefined,
                 api_key:item.api_key || undefined,
                 wallet_api_key:item.wallet_api_key || undefined,
                 clear_key:item._clearKey === true,
-                clear_wallet_key:item._clearWalletKey === true
+                clear_wallet_key:item._clearWalletKey === true,
+                clear_volcengine_access_key_id:item._clearVolcengineAccessKey === true,
+                clear_volcengine_secret_access_key:item._clearVolcengineSecretKey === true
             })))
         });
         if(!res.ok) throw new Error((await res.json()).detail || tr('api.saveFailed'));
@@ -2587,8 +2718,12 @@ async function saveProviders(){
         providers.forEach(item => {
             delete item.api_key;
             delete item.wallet_api_key;
+            delete item.volcengine_access_key_id;
+            delete item.volcengine_secret_access_key;
             delete item._clearKey;
             delete item._clearWalletKey;
+            delete item._clearVolcengineAccessKey;
+            delete item._clearVolcengineSecretKey;
         });
         selectedId = provider()?.id || providers[0]?.id || '';
         renderEditor();
