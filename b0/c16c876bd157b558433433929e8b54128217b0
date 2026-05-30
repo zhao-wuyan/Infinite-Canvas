@@ -1,0 +1,109 @@
+packaging/windows/build_launcher.py
+  s_008353cd6ad7cc::t_2f56ef3070ac5e 59,63-72,104
+  s_008353cd6ad7cc::t_52b3b6806a2d91 13-14,37,50-51,60-62,73-75,105-111,119-126
+tests/test_macos_build_app.py
+  s_008353cd6ad7cc::t_1362c051d95088 142
+  s_008353cd6ad7cc::t_5683b6bb2749c8 9,12,16,67-79,136-140,147,154-161
+  s_008353cd6ad7cc::t_888004c653a17c 141,144-145,148-152
+main.py
+  s_008353cd6ad7cc::t_2dcd606f2a0f40 23,1225-1226,1234,1236-1252,1254-1262,1270
+  s_008353cd6ad7cc::t_43001dbedc1234 1227-1233,1253
+  s_008353cd6ad7cc::t_3e42cc21d639ac 1489,1498-1499
+  s_48b000595cace9::t_25b280f9ae6253 1418,1423-1426,1442-1444,1464-1488,1490,1493-1497,1500-1510,1513,1515-1517,1525
+packaging/windows/updater/updater_main.py
+  s_008353cd6ad7cc::t_ddd97dae51f28a 12-13,42-45
+  s_008353cd6ad7cc::t_c48d0122232cae 50,52-53
+  s_008353cd6ad7cc::t_610a048b70964a 14,51
+tests/test_launcher_update_modal.py
+  s_48b000595cace9::t_40775c13d261dd 36-47,49
+  s_48b000595cace9::t_a465b6a3e263e0 1-31,33
+  s_008353cd6ad7cc::t_c105a1ebeeb86b 32,34-35,48,50
+  s_008353cd6ad7cc::t_6a8933e609253f 51-67
+tests/test_runtime_manager.py
+  s_008353cd6ad7cc::t_882e97bab4a037 8,164-183,212-226
+  s_008353cd6ad7cc::t_080330541d55f4 51-81
+  s_008353cd6ad7cc::t_b183407a3ecdcf 210,227-228
+  s_008353cd6ad7cc::t_be171af2b08c46 184-209
+tests/test_macos_runtime_manager.py
+  s_008353cd6ad7cc::t_19edd7f8134cf7 70-103
+AGENTS.md
+  s_008353cd6ad7cc::t_5fe83ba4f327be 4,43
+CLAUDE.md
+  s_008353cd6ad7cc::t_5fe83ba4f327be 4,43
+static/js/i18n.js
+  s_008353cd6ad7cc::t_526e7af0107e9d 2-12,22-23,30
+tests/test_static_asset_version.py
+  s_008353cd6ad7cc::t_496a3dcf8dd855 1-6,8,11,13-15,22-27,30-43,47,49,51,58,66-70,72
+  s_008353cd6ad7cc::t_4dd1bfc46175ba 28-29
+  s_008353cd6ad7cc::t_d0bc648541842b 53-54
+  s_008353cd6ad7cc::t_fbdc59208af857 7,9-10,12,44-46,48,50,52,55-57,59-65,71,73-76
+  s_008353cd6ad7cc::t_2533ffa8ac76f2 16-21,77-96
+static/index.html
+  s_008353cd6ad7cc::t_3e42cc21d639ac 1849,1882
+  s_008353cd6ad7cc::t_d5820aee99825d 1467-1471
+  s_008353cd6ad7cc::t_7c8b1ef11e3f7c 2127-2130
+  s_48b000595cace9::t_6f486b2c188073 1848,1850,1877-1881,1883-1886,1931,1933-1938,1946-1954,1957,1966-1974,1991-1996,2086-2088,2145-2147,2161-2162,2171-2175,2181-2182,2189-2190,2193,2196,2198-2199,2201-2202
+  s_008353cd6ad7cc::t_3fe8a67eed5d73 2195
+  s_008353cd6ad7cc::t_34f98fe69409a0 2155
+  s_008353cd6ad7cc::t_9b30d9c6275092 2185-2188
+  s_008353cd6ad7cc::t_e37b81c8731316 2096,2134
+.workflow/.csv-wave/20260530-debug-desktop-version-display/discoveries.ndjson
+  s_008353cd6ad7cc::t_bb96ae6d36457b 1-2
+tests/test_launcher_updater_fingerprint.py
+  s_008353cd6ad7cc::t_cd32e3fecc6bd5 1-74
+tests/test_windows_installer_icon.py
+  s_008353cd6ad7cc::t_8d0cc19b2b47d2 1-11
+packaging/windows/installer/infinite-canvas.iss
+  s_008353cd6ad7cc::t_9046289d184b25 4,14
+packaging/windows/launcher/runtime_manager.py
+  s_48b000595cace9::t_dd016b5d68318a 203-205
+  s_008353cd6ad7cc::t_b652bd3784ec26 65-71,550
+  s_008353cd6ad7cc::t_9bb6b3c9456e9c 549,551-552
+  s_008353cd6ad7cc::t_0c0ab3391e171d 179-182,186-187,189,191,279-280,285,287
+  s_008353cd6ad7cc::t_2fc7284649173f 3,29,57-64
+  s_008353cd6ad7cc::t_269981da6cd8dc 184-185
+  s_008353cd6ad7cc::t_8a5b5c8b6d8fca 276-277,282-283,288-316
+packaging/macos/updater/updater_main.py
+  s_008353cd6ad7cc::t_fb00c8161ebff3 8,34-37
+packaging/macos/build_app.py
+  s_008353cd6ad7cc::t_5eeafcf07e69d4 71,75-84,238
+  s_008353cd6ad7cc::t_a1bd910ac6ce5e 19-21,47,62-63,72-74,85-87,116,201,212,245,253,260,283
+.workflow/.csv-wave/20260530-debug-desktop-version-display/understanding.md
+  s_008353cd6ad7cc::t_bb96ae6d36457b 1-27
+tests/test_launcher_env.py
+  s_48b000595cace9::t_5fc53876026100 16-21,39-41
+tests/test_windows_build_launcher.py
+  s_008353cd6ad7cc::t_d56a9d475ce67a 1-27,33-34,40-43
+  s_008353cd6ad7cc::t_f2ecdffc6df367 28,31-32,35-39
+  s_008353cd6ad7cc::t_0caff0dfb2caac 29-30
+packaging/macos/launcher/runtime_manager.py
+  s_48b000595cace9::t_d01af846b220c8 194-196
+  s_008353cd6ad7cc::t_7aebaa2bda35f5 3,28,56-63,161-166,168-169,171,173
+tests/test_update_check_state.py
+  s_008353cd6ad7cc::t_b74adcc9f12458 1-16
+  s_008353cd6ad7cc::t_1e5cbf2bcba802 17-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b0c16c876bd157b558433433929e8b54128217b0",
+  "prompts": {},
+  "sessions": {
+    "s_008353cd6ad7cc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7859-ca43-7f62-b224-0aa1556a1146",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_48b000595cace9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7835-a8b2-7fb2-902e-4c44495210fb",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
