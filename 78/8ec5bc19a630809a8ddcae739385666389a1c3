@@ -1,0 +1,44 @@
+packaging/windows/launcher/launcher_main.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 14,95-104,229,235-246,261-272,274-282
+tests/test_macos_launcher_update.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 26-34,189,193,200-202,210-253,263,272
+main.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 189-196,200-210,212-214
+packaging/windows/updater/updater_main.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 5,50-57
+VERSION
+  s_7d1b10838a3c52::t_6fddae7957bd36 1
+packaging/macos/launcher/launcher_main.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 16,179-188,285,291-302,319-330,332-340
+tests/test_main_runtime_config.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 1-14
+tests/test_windows_launcher_update.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 20-28,125,133,140-142,150-191,200,209
+tests/test_launcher_updater_fingerprint.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 1-2,11-15,53-151
+packaging/windows/launcher/runtime_manager.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 283-287
+tests/test_runtime_manager.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 195,210,227-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "788ec5bc19a630809a8ddcae739385666389a1c3",
+  "prompts": {},
+  "humans": {
+    "h_cb0e2129f6578c": {
+      "author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  },
+  "sessions": {
+    "s_7d1b10838a3c52": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e78ae-de69-7943-ba85-803f7512068e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
