@@ -280,6 +280,11 @@ def copy_payload_for_in_place(install_dir: Path) -> None:
     fingerprint = payload_fingerprint(payload)
     payload_marker = install_dir / ".payload-ready"
     marker_value = payload_marker.read_text(encoding="utf-8").strip() if payload_marker.exists() else ""
+    installed_version = read_version_from_text(install_dir / "VERSION")
+    payload_version = read_version_from_payload(install_dir)
+    if installed_version and payload_version and compare_versions(payload_version, installed_version) < 0:
+        payload_marker.write_text(f"{fingerprint}\n", encoding="utf-8")
+        return
     if marker_value == fingerprint and payload_matches_install(install_dir, payload, payload_entries):
         return
     with zipfile.ZipFile(payload) as archive:

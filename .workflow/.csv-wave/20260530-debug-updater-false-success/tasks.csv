@@ -1,0 +1,7 @@
+id,title,description,hypothesis,deps,context_from,wave
+H1,Remote payload stale despite newer version,Investigate whether apply_update_result can download a payload whose internal VERSION is older than remote_version and still apply it as success,Remote windows-VERSION can be newer while windows-app-base.zip content/version is stale due release asset cache or mismatch; launcher does not validate payload VERSION before invoking updater,,,1
+H2,Updater in-place replace does not overwrite files,Investigate whether replace_in_place_payload or updater_main can return success without actually overwriting VERSION/main.py in writable install directory,In-place updater extraction or copy logic is flawed and silently leaves old files,,,1
+H3,Post-update verification missing,Investigate whether launcher reports ok updated true without re-reading installed version after updater exits,apply_update_result trusts updater returncode and clears pending_update without verifying current_payload_version >= remote_version,,,1
+FIX-H1,Validate downloaded payload version before updater,Add validation that downloaded update zip contains VERSION matching or exceeding remote_version before any backup/apply occurs,,H1,H1,2
+FIX-H2,Fix in-place updater overwrite path,Fix updater replacement logic if it cannot overwrite active files or misses VERSION,,H2,H2,2
+FIX-H3,Verify installed version after updater success,After updater returncode 0 re-read current_payload_version and fail/keep pending if installed version is still older than remote_version,,H3,H3,2

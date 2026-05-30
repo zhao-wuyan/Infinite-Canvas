@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,16 @@ def download_update_payload(base_url: str, endpoint: str, output_path: Path) -> 
             raise
         return None
     return payload_url
+
+
+def read_update_payload_version(payload_path: Path) -> str:
+    try:
+        with zipfile.ZipFile(payload_path) as archive:
+            with archive.open("VERSION") as version_file:
+                lines = version_file.read().decode("utf-8", errors="replace").strip().splitlines()
+                return lines[0].strip() if lines else ""
+    except Exception:
+        return ""
 
 
 def check_for_updates(install_dir: Path) -> dict[str, str | bool]:
@@ -215,13 +226,24 @@ def apply_update_result(install_dir: Path) -> dict[str, object]:
 
     updater = install_dir / "Infinite Canvas Updater.exe"
     if not updater.exists():
-        return {"ok": False, "detail": "缺少更新器可执行文件。", **check}
+        return {**check, "ok": False, "detail": "缺少更新器可执行文件。"}
 
     with tempfile.TemporaryDirectory() as tempdir:
         payload_file = Path(tempdir) / "app-base.zip"
         payload_url = download_update_payload(base_url, str(manifest.get("payload_endpoint") or DEFAULT_PAYLOAD_ENDPOINT), payload_file)
         if not payload_url:
-            return {"ok": False, "detail": "远端 payload 不存在。", **check}
+            return {**check, "ok": False, "detail": "远端 payload 不存在。"}
+        payload_version = read_update_payload_version(payload_file)
+        remote_version = str(check["remote_version"])
+        if not payload_version:
+            return {**check, "ok": False, "detail": "更新包 VERSION 为空或不可读取。"}
+        if compare_versions(payload_version, remote_version) < 0:
+            return {
+                **check,
+                "ok": False,
+                "detail": f"更新包版本 {payload_version} 低于远端版本 {remote_version}，已取消更新。",
+                "payload_version": payload_version,
+            }
         backup = create_update_backup(install_dir, str(check["remote_version"]))
         result = subprocess.run(
             [
@@ -236,9 +258,28 @@ def apply_update_result(install_dir: Path) -> dict[str, object]:
             check=False,
         )
         if result.returncode != 0:
-            return {"ok": False, "detail": f"更新器退出码 {result.returncode}", "returncode": result.returncode, **check}
+            return {**check, "ok": False, "detail": f"更新器退出码 {result.returncode}", "returncode": result.returncode}
+        installed_version = current_payload_version(install_dir)
+        if compare_versions(installed_version, remote_version) < 0:
+            return {
+                **check,
+                "ok": False,
+                "updated": False,
+                "detail": f"更新器返回成功，但安装版本仍为 {installed_version}，低于远端版本 {remote_version}。",
+                "installed_version": installed_version,
+                "payload_version": payload_version,
+                "backup": backup,
+            }
     clear_pending_update(install_dir)
-    return {"ok": True, "updated": True, "backup": backup, **check}
+    return {
+        "ok": True,
+        "updated": True,
+        "backup": backup,
+        **check,
+        "current_version": installed_version,
+        "has_update": False,
+        "payload_version": payload_version,
+    }
 
 
 def apply_update(install_dir: Path) -> int:

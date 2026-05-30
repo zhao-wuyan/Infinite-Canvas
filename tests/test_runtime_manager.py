@@ -192,7 +192,7 @@ class RuntimeManagerTests(unittest.TestCase):
             i18n_dir.mkdir(parents=True)
             (i18n_dir / "i18n.js").write_text("const VERSION = '2026.05.29.7';\n", encoding="utf-8")
             with zipfile.ZipFile(bootstrap / "app-base.zip", "w") as archive:
-                archive.writestr("VERSION", "2026.05.29\n")
+                archive.writestr("VERSION", "2026.05.30\n")
                 archive.writestr("static/js/i18n.js", "const VERSION = currentStaticVersion();\n")
             from packaging.windows.launcher.runtime_manager import payload_fingerprint
             (install_dir / ".payload-ready").write_text(
@@ -207,7 +207,7 @@ class RuntimeManagerTests(unittest.TestCase):
                 "const VERSION = currentStaticVersion();\n",
             )
 
-    def test_copy_payload_for_in_place_allows_explicit_downgrade_install(self):
+    def test_copy_payload_for_in_place_skips_bootstrap_payload_older_than_install(self):
         with tempfile.TemporaryDirectory() as tempdir:
             install_dir = Path(tempdir)
             bootstrap = install_dir / "bootstrap"
@@ -224,8 +224,8 @@ class RuntimeManagerTests(unittest.TestCase):
 
             copy_payload_for_in_place(install_dir)
 
-            self.assertEqual((install_dir / "VERSION").read_text(encoding="utf-8"), "2026.05.30\n")
-            self.assertEqual((install_dir / "static" / "index.html").read_text(encoding="utf-8"), "old bootstrap html\n")
+            self.assertEqual((install_dir / "VERSION").read_text(encoding="utf-8"), "2026.05.31\n")
+            self.assertEqual((install_dir / "static" / "index.html").read_text(encoding="utf-8"), "hot update html\n")
 
     def test_in_place_backup_can_be_rolled_back(self):
         with tempfile.TemporaryDirectory() as tempdir:

@@ -23,6 +23,15 @@ from packaging.macos.launcher.layout import compute_layout
 from packaging.macos.launcher.runtime_manager import load_launcher_state, resolve_runtime_context
 
 
+def update_payload_bytes(version: str = "2026.05.25.3") -> bytes:
+    payload = tempfile.TemporaryFile()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr("VERSION", f"{version}\n")
+        archive.writestr("main.py", "print('updated')\n")
+    payload.seek(0)
+    return payload.read()
+
+
 def create_app_bundle(root: Path, version: str = "2026.05.24.1") -> tuple[Path, Path]:
     app_bundle = root / "Infinite Canvas.app"
     storage_root = root / "storage"
@@ -177,22 +186,70 @@ class MacLauncherUpdateTests(unittest.TestCase):
             fake_response = mock.Mock()
             fake_response.__enter__ = mock.Mock(return_value=fake_response)
             fake_response.__exit__ = mock.Mock(return_value=None)
-            fake_response.read.return_value = b"payload-bytes"
+            fake_response.read.return_value = update_payload_bytes()
 
             with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"), \
                 mock.patch("packaging.macos.launcher.launcher_main.urllib.request.urlopen", return_value=fake_response) as urlopen, \
+                mock.patch("packaging.macos.launcher.launcher_main.current_payload_version", side_effect=["2026.05.24.1", "2026.05.25.3"]), \
                 mock.patch("packaging.macos.launcher.launcher_main.subprocess.run") as run:
                 run.return_value.returncode = 0
                 result = apply_update_result(app_bundle, storage_root=storage_root)
 
             self.assertTrue(result["ok"])
             self.assertTrue(result["updated"])
+            self.assertFalse(result["has_update"])
+            self.assertEqual(result["current_version"], "2026.05.25.3")
+            self.assertEqual(result["payload_version"], "2026.05.25.3")
             self.assertTrue(result["backup"]["id"])
             self.assertEqual(urlopen.call_args.args[0], "https://example.com/releases/macos-app-base.zip")
             command = run.call_args.args[0]
             self.assertEqual(Path(command[0]).resolve(), updater.resolve())
             self.assertIn("--release-name", command)
             self.assertIn("2026.05.25.3", command)
+
+    def test_apply_update_rejects_payload_older_than_remote_version(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
+            updater = app_bundle / "Contents" / "MacOS" / "Infinite Canvas Updater"
+            updater.parent.mkdir(parents=True, exist_ok=True)
+            updater.write_text("updater", encoding="utf-8")
+            fake_response = mock.Mock()
+            fake_response.__enter__ = mock.Mock(return_value=fake_response)
+            fake_response.__exit__ = mock.Mock(return_value=None)
+            fake_response.read.return_value = update_payload_bytes("2026.05.24.1")
+
+            with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"), \
+                mock.patch("packaging.macos.launcher.launcher_main.urllib.request.urlopen", return_value=fake_response), \
+                mock.patch("packaging.macos.launcher.launcher_main.subprocess.run") as run:
+                result = apply_update_result(app_bundle, storage_root=storage_root)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["payload_version"], "2026.05.24.1")
+        self.assertIn("低于远端版本", result["detail"])
+        run.assert_not_called()
+
+    def test_apply_update_fails_when_installed_version_does_not_advance(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            app_bundle, storage_root = create_app_bundle(Path(tempdir), "2026.05.24.1")
+            updater = app_bundle / "Contents" / "MacOS" / "Infinite Canvas Updater"
+            updater.parent.mkdir(parents=True, exist_ok=True)
+            updater.write_text("updater", encoding="utf-8")
+            fake_response = mock.Mock()
+            fake_response.__enter__ = mock.Mock(return_value=fake_response)
+            fake_response.__exit__ = mock.Mock(return_value=None)
+            fake_response.read.return_value = update_payload_bytes()
+
+            with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"), \
+                mock.patch("packaging.macos.launcher.launcher_main.urllib.request.urlopen", return_value=fake_response), \
+                mock.patch("packaging.macos.launcher.launcher_main.current_payload_version", side_effect=["2026.05.24.1", "2026.05.24.1"]), \
+                mock.patch("packaging.macos.launcher.launcher_main.subprocess.run") as run:
+                run.return_value.returncode = 0
+                result = apply_update_result(app_bundle, storage_root=storage_root)
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["updated"])
+        self.assertEqual(result["installed_version"], "2026.05.24.1")
+        self.assertIn("安装版本仍为", result["detail"])
 
     def test_apply_update_uses_prefixed_payload_asset(self):
         with tempfile.TemporaryDirectory() as tempdir:
@@ -203,7 +260,7 @@ class MacLauncherUpdateTests(unittest.TestCase):
             fake_response = mock.Mock()
             fake_response.__enter__ = mock.Mock(return_value=fake_response)
             fake_response.__exit__ = mock.Mock(return_value=None)
-            fake_response.read.return_value = b"payload-bytes"
+            fake_response.read.return_value = update_payload_bytes()
             requested_urls: list[str] = []
 
             def fake_urlopen(url: str, timeout: int = 0):
@@ -212,6 +269,7 @@ class MacLauncherUpdateTests(unittest.TestCase):
 
             with mock.patch("packaging.macos.launcher.launcher_main.fetch_text", return_value="2026.05.25.3\n"), \
                 mock.patch("packaging.macos.launcher.launcher_main.urllib.request.urlopen", side_effect=fake_urlopen), \
+                mock.patch("packaging.macos.launcher.launcher_main.current_payload_version", side_effect=["2026.05.24.1", "2026.05.25.3"]), \
                 mock.patch("packaging.macos.launcher.launcher_main.subprocess.run") as run:
                 run.return_value.returncode = 0
                 result = apply_update_result(app_bundle, storage_root=storage_root)

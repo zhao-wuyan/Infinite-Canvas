@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import sys
 import zipfile
 from pathlib import Path
 
@@ -46,7 +47,14 @@ def main() -> int:
         (layout.install_dir / CURRENT_RELEASE_FILE).write_text(f"{args.release_name}\n", encoding="utf-8")
     else:
         target_dir = layout.install_dir
-        replace_in_place_payload(target_dir, args.payload.resolve())
+        payload = args.payload.resolve()
+        replace_in_place_payload(target_dir, payload)
+        bootstrap_payload = layout.install_dir / "bootstrap" / "app-base.zip"
+        try:
+            bootstrap_payload.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(payload, bootstrap_payload)
+        except Exception as exc:
+            print(f"warning: failed to refresh bootstrap payload: {exc}", file=sys.stderr, flush=True)
         (layout.install_dir / ".payload-ready").write_text(
             f"{payload_ready_marker(layout.install_dir)}\n",
             encoding="utf-8",
