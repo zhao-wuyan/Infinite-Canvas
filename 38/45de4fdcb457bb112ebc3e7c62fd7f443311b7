@@ -1,0 +1,14 @@
+Dockerfile
+  h_cb0e2129f6578c 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3845de4fdcb457bb112ebc3e7c62fd7f443311b7",
+  "prompts": {},
+  "humans": {
+    "h_cb0e2129f6578c": {
+      "author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
