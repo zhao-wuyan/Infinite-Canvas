@@ -382,7 +382,6 @@ let canvasDefaultSmartSettings = cloneSmartSettings(settings);
 let recentSmartSettingsByMode = {};
 function smartSettingsModeKey(source=settings){
     const engine = ['api','volcengine','modelscope','comfy','runninghub'].includes(source?.engine) ? source.engine : 'api';
-    if(engine === 'api' && (source?.provider_id === 'volcengine' || source?.videoProvider === 'volcengine')) return `volcengine:${source?.apiKind === 'video' ? 'video' : 'image'}`;
     if(engine === 'api') return `api:${source?.apiKind === 'video' ? 'video' : 'image'}`;
     if(engine === 'volcengine') return `volcengine:${source?.apiKind === 'video' ? 'video' : 'image'}`;
     if(engine === 'comfy') return `comfy:${['text','enhance','edit','custom'].includes(source?.comfyMode) ? source.comfyMode : 'text'}`;
@@ -422,11 +421,27 @@ function rememberRecentSmartSettings(source=settings, node=null){
     saveRecentSmartSettings();
 }
 function applyRecentSmartSettingsForCurrentMode(){
+    const requestedEngine = ['api','volcengine','modelscope','comfy','runninghub'].includes(settings.engine) ? settings.engine : 'api';
+    const requestedApiKind = settings.apiKind === 'video' ? 'video' : 'image';
     const key = smartSettingsModeKey(settings);
     const saved = recentSmartSettingsForMode(key);
-    if(!Object.keys(saved).length) return;
-    settings = {...settings, ...saved};
+    if(!Object.keys(saved).length){
+        settings.engine = requestedEngine;
+        if(isApiLikeEngine(requestedEngine)) settings.apiKind = requestedApiKind;
+        clearVolcengineSelectionOutsideVolcengine(settings);
+        sanitizeSmartApiSelection(settings);
+        return;
+    }
+    settings = {...settings, ...saved, engine:requestedEngine};
+    if(isApiLikeEngine(requestedEngine)) settings.apiKind = requestedApiKind;
+    clearVolcengineSelectionOutsideVolcengine(settings);
     sanitizeSmartApiSelection(settings);
+}
+function clearVolcengineSelectionOutsideVolcengine(target=settings){
+    if(!target || typeof target !== 'object' || target.engine === 'volcengine') return target;
+    if(target.provider_id === 'volcengine') target.provider_id = '';
+    if(target.videoProvider === 'volcengine') target.videoProvider = '';
+    return target;
 }
 function isSmartImageNode(node){
     return Boolean(node && (node.type === 'smart-image' || !node.type));
@@ -983,7 +998,7 @@ function toggleZoomPreview(){
     else enterZoomPreview();
 }
 function imageProviders(){
-    return (apiProviders || []).filter(p => p.enabled !== false && p.id !== 'modelscope' && p.id !== 'runninghub' && (p.image_models || []).length);
+    return (apiProviders || []).filter(p => p.enabled !== false && p.id !== 'modelscope' && p.id !== 'runninghub' && p.id !== 'volcengine' && (p.image_models || []).length);
 }
 function volcengineProvider(){
     return (apiProviders || []).find(p => p.id === 'volcengine' && p.enabled !== false) || {
@@ -1115,6 +1130,7 @@ function sanitizeSmartApiSelection(target=settings){
         }
         return target;
     }
+    clearVolcengineSelectionOutsideVolcengine(target);
     if(target.provider_id){
         const models = providerImageModels(target.provider_id);
         if(models.length && !models.includes(target.model)) target.model = models[0] || '';
@@ -1133,7 +1149,7 @@ function modelscopeImageModels(){
 }
 const DEFAULT_VIDEO_MODELS = ['veo3-fast','veo3','sora','runway','kling','pika','minimax-video','wan-v2','seedance-1.0-pro','jimeng-vide-3.0','jimeng-video-3.0-pro'];
 function videoApiProviders(){
-    const fromConfig = (apiProviders || []).filter(p => p.enabled !== false && p.id !== 'runninghub' && (p.video_models || []).length);
+    const fromConfig = (apiProviders || []).filter(p => p.enabled !== false && p.id !== 'runninghub' && p.id !== 'volcengine' && (p.video_models || []).length);
     if(fromConfig.length) return fromConfig;
     return [{id:'comfly', name:'Comfly', video_models:DEFAULT_VIDEO_MODELS, enabled:true}];
 }
@@ -1289,9 +1305,7 @@ function renderDynamicParams(){
     if(!dynamicParams) return;
     settings.engine = ['api','volcengine','modelscope','comfy','runninghub'].includes(settings.engine) ? settings.engine : 'api';
     settings.apiKind = settings.apiKind === 'video' ? 'video' : 'image';
-    if(settings.engine === 'api' && ((settings.apiKind === 'video' && settings.videoProvider === 'volcengine') || (settings.apiKind !== 'video' && settings.provider_id === 'volcengine'))){
-        settings.engine = 'volcengine';
-    }
+    clearVolcengineSelectionOutsideVolcengine(settings);
     engineSelect.value = settings.engine;
     syncApiKindToggleVisibility();
     if(settings.engine === 'api'){
