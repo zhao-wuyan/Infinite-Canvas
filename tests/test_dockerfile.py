@@ -9,6 +9,12 @@ class DockerfileTests(unittest.TestCase):
         self.assertIn("main.py", dockerfile)
         self.assertIn("app_runtime.py", dockerfile)
 
+    def test_dreamina_cli_template_is_preserved_for_mounted_state(self):
+        dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("/opt/dreamina-cli-template", dockerfile)
+        self.assertIn("/home/appuser/.dreamina_cli", dockerfile)
+
 
 if __name__ == "__main__":
     unittest.main()

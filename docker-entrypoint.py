@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 import os
 import pwd
+import shutil
 import sys
 
 
 APP_DIR = "/app"
+DREAMINA_CLI_DIR = "/home/appuser/.dreamina_cli"
+DREAMINA_CLI_TEMPLATE_DIR = "/opt/dreamina-cli-template"
+DREAMINA_MANAGED_FILES = [
+    "version.json",
+    os.path.join("dreamina", "SKILL.md"),
+]
 RUNTIME_DIRS = [
     "/app/API",
     "/app/data",
@@ -14,6 +21,7 @@ RUNTIME_DIRS = [
     "/app/assets/library",
     "/app/output",
     "/app/workflows/custom",
+    DREAMINA_CLI_DIR,
 ]
 
 
@@ -49,6 +57,29 @@ def ensure_runtime_files():
         os.symlink(target, link)
 
 
+def should_replace_file(source, target):
+    if not os.path.exists(target):
+        return True
+    with open(source, "rb") as source_handle, open(target, "rb") as target_handle:
+        return source_handle.read() != target_handle.read()
+
+
+def ensure_dreamina_cli_state():
+    if not os.path.isdir(DREAMINA_CLI_TEMPLATE_DIR):
+        return
+
+    os.makedirs(DREAMINA_CLI_DIR, exist_ok=True)
+    for relative_path in DREAMINA_MANAGED_FILES:
+        source = os.path.join(DREAMINA_CLI_TEMPLATE_DIR, relative_path)
+        target = os.path.join(DREAMINA_CLI_DIR, relative_path)
+        if not os.path.exists(source):
+            continue
+        if not should_replace_file(source, target):
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copy2(source, target)
+
+
 def chown_if_needed(path, uid, gid):
     try:
         stat = os.stat(path, follow_symlinks=False)
@@ -82,6 +113,7 @@ def drop_privileges(uid, gid):
 def main():
     uid, gid = app_identity()
     ensure_runtime_files()
+    ensure_dreamina_cli_state()
     chown_runtime(uid, gid)
     drop_privileges(uid, gid)
     os.execvp(sys.argv[1], sys.argv[1:])
