@@ -1,9 +1,10 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from packaging.windows.build_launcher import APP_NAME, prepare_app_icon, run_pyinstaller
+from packaging.windows.build_launcher import APP_NAME, prepare_app_icon, prepare_build_venv, run_pyinstaller, venv_python
 
 
 class WindowsBuildLauncherTests(unittest.TestCase):
@@ -37,6 +38,24 @@ class WindowsBuildLauncherTests(unittest.TestCase):
             self.assertIn(str(source), command)
             self.assertIn(str(output), command)
             self.assertTrue(output.parent.exists())
+
+    def test_prepare_build_venv_recreates_unusable_existing_venv(self):
+        venv_dir = Path("C:/project/build/windows-packaging-venv")
+        python_exe = venv_python(venv_dir)
+        failure = subprocess.CalledProcessError(103, [str(python_exe), "-c", "import sys; raise SystemExit(0)"])
+
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch("packaging.build_venv.venv.EnvBuilder") as env_builder,
+            patch("packaging.build_venv.subprocess.run", side_effect=[failure, None]) as mocked_run,
+        ):
+            resolved = prepare_build_venv(venv_dir)
+
+        env_builder.assert_called_once_with(with_pip=True, clear=True)
+        env_builder.return_value.create.assert_called_once_with(venv_dir)
+        pip_command = mocked_run.call_args_list[1].args[0]
+        self.assertEqual(pip_command[:4], [str(python_exe), "-m", "pip", "install"])
+        self.assertEqual(resolved, python_exe)
 
 
 if __name__ == "__main__":

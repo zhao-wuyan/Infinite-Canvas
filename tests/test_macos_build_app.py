@@ -179,8 +179,8 @@ class MacBuildAppTests(unittest.TestCase):
 
         with (
             patch.object(Path, "exists", return_value=False),
-            patch("packaging.macos.build_app.venv.EnvBuilder") as env_builder,
-            patch("packaging.macos.build_app.subprocess.run") as mocked_run,
+            patch("packaging.build_venv.venv.EnvBuilder") as env_builder,
+            patch("packaging.build_venv.subprocess.run") as mocked_run,
         ):
             resolved = prepare_build_venv(venv_dir)
 

@@ -31,11 +31,11 @@
     "static/css/theme.css",
     "static/enhance.html",
     "static/gpt-chat.html",
-    "static/images/RunningHub-B.png",
-    "static/images/RunningHub-W.png",
     "static/images/logo.png",
     "static/images/modelscope-1.gif",
     "static/images/modelscope.gif",
+    "static/images/RunningHub-B.png",
+    "static/images/RunningHub-W.png",
     "static/images/volcengine-theme-dark.svg",
     "static/images/volcengine-theme-light.svg",
     "static/index.html",
@@ -65,7 +65,6 @@
     "static/runninghub/thumbnails/workflow-2058824859437850625.jpg",
     "static/smart-canvas.html",
     "static/system-prompts/infinite-canvas-prompt-templates.md",
-    "static/vendor/MANIFEST.md",
     "static/vendor/css/fonts.css",
     "static/vendor/fonts/inter-1.ttf",
     "static/vendor/fonts/inter-2.ttf",
@@ -80,13 +79,14 @@
     "static/vendor/js/lucide.js",
     "static/vendor/js/tailwindcss-cdn.js",
     "static/vendor/js/three-0.160.0.module.js",
+    "static/vendor/MANIFEST.md",
     "static/zimage.html",
     "workflows/2511.json",
     "workflows/Flux2-Klein.json",
     "workflows/LTXDirectorv2-API.config.json",
     "workflows/LTXDirectorv2-API.json",
+    "workflows/upscale.json",
     "workflows/Z-Image-Enhance.json",
-    "workflows/Z-Image.json",
-    "workflows/upscale.json"
+    "workflows/Z-Image.json"
   ]
 }

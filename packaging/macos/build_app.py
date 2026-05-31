@@ -5,13 +5,13 @@ import plistlib
 import shutil
 import subprocess
 import sys
-import venv
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from packaging.build_venv import prepare_packaging_venv
 from packaging.macos.payload.build_payload import DEFAULT_MANIFEST, DEFAULT_OUTPUT, build_payload
 
 
@@ -95,14 +95,7 @@ def venv_python(venv_dir: Path) -> Path:
 
 def prepare_build_venv(venv_dir: Path) -> Path:
     python_exe = venv_python(venv_dir)
-    if not python_exe.exists():
-        venv.EnvBuilder(with_pip=True, clear=True).create(venv_dir)
-    subprocess.run(
-        [str(python_exe), "-m", "pip", "install", "-r", str(ROOT / "requirements.txt"), "PyInstaller"],
-        cwd=str(ROOT),
-        check=True,
-    )
-    return python_exe
+    return prepare_packaging_venv(venv_dir, python_exe, ROOT / "requirements.txt")
 
 
 def read_version() -> str:
