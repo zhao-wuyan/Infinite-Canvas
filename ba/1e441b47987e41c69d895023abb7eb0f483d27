@@ -1,0 +1,47 @@
+tests/test_macos_build_app.py
+  s_4986c2558e7cce::t_5409592aeac91f 182-183
+packaging/macos/build_app.py
+  s_4986c2558e7cce::t_6372a589f11fa5 14,98
+static/js/api-settings.js
+  s_4986c2558e7cce::t_12897b2d973571 2330-2332,2360,2371-2375,2381-2383,2385-2402,2405,2407-2408,2410-2423,2425-2427
+  s_4986c2558e7cce::t_3ff5cb8e76ef5c 2347,2409,2424
+  s_4986c2558e7cce::t_73085b63b3df5a 57-61,112,2333-2346,2348-2352,2355,2357-2359,2361-2370,2376-2380,2384,2403-2404,2406,2512-2513
+  s_4986c2558e7cce::t_eaa126dc9b0f00 2353-2354,2356
+  s_4986c2558e7cce::t_1567b9e857f26a 2511,2514
+static/css/api-settings.css
+  s_4986c2558e7cce::t_73085b63b3df5a 173
+tests/test_windows_build_launcher.py
+  s_4986c2558e7cce::t_5409592aeac91f 7,42-59
+  s_4986c2558e7cce::t_5f534ddef5e9f9 1
+main.py
+  s_4986c2558e7cce::t_22e74af6ebf903 3164-3264
+  s_4986c2558e7cce::t_65c6008c83959b 6309-6319
+  s_4986c2558e7cce::t_f913420134fab4 3045,3059-3066
+  s_4986c2558e7cce::t_7e1b9356b08ce4 3027-3044,3046-3048,3054
+  s_4986c2558e7cce::t_6be1e502dd56a9 6613-6615
+  s_4986c2558e7cce::t_a2a25dd9468e33 6323
+  s_4986c2558e7cce::t_77ea6ccd29a65e 6298-6304,6307,6320-6322,6324-6354
+  s_4986c2558e7cce::t_ef1eb8eb839997 16,233-234,239-242
+packaging/build_venv.py
+  s_4986c2558e7cce::t_6372a589f11fa5 1-31
+static/api-settings.html
+  s_4986c2558e7cce::t_73085b63b3df5a 371-389
+packaging/windows/build_launcher.py
+  s_4986c2558e7cce::t_6372a589f11fa5 11-15,86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ba1e441b47987e41c69d895023abb7eb0f483d27",
+  "prompts": {},
+  "sessions": {
+    "s_4986c2558e7cce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7ddd-9438-7fa0-a7cc-a1ecb60f3852",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
