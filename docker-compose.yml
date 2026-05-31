@@ -17,5 +17,6 @@ services:
       - ./docker-data/API:/app/API
       - ./docker-data/assets:/app/assets
       - ./docker-data/data:/app/data
+      - ./docker-data/dreamina-cli:/home/appuser/.dreamina_cli
       - ./docker-data/output:/app/output
       - ./docker-data/workflows-custom:/app/workflows/custom
