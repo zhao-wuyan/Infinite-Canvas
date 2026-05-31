@@ -1,0 +1,29 @@
+main.py
+  s_44dd17b138e5fe::t_99acff1ff6c34d 5996-6000
+static/api-settings.html
+  s_44dd17b138e5fe::t_99acff1ff6c34d 214,350
+static/js/api-settings.js
+  s_44dd17b138e5fe::t_c8d85263219b2a 2340,2367,2621,2624
+  s_44dd17b138e5fe::t_99acff1ff6c34d 51,55,115,620-621,2185-2186,2222-2257,2260-2265,2378-2396,2398-2440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "37f6bde1eb13050b85f62de376f027e0f06e7964",
+  "prompts": {},
+  "humans": {
+    "h_cb0e2129f6578c": {
+      "author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  },
+  "sessions": {
+    "s_44dd17b138e5fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7e21-52df-7792-8582-2096b411fe8f",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
