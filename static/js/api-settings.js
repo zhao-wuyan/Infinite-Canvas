@@ -47,6 +47,13 @@ const msLoraBlock = document.getElementById('msLoraBlock');
 const msLoraList = document.getElementById('msLoraList');
 const recommendApiOverlay = document.getElementById('recommendApiOverlay');
 const recommendApiList = document.getElementById('recommendApiList');
+const jimengLoginOverlay = document.getElementById('jimengLoginOverlay');
+const jimengLoginStatus = document.getElementById('jimengLoginStatus');
+const jimengLoginSubtitle = document.getElementById('jimengLoginSubtitle');
+const jimengLoginUrl = document.getElementById('jimengLoginUrl');
+const jimengLoginCode = document.getElementById('jimengLoginCode');
+const jimengLoginOutput = document.getElementById('jimengLoginOutput');
+const jimengLoginOpenBtn = document.getElementById('jimengLoginOpenBtn');
 const VOLCENGINE_DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const VOLCENGINE_DEFAULT_PROJECT_NAME = 'default';
 const VOLCENGINE_DEFAULT_REGION = 'cn-beijing';
@@ -96,6 +103,7 @@ let rhWorkflowEditorState = { open:false, index:-1, entry:null, config:null, exp
 let rhEditorMode = 'workflow';
 let recommendInlineOpen = false;
 let providerDragId = '';
+let jimengLoginState = { sessionId:'', url:'', pollTimer:null, opened:false, closed:false };
 const RECOMMENDED_APIS = [
     {
         name:'APIMART',
@@ -2193,6 +2201,125 @@ function currentProviderApiKey(item){
         return rhWalletKeyInput?.value.trim() || rhFreeKeyInput?.value.trim() || '';
     }
     return keyInput.value.trim();
+}
+function isJimengSelected(){
+    const item = provider();
+    return item?.id === 'jimeng' || String(protocolInput?.value || item?.protocol || '').toLowerCase() === 'jimeng';
+}
+function renderJimengLoginState(data){
+    if(!data) return;
+    jimengLoginState.sessionId = data.session_id || jimengLoginState.sessionId || '';
+    jimengLoginState.url = data.verification_url || jimengLoginState.url || '';
+    if(jimengLoginStatus){
+        const statusText = data.status === 'success'
+            ? 'OAuth 登录成功，弹框将自动关闭。'
+            : data.status === 'failed'
+            ? `登录进程已结束：${data.message || '未完成'}`
+            : data.status === 'finished'
+            ? '登录进程已结束，请验证即梦 CLI 状态。'
+            : data.status === 'canceled'
+            ? '登录已取消。'
+            : data.message || '等待你在浏览器完成登录...';
+        jimengLoginStatus.textContent = statusText;
+        jimengLoginStatus.style.color = data.status === 'success' ? '#15803d' : data.status === 'failed' ? '#b45309' : 'var(--text)';
+    }
+    if(jimengLoginSubtitle){
+        jimengLoginSubtitle.textContent = jimengLoginState.opened ? '登录页已打开，正在等待 CLI 返回登录成功。' : '已获取登录地址，点击确定后打开新标签页。';
+    }
+    if(jimengLoginUrl){
+        jimengLoginUrl.href = jimengLoginState.url || '#';
+        jimengLoginUrl.textContent = jimengLoginState.url || '等待 CLI 输出登录地址...';
+    }
+    if(jimengLoginCode){
+        const parts = [];
+        if(data.user_code) parts.push(`user_code: ${data.user_code}`);
+        if(data.expires_at) parts.push(`expires_at: ${data.expires_at}`);
+        jimengLoginCode.textContent = parts.join(' · ');
+    }
+    if(jimengLoginOutput) jimengLoginOutput.textContent = data.output || '';
+    if(jimengLoginOpenBtn) jimengLoginOpenBtn.disabled = !jimengLoginState.url || data.status === 'success';
+    refreshIcons();
+}
+function openJimengLoginModal(data){
+    jimengLoginState.closed = false;
+    if(jimengLoginOverlay) jimengLoginOverlay.style.display = 'flex';
+    renderJimengLoginState(data);
+}
+function stopJimengLoginPolling(){
+    if(jimengLoginState.pollTimer){
+        clearInterval(jimengLoginState.pollTimer);
+        jimengLoginState.pollTimer = null;
+    }
+}
+async function cancelJimengLoginSession(){
+    const sessionId = jimengLoginState.sessionId;
+    if(!sessionId) return;
+    try {
+        await fetch(`/api/jimeng/login/${encodeURIComponent(sessionId)}/cancel`, {method:'POST'});
+    } catch(e) {}
+}
+function closeJimengLoginModal(cancel=false){
+    jimengLoginState.closed = true;
+    stopJimengLoginPolling();
+    if(cancel) cancelJimengLoginSession();
+    if(jimengLoginOverlay) jimengLoginOverlay.style.display = 'none';
+}
+function openJimengLoginUrl(){
+    if(!jimengLoginState.url) return;
+    window.open(jimengLoginState.url, '_blank', 'noopener');
+    jimengLoginState.opened = true;
+    renderJimengLoginState({status:'waiting', message:'登录页已打开，正在等待 CLI 返回登录成功。'});
+    pollJimengLoginOnce();
+}
+async function pollJimengLoginOnce(){
+    const sessionId = jimengLoginState.sessionId;
+    if(!sessionId || jimengLoginState.closed) return;
+    try {
+        const data = await fetch(`/api/jimeng/login/${encodeURIComponent(sessionId)}/status`).then(async r => {
+            if(!r.ok) throw new Error((await r.json()).detail || '查询登录状态失败');
+            return r.json();
+        });
+        renderJimengLoginState(data);
+        if(data.status === 'success'){
+            stopJimengLoginPolling();
+            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 即梦 CLI 登录成功</span>`);
+            setTimeout(() => closeJimengLoginModal(false), 700);
+        }
+        if(['failed', 'finished', 'canceled'].includes(data.status)) stopJimengLoginPolling();
+    } catch(e){
+        if(jimengLoginStatus) jimengLoginStatus.textContent = e.message || String(e);
+    }
+}
+function startJimengLoginPolling(){
+    stopJimengLoginPolling();
+    jimengLoginState.pollTimer = setInterval(pollJimengLoginOnce, 1000);
+}
+async function startJimengLogin(){
+    if(!isJimengSelected()){ alert('请先在协议下拉框选择“即梦 CLI”'); return; }
+    const btn = document.getElementById('jimengLoginBtn');
+    if(btn){ btn.disabled = true; btn.querySelector('span').textContent = '获取登录地址...'; }
+    showVerifyResult(`<span style="color:var(--muted);font-size:11px;font-weight:700">正在执行 dreamina login...</span>`);
+    try {
+        jimengLoginState = { sessionId:'', url:'', pollTimer:null, opened:false, closed:false };
+        const data = await fetch('/api/jimeng/login/start', {method:'POST'}).then(async r => {
+            if(!r.ok) throw new Error((await r.json()).detail || '启动 dreamina login 失败');
+            return r.json();
+        });
+        openJimengLoginModal(data);
+        startJimengLoginPolling();
+        if(data.status === 'success'){
+            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 即梦 CLI 已登录</span>`);
+            setTimeout(() => closeJimengLoginModal(false), 700);
+        } else if(!data.verification_url){
+            showVerifyResult(`<div style="font-size:11px;font-weight:800;color:#b45309">⚠ ${escapeHtml(data.message || '已启动登录进程，但暂未获取到登录地址')}</div>`);
+        } else {
+            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 已获取即梦登录地址，请在弹框中确认打开</span>`);
+        }
+    } catch(e){
+        showVerifyResult(`<div style="font-size:11px;font-weight:800;color:#b45309">⚠ ${escapeHtml(e.message || String(e))}</div>`);
+    } finally {
+        if(btn){ btn.disabled = false; btn.querySelector('span').textContent = '登录即梦'; refreshIcons(); }
+    }
 }
 
 async function probeAsync(){
