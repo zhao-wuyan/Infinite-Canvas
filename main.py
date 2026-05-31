@@ -6318,6 +6318,11 @@ async def jimeng_status():
             }
         return {"installed": True, "logged_in": False, "install_supported": True, "path": exe, "message": detail}
 
+@app.post("/api/jimeng/logout")
+async def jimeng_logout():
+    raw = await run_jimeng_cli(["logout"], timeout=30)
+    return {"ok": True, "message": "即梦 CLI 已登出", "raw": raw}
+
 @app.post("/api/jimeng/install/start")
 async def jimeng_install_start():
     exe = jimeng_native_cli_executable()
