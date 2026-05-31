@@ -54,6 +54,11 @@ const jimengLoginUrl = document.getElementById('jimengLoginUrl');
 const jimengLoginCode = document.getElementById('jimengLoginCode');
 const jimengLoginOutput = document.getElementById('jimengLoginOutput');
 const jimengLoginOpenBtn = document.getElementById('jimengLoginOpenBtn');
+const jimengInstallOverlay = document.getElementById('jimengInstallOverlay');
+const jimengInstallSubtitle = document.getElementById('jimengInstallSubtitle');
+const jimengInstallStatus = document.getElementById('jimengInstallStatus');
+const jimengInstallOutput = document.getElementById('jimengInstallOutput');
+const jimengInstallStartBtn = document.getElementById('jimengInstallStartBtn');
 const VOLCENGINE_DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 const VOLCENGINE_DEFAULT_PROJECT_NAME = 'default';
 const VOLCENGINE_DEFAULT_REGION = 'cn-beijing';
@@ -104,6 +109,7 @@ let rhEditorMode = 'workflow';
 let recommendInlineOpen = false;
 let providerDragId = '';
 let jimengLoginState = { sessionId:'', url:'', pollTimer:null, opened:false, closed:false };
+let jimengInstallState = { sessionId:'', pollTimer:null, closed:false };
 const RECOMMENDED_APIS = [
     {
         name:'APIMART',
@@ -2321,6 +2327,104 @@ async function startJimengLogin(){
         if(btn){ btn.disabled = false; btn.querySelector('span').textContent = '登录即梦'; refreshIcons(); }
     }
 }
+function renderJimengInstallState(data){
+    const color = data?.status === 'success' ? '#15803d' : data?.status === 'failed' ? '#b45309' : 'var(--muted)';
+    const message = data?.message || '正在安装即梦 CLI...';
+    if(jimengInstallSubtitle){
+        jimengInstallSubtitle.textContent = data?.status === 'success'
+            ? '安装完成，请继续登录即梦 CLI。'
+            : data?.status === 'failed'
+            ? '安装未完成，可以重试或稍后手动处理。'
+            : data?.status === 'running'
+            ? '正在下载并安装官方原生 CLI，请保持窗口打开。'
+            : '未检测到本机 dreamina CLI，可下载官方原生版本。';
+    }
+    if(jimengInstallStatus){
+        jimengInstallStatus.textContent = message;
+        jimengInstallStatus.style.color = color;
+    }
+    if(jimengInstallOutput){
+        const output = (data?.output || data?.managed_path) ? (data?.output || `安装位置：${data.managed_path}`) : '';
+        jimengInstallOutput.textContent = output;
+        jimengInstallOutput.style.display = output ? 'block' : 'none';
+    }
+    if(jimengInstallStartBtn){
+        const running = data?.status === 'running';
+        const success = data?.status === 'success';
+        jimengInstallStartBtn.disabled = running;
+        jimengInstallStartBtn.textContent = running ? '安装中...' : data?.status === 'success' ? '安装完成' : data?.status === 'failed' ? '重试安装' : '下载并安装';
+        jimengInstallStartBtn.onclick = success ? closeJimengInstallModal : startJimengInstall;
+    }
+    showVerifyResult(`<div style="font-size:11px;font-weight:800;color:${color}">${escapeHtml(message)}</div>`);
+    refreshIcons();
+}
+function openJimengInstallModal(data={}){
+    jimengInstallState.closed = false;
+    if(jimengInstallOverlay) jimengInstallOverlay.style.display = 'flex';
+    renderJimengInstallState({
+        status: data.status || 'idle',
+        message: data.message || '未检测到即梦 CLI。是否下载并安装官方原生 CLI？',
+        managed_path: data.managed_path || '',
+        output: data.managed_path ? `安装位置：${data.managed_path}` : '',
+    });
+}
+function stopJimengInstallPolling(){
+    if(jimengInstallState.pollTimer){
+        clearInterval(jimengInstallState.pollTimer);
+        jimengInstallState.pollTimer = null;
+    }
+}
+function closeJimengInstallModal(){
+    jimengInstallState.closed = true;
+    stopJimengInstallPolling();
+    if(jimengInstallOverlay) jimengInstallOverlay.style.display = 'none';
+}
+async function pollJimengInstallOnce(){
+    const sessionId = jimengInstallState.sessionId;
+    if(!sessionId || jimengInstallState.closed) return;
+    try {
+        const data = await fetch(`/api/jimeng/install/${encodeURIComponent(sessionId)}/status`).then(async r => {
+            if(!r.ok) throw new Error((await r.json()).detail || '查询安装状态失败');
+            return r.json();
+        });
+        renderJimengInstallState(data);
+        if(data.status === 'success'){
+            stopJimengInstallPolling();
+            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 即梦 CLI 安装完成，请点击“登录即梦”完成授权。</span>`);
+        } else if(data.status === 'failed'){
+            stopJimengInstallPolling();
+        }
+    } catch(e){
+        stopJimengInstallPolling();
+        showVerifyResult(`<div style="font-size:11px;font-weight:800;color:#b45309">⚠ ${escapeHtml(e.message || String(e))}</div>`);
+    }
+}
+async function startJimengInstall(){
+    jimengInstallState.closed = false;
+    if(jimengInstallOverlay) jimengInstallOverlay.style.display = 'flex';
+    showVerifyResult(`<span style="color:var(--muted);font-size:11px;font-weight:700">正在准备安装即梦 CLI...</span>`);
+    renderJimengInstallState({status:'running', message:'正在准备安装即梦 CLI...'});
+    try {
+        stopJimengInstallPolling();
+        jimengInstallState.sessionId = '';
+        const data = await fetch('/api/jimeng/install/start', {method:'POST'}).then(async r => {
+            if(!r.ok) throw new Error((await r.json()).detail || '启动即梦 CLI 安装失败');
+            return r.json();
+        });
+        renderJimengInstallState(data);
+        if(data.status === 'success'){
+            showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 即梦 CLI 已安装，请点击“登录即梦”完成授权。</span>`);
+            return;
+        }
+        jimengInstallState.sessionId = data.session_id || '';
+        if(jimengInstallState.sessionId){
+            jimengInstallState.pollTimer = setInterval(pollJimengInstallOnce, 1000);
+        }
+    } catch(e){
+        renderJimengInstallState({status:'failed', message:e.message || String(e)});
+        showVerifyResult(`<div style="font-size:11px;font-weight:800;color:#b45309">⚠ ${escapeHtml(e.message || String(e))}</div>`);
+    }
+}
 
 async function probeAsync(){
     const item = provider();
@@ -2404,6 +2508,10 @@ async function testConnection(){
             const jimengNote = isJimeng ? `<div style="margin-top:6px;color:#15803d;font-size:11px;font-weight:700">即梦 CLI 已可用，可在画布里选择“即梦 CLI”生成。</div>` : '';
             showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 地址验证通过 · 找到 ${data.model_count} 个模型</span>${volcengineNote}${jimengNote}`);
         } else {
+            if(isJimeng && data.installed === false && data.install_supported !== false){
+                openJimengInstallModal(data);
+                return;
+            }
             showVerifyResult(`
                 <div style="font-size:11px;font-weight:800;color:#b45309">⚠ 地址验证未通过 (HTTP ${data.status})</div>
                 <div style="font-size:11px;color:var(--muted);font-weight:600;margin-top:3px">${escapeHtml((data.message || '').slice(0,200))}</div>`);
