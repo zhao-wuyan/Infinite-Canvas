@@ -1,0 +1,26 @@
+Dockerfile
+  s_f204a5eac1a065::t_d4770f0dc57e90 5-7,11-14,17-22
+  s_f204a5eac1a065::t_2c17496e30f6ef 30
+  s_f204a5eac1a065::t_6fb9d39b4699c0 1
+docker-compose.yml
+  s_f204a5eac1a065::t_0f777ae445f9ab 20
+DOCKER.md
+  s_f204a5eac1a065::t_d56daf6b2f2a34 42,79
+  s_f204a5eac1a065::t_af0bc8d985d925 69-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "439c0f3bae58679b259d0d33fe472161f1225a2c",
+  "prompts": {},
+  "sessions": {
+    "s_f204a5eac1a065": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7d26-e55c-7f11-9864-6efb116813bb",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
