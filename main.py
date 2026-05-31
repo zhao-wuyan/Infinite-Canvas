@@ -227,6 +227,8 @@ LOAD_LOCK = Lock()
 RUNNINGHUB_WORKFLOW_LOCK = Lock()
 NEXT_TASK_ID = 1
 UPDATE_LOCK = Lock()
+JIMENG_LOGIN_LOCK = Lock()
+JIMENG_LOGIN_SESSIONS = {}
 
 PROVIDER_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{2,40}$")
 SUPPORTED_PROVIDER_PROTOCOLS = {"openai", "apimart", "gemini", "volcengine", "runninghub", "jimeng"}
@@ -3123,6 +3125,112 @@ def jimeng_extract_json(text):
                 weight += 10
         return weight
     return max(parsed, key=score)[1] if parsed else {"text": text}
+
+def jimeng_login_command():
+    exe = jimeng_cli_executable()
+    if not exe:
+        raise HTTPException(status_code=400, detail="未找到 dreamina CLI。请先安装：curl -fsSL https://jimeng.jianying.com/cli | bash")
+    if jimeng_use_wsl():
+        shell_line = (
+            ". ~/.profile >/dev/null 2>&1 || true; . ~/.bashrc >/dev/null 2>&1 || true; "
+            "DREAMINA_BIN=$(command -v dreamina || find \"$HOME\" -maxdepth 4 -type f -name dreamina 2>/dev/null | head -n 1); "
+            "if [ -z \"$DREAMINA_BIN\" ]; then echo 'dreamina CLI not found in WSL' >&2; exit 127; fi; "
+            "\"$DREAMINA_BIN\" login"
+        )
+        return [exe, *jimeng_wsl_base_args(exe), "-e", "sh", "-lc", shell_line]
+    return [exe, "login"]
+
+def jimeng_login_parse_output(text):
+    text = str(text or "")
+    lines = [line.strip() for line in text.replace("\r", "\n").splitlines() if line.strip()]
+    data = {"verification_url": "", "user_code": "", "device_code": "", "expires_at": ""}
+    for i, line in enumerate(lines):
+        low = line.lower()
+        if "verification_uri" in low:
+            value = ""
+            if line.startswith("verification_uri:"):
+                value = line.split(":", 1)[1].strip()
+            elif line.startswith("verification_uri="):
+                value = line.split("=", 1)[1].strip()
+            else:
+                match = re.search(r"https?://\S+", line)
+                value = match.group(0) if match else ""
+            if value.startswith("http"):
+                if value.endswith("?") and i + 1 < len(lines) and lines[i + 1].startswith("verification_uri="):
+                    value = value + lines[i + 1]
+                data["verification_url"] = value
+        for key in ("user_code", "device_code", "expires_at"):
+            if low.startswith(f"{key}:"):
+                data[key] = line.split(":", 1)[1].strip()
+    return data
+
+def jimeng_login_public_state(session):
+    output = "\n".join(session.get("output") or [])
+    parsed = jimeng_login_parse_output(output)
+    status = session.get("status") or "starting"
+    return {
+        "session_id": session.get("id"),
+        "status": status,
+        "verification_url": parsed.get("verification_url") or session.get("verification_url") or "",
+        "user_code": parsed.get("user_code") or "",
+        "device_code": parsed.get("device_code") or "",
+        "expires_at": parsed.get("expires_at") or "",
+        "message": session.get("message") or "",
+        "output": output[-4000:],
+        "returncode": session.get("returncode"),
+    }
+
+def jimeng_login_mark_output(session_id, text):
+    if not text:
+        return
+    with JIMENG_LOGIN_LOCK:
+        session = JIMENG_LOGIN_SESSIONS.get(session_id)
+        if not session:
+            return
+        session.setdefault("output", []).append(text.strip())
+        output = "\n".join(session.get("output") or [])
+        parsed = jimeng_login_parse_output(output)
+        if parsed.get("verification_url"):
+            session["verification_url"] = parsed["verification_url"]
+            if session.get("status") == "starting":
+                session["status"] = "waiting"
+                session["message"] = "已获取登录地址，等待扫码确认"
+            event = session.get("ready_event")
+            if event:
+                event.set()
+        if "oauth 登录成功" in output.lower() or "当前登录账户信息" in output:
+            session["status"] = "success"
+            session["message"] = "OAuth 登录成功"
+            event = session.get("ready_event")
+            if event:
+                event.set()
+
+async def jimeng_login_read_stream(session_id, stream):
+    while True:
+        data = await stream.readline()
+        if not data:
+            break
+        text = decode_wsl_output(data) if jimeng_use_wsl() else data.decode("utf-8", errors="replace")
+        jimeng_login_mark_output(session_id, text)
+
+async def jimeng_login_watch_process(session_id):
+    with JIMENG_LOGIN_LOCK:
+        session = JIMENG_LOGIN_SESSIONS.get(session_id)
+        proc = session.get("proc") if session else None
+    if not proc:
+        return
+    returncode = await proc.wait()
+    with JIMENG_LOGIN_LOCK:
+        session = JIMENG_LOGIN_SESSIONS.get(session_id)
+        if not session:
+            return
+        session["returncode"] = returncode
+        if session.get("status") not in {"success", "canceled"}:
+            session["status"] = "failed" if returncode else "finished"
+            session["message"] = "登录进程已结束" if returncode == 0 else f"登录进程退出：{returncode}"
+        event = session.get("ready_event")
+        if event:
+            event.set()
 
 async def run_jimeng_cli(args, timeout=120):
     exe = jimeng_cli_executable()
@@ -6057,6 +6165,82 @@ async def jimeng_status():
         return {"installed": True, "logged_in": True, "raw": raw}
     except HTTPException as exc:
         return {"installed": True, "logged_in": False, "message": str(exc.detail)}
+
+@app.post("/api/jimeng/login/start")
+async def jimeng_login_start():
+    with JIMENG_LOGIN_LOCK:
+        active = next((item for item in JIMENG_LOGIN_SESSIONS.values() if item.get("status") in {"starting", "waiting"}), None)
+    if active:
+        state = jimeng_login_public_state(active)
+        if not state.get("verification_url") and active.get("ready_event"):
+            try:
+                await asyncio.wait_for(active["ready_event"].wait(), timeout=10)
+            except asyncio.TimeoutError:
+                pass
+            state = jimeng_login_public_state(active)
+        return state
+    command = jimeng_login_command()
+    session_id = uuid.uuid4().hex[:12]
+    ready_event = asyncio.Event()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=BASE_DIR,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=f"未找到即梦 CLI：{command[0]}") from exc
+    session = {
+        "id": session_id,
+        "proc": proc,
+        "status": "starting",
+        "message": "正在启动 dreamina login",
+        "output": [],
+        "ready_event": ready_event,
+        "returncode": None,
+    }
+    with JIMENG_LOGIN_LOCK:
+        JIMENG_LOGIN_SESSIONS[session_id] = session
+    asyncio.create_task(jimeng_login_read_stream(session_id, proc.stdout))
+    asyncio.create_task(jimeng_login_read_stream(session_id, proc.stderr))
+    asyncio.create_task(jimeng_login_watch_process(session_id))
+    try:
+        await asyncio.wait_for(ready_event.wait(), timeout=15)
+    except asyncio.TimeoutError:
+        pass
+    state = jimeng_login_public_state(session)
+    if not state.get("verification_url") and state.get("status") not in {"success", "finished"}:
+        state["message"] = state.get("message") or "已启动登录进程，仍在等待 CLI 输出登录地址"
+    return state
+
+@app.get("/api/jimeng/login/{session_id}/status")
+async def jimeng_login_status(session_id: str):
+    with JIMENG_LOGIN_LOCK:
+        session = JIMENG_LOGIN_SESSIONS.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="登录会话不存在或已结束")
+    return jimeng_login_public_state(session)
+
+@app.post("/api/jimeng/login/{session_id}/cancel")
+async def jimeng_login_cancel(session_id: str):
+    with JIMENG_LOGIN_LOCK:
+        session = JIMENG_LOGIN_SESSIONS.get(session_id)
+        proc = session.get("proc") if session else None
+        if session and session.get("status") not in {"success", "finished", "failed"}:
+            session["status"] = "canceled"
+            session["message"] = "用户已关闭登录弹框"
+    if proc and proc.returncode is None:
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    return {"ok": True}
 
 @app.get("/api/config")
 async def ai_config():
