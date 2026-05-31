@@ -18,6 +18,7 @@ RUN curl -fsSL https://jimeng.jianying.com/cli -o /tmp/install-dreamina.sh \
     && HOME=/home/appuser DREAMINA_INSTALL_DIR=/usr/local/bin bash /tmp/install-dreamina.sh \
     && rm -f /tmp/install-dreamina.sh \
     && test -x /usr/local/bin/dreamina \
+    && cp -a /home/appuser/.dreamina_cli /opt/dreamina-cli-template \
     && chown -R appuser:appuser /home/appuser/.dreamina_cli /home/appuser/.profile
 
 COPY requirements.txt ./
