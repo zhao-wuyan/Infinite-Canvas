@@ -39,6 +39,7 @@ If the repository owner or name changes, copy `.env.example` to `.env` and updat
 docker-data/API/               API keys and generated .env
 docker-data/assets/            uploaded assets and generated media
 docker-data/data/              conversations, canvases, providers, backups, history, legacy config
+docker-data/dreamina-cli/      Dreamina/Jimeng CLI login state
 docker-data/output/            legacy output files
 docker-data/workflows-custom/  uploaded custom workflows
 ```
@@ -64,6 +65,18 @@ ComfyUI must listen on a reachable address, for example:
 ```bash
 python main.py --listen 0.0.0.0 --port 8188
 ```
+
+## Jimeng CLI
+
+The Docker image installs the Dreamina/Jimeng CLI as `/usr/local/bin/dreamina` during the build. The app uses `DREAMINA_BIN=/usr/local/bin/dreamina` by default inside the container.
+
+The image does not include a logged-in Jimeng session. After starting a new data volume, run:
+
+```bash
+docker compose exec infinite-canvas dreamina login --headless
+```
+
+The Compose file persists this login state under `docker-data/dreamina-cli/`.
 
 ## LAN Access and Security
 
