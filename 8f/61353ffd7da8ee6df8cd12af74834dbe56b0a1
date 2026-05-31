@@ -1,0 +1,28 @@
+static/css/api-settings.css
+  s_ca5b88ac3ccde7::t_7d6a1ca02d395e 164-174
+main.py
+  s_ca5b88ac3ccde7::t_313c234f2f5f0b 223-224,2804-2909
+  s_ca5b88ac3ccde7::t_aeeee5924615e8 5844-5919
+static/js/api-settings.js
+  s_ca5b88ac3ccde7::t_6eeb6a65ae1ca8 2205-2323
+  s_ca5b88ac3ccde7::t_022280908f1185 50-56,106
+static/api-settings.html
+  s_ca5b88ac3ccde7::t_a6df2c372c7ab5 214-216
+  s_ca5b88ac3ccde7::t_ba0346f739bc27 346-366
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8f61353ffd7da8ee6df8cd12af74834dbe56b0a1",
+  "prompts": {},
+  "sessions": {
+    "s_ca5b88ac3ccde7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7d70-f381-7d80-838d-976c4d1c6377",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
