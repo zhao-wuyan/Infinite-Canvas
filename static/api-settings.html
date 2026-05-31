@@ -211,7 +211,7 @@
                                         <option value="jimeng">即梦 CLI</option>
                                     </select>
                                 </div>
-                                <button id="jimengLoginBtn" class="action-btn jimeng-login-btn" type="button" onclick="startJimengLogin()">
+                                <button id="jimengLoginBtn" class="action-btn jimeng-login-btn" type="button" onclick="handleJimengAuthAction()">
                                     <i data-lucide="log-in" class="w-3.5 h-3.5"></i><span>登录即梦</span>
                                 </button>
                             </div>
@@ -347,7 +347,7 @@
         <div class="picker-modal jimeng-login-modal">
             <div class="picker-head">
                 <div>
-                    <div class="picker-title">即梦 CLI 登录</div>
+                    <div id="jimengLoginTitle" class="picker-title">即梦 CLI 登录</div>
                     <div id="jimengLoginSubtitle" class="picker-count">已获取登录地址，点击确定后打开新标签页。</div>
                 </div>
                 <button class="picker-close" type="button" onclick="closeJimengLoginModal(true)"><i data-lucide="x" class="w-4 h-4"></i></button>
