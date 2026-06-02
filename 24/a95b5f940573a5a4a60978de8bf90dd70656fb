@@ -1,0 +1,21 @@
+packaging/macos/build_dmg.py
+  s_b2f7479787c8aa::t_b89a7186fe8bbd 7-8,18-53,62-68
+tests/test_macos_build_dmg.py
+  s_b2f7479787c8aa::t_c5456aeb25b659 5,8,31-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "24a95b5f940573a5a4a60978de8bf90dd70656fb",
+  "prompts": {},
+  "sessions": {
+    "s_b2f7479787c8aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e8825-afa3-7e92-934b-c2ae60394ba1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
