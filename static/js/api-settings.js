@@ -26,6 +26,10 @@ const jimengLoginBox = document.getElementById('jimengLoginBox');
 const jimengHelpOverlay = document.getElementById('jimengHelpOverlay');
 const jimengHelpCommand = document.getElementById('jimengHelpCommand');
 const jimengHelpOutput = document.getElementById('jimengHelpOutput');
+const jimengLogoutOverlay = document.getElementById('jimengLogoutOverlay');
+const jimengLogoutStatus = document.getElementById('jimengLogoutStatus');
+const jimengLogoutOutput = document.getElementById('jimengLogoutOutput');
+const jimengLogoutConfirmBtn = document.getElementById('jimengLogoutConfirmBtn');
 const runninghubConfigBlock = document.getElementById('runninghubConfigBlock');
 const rhPasteInput = document.getElementById('rhPasteInput');
 const rhAppsList = document.getElementById('rhAppsList');
@@ -2275,8 +2279,35 @@ async function refreshJimengCredit(){
         if(jimengCredit) jimengCredit.textContent = e.message || String(e);
     }
 }
-async function logoutJimeng(){
-    if(!confirm('确认退出即梦 CLI 登录？')) return;
+function openJimengLogoutModal(){
+    if(jimengLogoutStatus){
+        jimengLogoutStatus.textContent = '确认要登出当前即梦账号吗？';
+        jimengLogoutStatus.style.color = 'var(--text)';
+    }
+    if(jimengLogoutOutput) jimengLogoutOutput.textContent = '命令：dreamina logout';
+    if(jimengLogoutConfirmBtn){
+        jimengLogoutConfirmBtn.disabled = false;
+        jimengLogoutConfirmBtn.textContent = '确认登出';
+    }
+    if(jimengLogoutOverlay) jimengLogoutOverlay.style.display = 'flex';
+    refreshIcons();
+}
+function closeJimengLogoutModal(){
+    if(jimengLogoutOverlay) jimengLogoutOverlay.style.display = 'none';
+}
+function logoutJimeng(){
+    openJimengLogoutModal();
+}
+async function performJimengLogout(){
+    if(jimengLogoutConfirmBtn){
+        jimengLogoutConfirmBtn.disabled = true;
+        jimengLogoutConfirmBtn.textContent = '登出中...';
+    }
+    if(jimengLogoutStatus){
+        jimengLogoutStatus.textContent = '正在执行 dreamina logout...';
+        jimengLogoutStatus.style.color = 'var(--text)';
+    }
+    showVerifyResult(`<span style="color:var(--muted);font-size:11px;font-weight:700">正在执行 dreamina logout...</span>`);
     try {
         const data = await fetch('/api/jimeng/logout', {method:'POST'}).then(async r => {
             const json = await r.json();
@@ -2286,9 +2317,26 @@ async function logoutJimeng(){
         setJimengStatus('已退出', false);
         if(jimengCredit) jimengCredit.textContent = prettyJson(data.raw);
         if(jimengLoginBox) jimengLoginBox.hidden = true;
+        if(jimengLogoutStatus){
+            jimengLogoutStatus.textContent = data.message || '即梦 CLI 已登出';
+            jimengLogoutStatus.style.color = '#15803d';
+        }
+        if(jimengLogoutOutput) jimengLogoutOutput.textContent = prettyJson(data.raw);
+        showVerifyResult(`<span style="color:#15803d;font-size:11px;font-weight:800">✓ 即梦 CLI 已登出</span>`);
+        setTimeout(closeJimengLogoutModal, 700);
     } catch(e){
         setJimengStatus('退出失败', false);
         if(jimengCredit) jimengCredit.textContent = e.message || String(e);
+        if(jimengLogoutStatus){
+            jimengLogoutStatus.textContent = e.message || String(e);
+            jimengLogoutStatus.style.color = '#b45309';
+        }
+        showVerifyResult(`<div style="font-size:11px;font-weight:800;color:#b45309">⚠ ${escapeHtml(e.message || String(e))}</div>`);
+    } finally {
+        if(jimengLogoutConfirmBtn){
+            jimengLogoutConfirmBtn.disabled = false;
+            jimengLogoutConfirmBtn.textContent = '确认登出';
+        }
     }
 }
 function openJimengHelp(){
