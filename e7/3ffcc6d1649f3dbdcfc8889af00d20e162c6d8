@@ -1,0 +1,20 @@
+static/js/api-settings.js
+  s_6ed3618d9fc6a5::t_c8aa82792ba2f7 2327,2331-2341,2352,2358,2361-2370,2373-2375,2383-2384,2386-2387,2389-2391,2393,2396-2398,2400,2402-2405
+  s_6ed3618d9fc6a5::t_851c4a2d37e3f1 113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e73ffcc6d1649f3dbdcfc8889af00d20e162c6d8",
+  "prompts": {},
+  "sessions": {
+    "s_6ed3618d9fc6a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e87f0-190c-7092-b4a8-74f354af6215",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
