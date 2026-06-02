@@ -229,6 +229,9 @@
                                         <option value="jimeng">即梦 CLI</option>
                                     </select>
                                 </div>
+                                <button id="jimengLoginBtn" class="action-btn jimeng-login-btn" type="button" onclick="handleJimengAuthAction()">
+                                    <i data-lucide="log-in" class="w-3.5 h-3.5"></i><span>登录即梦</span>
+                                </button>
                             </div>
                             <div id="verifyResult" style="display:none;padding:2px 0;grid-column:1/-1"></div>
                         </div>
@@ -355,6 +358,54 @@
             </div>
             <div id="recommendApiList" class="recommend-api-body"></div>
             <div class="recommend-note" data-i18n="api.recommendApiNote">提示：账户内需要至少 0.05 元余额，才能验证地址并拉取模型。</div>
+        </div>
+    </div>
+
+    <div id="jimengLoginOverlay" class="picker-overlay jimeng-login-overlay">
+        <div class="picker-modal jimeng-login-modal">
+            <div class="picker-head">
+                <div>
+                    <div id="jimengLoginTitle" class="picker-title">即梦 CLI 登录</div>
+                    <div id="jimengLoginSubtitle" class="picker-count">已获取登录地址，点击确定后打开新标签页。</div>
+                </div>
+                <button class="picker-close" type="button" onclick="closeJimengLoginModal(true)"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            <div class="jimeng-login-body">
+                <div id="jimengLoginStatus" class="jimeng-login-status">等待打开登录页面...</div>
+                <div class="jimeng-login-url-wrap">
+                    <span>登录地址</span>
+                    <a id="jimengLoginUrl" href="#" target="_blank" rel="noopener"></a>
+                </div>
+                <div id="jimengLoginCode" class="jimeng-login-code"></div>
+                <pre id="jimengLoginOutput" class="jimeng-login-output"></pre>
+            </div>
+            <div class="picker-foot">
+                <button class="action-btn" type="button" onclick="closeJimengLoginModal(true)">关闭</button>
+                <button id="jimengLoginOpenBtn" class="action-btn save-btn" type="button" onclick="openJimengLoginUrl()">确定并打开登录页</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="jimengInstallOverlay" class="picker-overlay jimeng-login-overlay">
+        <div class="picker-modal jimeng-login-modal">
+            <div class="picker-head">
+                <div>
+                    <div class="picker-title">安装即梦 CLI</div>
+                    <div id="jimengInstallSubtitle" class="picker-count">未检测到本机 dreamina CLI，可下载官方原生版本。</div>
+                </div>
+                <button class="picker-close" type="button" onclick="closeJimengInstallModal()"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+            <div class="jimeng-login-body">
+                <div id="jimengInstallStatus" class="jimeng-login-status">即梦 CLI 未安装。</div>
+                <div class="jimeng-install-detail">
+                    将使用官方 CLI 下载源安装到本地托管目录，并写入当前 API 环境配置。安装完成后请点击“登录即梦”完成授权。
+                </div>
+                <pre id="jimengInstallOutput" class="jimeng-login-output"></pre>
+            </div>
+            <div class="picker-foot">
+                <button class="action-btn" type="button" onclick="closeJimengInstallModal()">稍后处理</button>
+                <button id="jimengInstallStartBtn" class="action-btn save-btn" type="button" onclick="startJimengInstall()">下载并安装</button>
+            </div>
         </div>
     </div>
 
