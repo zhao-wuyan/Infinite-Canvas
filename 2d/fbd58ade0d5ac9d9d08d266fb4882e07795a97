@@ -1,0 +1,23 @@
+tests/test_app_runtime.py
+  s_68c669b0dd7237::t_da0fc4ead89d87 52-55,58,68,70
+  s_68c669b0dd7237::t_8d4806144b6266 1
+  s_68c669b0dd7237::t_3c86cfc593849d 50-51,56-57,59-67,69
+main.py
+  s_68c669b0dd7237::t_c76711cde358ae 217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "2dfbd58ade0d5ac9d9d08d266fb4882e07795a97",
+  "prompts": {},
+  "sessions": {
+    "s_68c669b0dd7237": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9c39-dbe9-7fe2-8cb5-b1313bcddd91",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
