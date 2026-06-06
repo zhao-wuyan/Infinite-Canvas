@@ -30,6 +30,7 @@ from threading import Lock, Thread
 import httpx
 from PIL import Image
 from io import BytesIO
+from app_runtime import DEFAULT_APP_HOST, DEFAULT_APP_PORT, resolve_app_port, resolve_runtime_paths
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
