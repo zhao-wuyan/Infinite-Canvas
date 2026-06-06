@@ -25,6 +25,7 @@ import tempfile
 import math
 import shlex
 import functools
+import textwrap
 from typing import List, Dict, Any, Optional, Tuple
 from threading import Lock, Thread
 import httpx
@@ -1284,8 +1285,47 @@ def current_app_version():
     except Exception:
         return ""
 
-def versioned_static_html(html: str) -> str:
+STATIC_ASSET_VERSION_CACHE: Dict[str, str] = {"key": "", "value": ""}
+
+def static_asset_fingerprint_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        data = f.read()
+    if path.lower().endswith(".html"):
+        return re.sub(rb'([?&]v=)[^"\'`\s<>)]*', rb'\1', data)
+    return data
+
+def static_asset_version() -> str:
     version = current_app_version()
+    watched_paths = [
+        os.path.join(BASE_DIR, "VERSION"),
+        os.path.join(STATIC_DIR, "index.html"),
+        os.path.join(STATIC_DIR, "js", "i18n.js"),
+    ]
+    parts = [version]
+    for path in watched_paths:
+        try:
+            stat = os.stat(path)
+            parts.append(f"{path}:{stat.st_mtime_ns}:{stat.st_size}")
+        except OSError:
+            parts.append(f"{path}:missing")
+    cache_key = "|".join(parts)
+    if STATIC_ASSET_VERSION_CACHE.get("key") == cache_key:
+        return STATIC_ASSET_VERSION_CACHE.get("value") or version
+
+    digest = hashlib.sha256()
+    digest.update(version.encode("utf-8", errors="replace"))
+    for path in watched_paths:
+        if path.endswith(".js") or path.endswith(".html"):
+            try:
+                digest.update(static_asset_fingerprint_bytes(path))
+            except OSError:
+                pass
+    value = f"{version}.{digest.hexdigest()[:10]}" if version else digest.hexdigest()[:12]
+    STATIC_ASSET_VERSION_CACHE.update({"key": cache_key, "value": value})
+    return value
+
+def versioned_static_html(html: str) -> str:
+    version = static_asset_version()
     if not version:
         return html
     safe_version = urllib.parse.quote(version, safe="._-")
@@ -1529,8 +1569,56 @@ def update_connectivity_probe(name: str):
             return item
     raise HTTPException(status_code=404, detail="未知的连通性检测目标")
 
+def join_update_url(base_url: str, endpoint: str) -> str:
+    return str(base_url or "").rstrip("/") + "/" + str(endpoint or "").lstrip("/")
+
+def launcher_update_endpoint_defaults() -> Dict[str, str]:
+    prefix = "macos" if sys.platform == "darwin" else "windows"
+    return {
+        "version_endpoint": f"{prefix}-VERSION",
+        "manifest_endpoint": f"{prefix}-manifest.json",
+        "payload_endpoint": f"{prefix}-app-base.zip",
+        "update_base_url": os.getenv("INFINITE_CANVAS_UPDATE_BASE_URL", "").strip(),
+    }
+
+def launcher_update_config() -> Dict[str, str]:
+    defaults = launcher_update_endpoint_defaults()
+    return {
+        "version_endpoint": os.getenv("INFINITE_CANVAS_VERSION_ENDPOINT", defaults["version_endpoint"]).strip() or defaults["version_endpoint"],
+        "manifest_endpoint": os.getenv("INFINITE_CANVAS_MANIFEST_ENDPOINT", defaults["manifest_endpoint"]).strip() or defaults["manifest_endpoint"],
+        "payload_endpoint": os.getenv("INFINITE_CANVAS_PAYLOAD_ENDPOINT", defaults["payload_endpoint"]).strip() or defaults["payload_endpoint"],
+        "update_base_url": defaults["update_base_url"],
+    }
+
+def launcher_update_connectivity_targets(config: Optional[Dict[str, str]] = None) -> List[Tuple[str, str, str, bool]]:
+    config = config or launcher_update_config()
+    base_url = config.get("update_base_url", "")
+    return [
+        ("打包版本文件", join_update_url(base_url, config.get("version_endpoint", "")), "发布下载入口", True),
+        ("打包清单文件", join_update_url(base_url, config.get("manifest_endpoint", "")), "发布下载入口", True),
+        ("打包更新包", join_update_url(base_url, config.get("payload_endpoint", "")), "发布下载入口", True),
+    ]
+
 @app.get("/api/update-connectivity")
 def update_connectivity():
+    if LAUNCHER_MANAGED:
+        config = launcher_update_config()
+        mode = os.getenv("INFINITE_CANVAS_LAUNCHER_MODE", "")
+        targets = launcher_update_connectivity_targets()
+        results = []
+        for name, url, source, required in targets:
+            item = connectivity_probe(name, url)
+            item["source"] = source
+            item["required"] = required
+            results.append(item)
+        return {
+            **config,
+            "ok": all(item["ok"] for item in results if item.get("required")),
+            "mode": mode,
+            "results": results,
+            "required": [item["name"] for item in results if item.get("required")],
+            "optional": [],
+        }
     targets = update_connectivity_targets()
     results = []
     for name, url, source, required in targets:
@@ -1552,6 +1640,187 @@ def update_connectivity():
         "required": sources["github"]["required"],
         "optional": ["GitHub 主页", "ModelScope 空间页面", "ModelScope 主页", "Google 连通性"],
     }
+
+@app.get("/api/launcher/status")
+def launcher_status_api():
+    if not LAUNCHER_MANAGED:
+        raise HTTPException(status_code=404, detail="launcher unavailable")
+    return {
+        **launcher_update_config(),
+        "managed_by_launcher": True,
+        "mode": os.getenv("INFINITE_CANVAS_LAUNCHER_MODE", ""),
+        "storage_root": APP_DATA_ROOT,
+        "port": APP_PORT,
+    }
+
+def launcher_executable_path() -> str:
+    return os.getenv("INFINITE_CANVAS_LAUNCHER_EXE", "").strip()
+
+def call_launcher_command(*args: str) -> Dict[str, Any]:
+    launcher_exe = launcher_executable_path()
+    if not launcher_exe or not os.path.exists(launcher_exe):
+        raise HTTPException(status_code=500, detail="launcher executable missing")
+    try:
+        result = subprocess.run(
+            [launcher_exe, *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"launcher invoke failed: {exc}") from exc
+    stdout = (result.stdout or "").strip()
+    try:
+        payload = json.loads(stdout.splitlines()[-1]) if stdout else {}
+    except Exception:
+        payload = {"raw": stdout}
+    if result.returncode != 0:
+        detail = payload.get("detail") if isinstance(payload, dict) else ""
+        raise HTTPException(status_code=500, detail=detail or "launcher command failed")
+    return payload if isinstance(payload, dict) else {"raw": stdout}
+
+def hidden_windows_restart_flags() -> int:
+    return (
+        getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
+
+def vbs_string(value: str) -> str:
+    return '"' + str(value).replace('"', '""') + '"'
+
+def write_and_launch_vbs(script_path: str, script: str) -> None:
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(script)
+    subprocess.Popen(
+        ["wscript.exe", "//B", "//Nologo", script_path],
+        creationflags=hidden_windows_restart_flags(),
+        close_fds=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+def macos_app_bundle_from_launcher(launcher_exe: str) -> str:
+    macos_dir = os.path.dirname(os.path.abspath(launcher_exe or ""))
+    contents_dir = os.path.dirname(macos_dir)
+    app_bundle = os.path.dirname(contents_dir)
+    if (
+        os.path.basename(macos_dir) == "MacOS"
+        and os.path.basename(contents_dir) == "Contents"
+        and app_bundle.endswith(".app")
+        and os.path.isdir(app_bundle)
+    ):
+        return app_bundle
+    return ""
+
+def launcher_restart_storage_args() -> str:
+    if sys.platform != "darwin" or not APP_DATA_ROOT:
+        return ""
+    return " --storage-root " + shlex.quote(APP_DATA_ROOT)
+
+def schedule_launcher_restart(delay_seconds: int = 3) -> bool:
+    launcher_exe = launcher_executable_path()
+    if not launcher_exe or not os.path.exists(launcher_exe):
+        return False
+    delay = max(1, int(delay_seconds or 3))
+    pid = os.getpid()
+    restart_dir = DATA_DIR or BASE_DIR
+    os.makedirs(restart_dir, exist_ok=True)
+    try:
+        if os.name == "nt":
+            script_path = os.path.join(restart_dir, "_launcher_restart.vbs")
+            log_path = os.path.join(restart_dir, "_launcher_restart.log")
+            launcher_dir = os.path.dirname(launcher_exe)
+            script = textwrap.dedent(
+                f"""
+                Set shell = CreateObject("WScript.Shell")
+                Set fso = CreateObject("Scripting.FileSystemObject")
+                scriptPath = {vbs_string(script_path)}
+                logPath = {vbs_string(log_path)}
+                launcher = {vbs_string(launcher_exe)}
+                launcherDir = {vbs_string(launcher_dir)}
+                pid = {vbs_string(str(pid))}
+                delayMs = {delay * 1000}
+
+                Function Q(value)
+                    Q = Chr(34) & value & Chr(34)
+                End Function
+
+                Sub Log(message)
+                    On Error Resume Next
+                    Set file = fso.OpenTextFile(logPath, 8, True)
+                    file.WriteLine Now & " " & message
+                    file.Close
+                End Sub
+
+                Log "launcher restart scheduled"
+                WScript.Sleep delayMs
+                shell.Run "taskkill /F /PID " & pid, 0, True
+                WScript.Sleep 1200
+                shell.CurrentDirectory = launcherDir
+                shell.Run Q(launcher) & " --no-browser", 0, False
+                Log "launcher restart launched"
+                On Error Resume Next
+                fso.DeleteFile scriptPath, True
+                """
+            ).strip()
+            write_and_launch_vbs(script_path, script)
+        else:
+            script_path = os.path.join(restart_dir, "_launcher_restart.sh")
+            app_bundle = macos_app_bundle_from_launcher(launcher_exe) if sys.platform == "darwin" else ""
+            storage_args = launcher_restart_storage_args()
+            direct_launch = f"{shlex.quote(launcher_exe)} --no-browser{storage_args} >/dev/null 2>&1 &"
+            bundle_launch = (
+                f"/usr/bin/open -n {shlex.quote(app_bundle)} --args --no-browser{storage_args} >/dev/null 2>&1 || {direct_launch}"
+                if app_bundle
+                else direct_launch
+            )
+            script = (
+                "#!/bin/sh\n"
+                f"sleep {delay}\n"
+                f"kill -TERM {pid} 2>/dev/null\n"
+                "sleep 2\n"
+                f"{bundle_launch}\n"
+            )
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script)
+            os.chmod(script_path, 0o755)
+            subprocess.Popen(
+                ["/bin/sh", script_path],
+                start_new_session=True,
+                close_fds=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        return True
+    except Exception as exc:
+        logging.exception("schedule_launcher_restart failed: %s", exc)
+        return False
+
+class LauncherUpdateRequest(BaseModel):
+    auto_restart: bool = False
+    restart_delay: int = 3
+
+@app.get("/api/launcher/check-update")
+def launcher_check_update_api():
+    if not LAUNCHER_MANAGED:
+        raise HTTPException(status_code=404, detail="launcher unavailable")
+    return call_launcher_command("--check-update")
+
+@app.post("/api/launcher/apply-update")
+def launcher_apply_update_api(req: LauncherUpdateRequest = LauncherUpdateRequest()):
+    if not LAUNCHER_MANAGED:
+        raise HTTPException(status_code=404, detail="launcher unavailable")
+    result = call_launcher_command("--apply-update")
+    updated = bool(result.get("updated"))
+    restart_scheduled = False
+    if req.auto_restart and updated:
+        restart_scheduled = schedule_launcher_restart(req.restart_delay)
+    result["restart_required"] = updated
+    result["restart_scheduled"] = restart_scheduled
+    return result
 
 def fetch_remote_version(url: str, timeout: float = 5.0) -> Dict[str, Any]:
     info: Dict[str, Any] = {"version": "", "ok": False, "error": "", "url": url}
@@ -1766,7 +2035,7 @@ def schedule_self_restart(delay_seconds: int = 3) -> bool:
             launcher = os.path.join(BASE_DIR, "启动服务.bat")
             if not os.path.exists(launcher):
                 launcher = os.path.join(BASE_DIR, "start.bat")
-            bat_path = os.path.join(BASE_DIR, "_self_restart.bat")
+            bat_path = os.path.join(BASE_DIR, "_self_restart.vbs")
             log_path = os.path.join(BASE_DIR, "_self_restart.log")
             script = (
                 "@echo off\r\n"
@@ -1776,10 +2045,10 @@ def schedule_self_restart(delay_seconds: int = 3) -> bool:
                 f"set \"LAUNCHER={launcher}\"\r\n"
                 f"set \"LOG_FILE={log_path}\"\r\n"
                 "echo [%date% %time%] restart scheduled >> \"%LOG_FILE%\"\r\n"
-                f"timeout /t {delay} /nobreak >nul\r\n"
+                f"WScript.Sleep {delay * 1000}\r\n"
                 "echo [%date% %time%] stopping old process >> \"%LOG_FILE%\"\r\n"
                 f"taskkill /F /PID {pid} >nul 2>&1\r\n"
-                "timeout /t 2 /nobreak >nul\r\n"
+                "WScript.Sleep 2000\r\n"
                 "cd /d \"%APP_DIR%\"\r\n"
                 "if exist \"%LAUNCHER%\" (\r\n"
                 "  echo [%date% %time%] starting launcher: %LAUNCHER% >> \"%LOG_FILE%\"\r\n"
@@ -1794,13 +2063,7 @@ def schedule_self_restart(delay_seconds: int = 3) -> bool:
                 ")\r\n"
                 "del \"%~f0\"\r\n"
             )
-            with open(bat_path, "w", encoding="utf-8") as f:
-                f.write(script)
-            subprocess.Popen(
-                ["cmd", "/c", bat_path],
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-                close_fds=True,
-            )
+            write_and_launch_vbs(bat_path, script)
         else:
             launcher = os.path.join(BASE_DIR, "mac-启动服务.command")
             if not os.path.exists(launcher):
