@@ -1,3 +1,4 @@
+import ast
 import os
 import unittest
 
@@ -45,6 +46,27 @@ class ResolveRuntimePathsTests(unittest.TestCase):
             paths["RUNNINGHUB_WORKFLOW_STORE_FILE"],
             os.path.join(expected_data_root, "data", "runninghub_workflows.json"),
         )
+
+    def test_main_defines_used_runtime_path_globals(self):
+        runtime_keys = set(resolve_runtime_paths("/tmp/app"))
+        main_path = os.path.join(os.path.dirname(__file__), "..", "main.py")
+        with open(main_path, encoding="utf-8") as handle:
+            tree = ast.parse(handle.read())
+
+        defined_names = set()
+        used_names = set()
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        defined_names.add(target.id)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                defined_names.add(node.name)
+            for child in ast.walk(node):
+                if isinstance(child, ast.Name):
+                    used_names.add(child.id)
+
+        self.assertFalse((runtime_keys & used_names) - defined_names)
 
     def test_resolve_app_port_uses_default_for_invalid_values(self):
         self.assertEqual(resolve_app_port(""), 3000)
