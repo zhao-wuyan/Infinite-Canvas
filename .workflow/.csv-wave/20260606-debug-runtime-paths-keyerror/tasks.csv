@@ -1,0 +1,4 @@
+id,title,description,hypothesis,deps,context_from,wave,status,result_status,verified,findings,evidence_for,evidence_against,error
+H1,Runtime paths missing keys,Investigate whether main.py requires keys absent from app_runtime.resolve_runtime_paths,main.py RUNTIME_PATHS access drifted from app_runtime returned keys,,,1,pending,,,,,
+H2,Docker payload mismatch,Investigate whether Docker/runtime payload omits required runtime files or stale code,Docker image may not contain app_runtime or updated code,,,1,pending,,,,,
+H3,Tests insufficient,Investigate whether startup tests only check assignments and miss real key/import failures,tests do not compare RUNTIME_PATHS usage against provider,,,1,pending,,,,,
