@@ -1,0 +1,21 @@
+.workflow/.csv-wave/20260606-debug-runtime-paths-keyerror/tasks.csv
+  s_209ae72c38f0f8::t_0e35cb52dbfa8f 1-4
+.workflow/.csv-wave/20260606-debug-runtime-paths-keyerror/understanding.md
+  s_209ae72c38f0f8::t_629746ac661721 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "8633bc5f990af5a2b0f45e620e8d8054e9f2e2c3",
+  "prompts": {},
+  "sessions": {
+    "s_209ae72c38f0f8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9c0f-f02a-7850-8982-5e690e955793",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
