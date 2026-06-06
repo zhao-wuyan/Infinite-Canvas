@@ -2547,7 +2547,7 @@
         }
         window.rollbackProjectUpdate = rollbackProjectUpdate;
 
-        async function checkForUpdates() {
+        async function checkForUpdates(manual = false) {
             const isEn = window.StudioI18n?.lang?.() === 'en';
             const badge = document.getElementById('project-version-badge');
             if(manual && badge) badge.classList.add('checking');
