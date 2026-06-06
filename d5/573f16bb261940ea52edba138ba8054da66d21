@@ -1,0 +1,22 @@
+static/index.html
+  s_92236adc512a7f::t_ed7b209628db58 2550
+tests/test_update_check_state.py
+  s_92236adc512a7f::t_5788afb10ebab1 10,19-20,25,27-28
+  s_92236adc512a7f::t_ed7b209628db58 21-24,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "d5573f16bb261940ea52edba138ba8054da66d21",
+  "prompts": {},
+  "sessions": {
+    "s_92236adc512a7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9d66-d2ef-7112-af50-d0f4494ee4fd",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
