@@ -145,6 +145,8 @@
         "api.recommendFhlSummary": { zh: "偏向 OpenAI 兼容体验，适合需要 Codex、GPT image 2 等模型能力的配置。", en: "OpenAI-compatible experience for Codex, GPT image 2, and related model capabilities." },
         "api.recommendYuliSummary": { zh: "模型种类齐全，图像、视频、LLM 一站覆盖，支持每日签到送积分，适合想低成本尝鲜各类模型的用户。", en: "Full coverage of image, video, and LLM models with daily check-in credits — great for low-cost access to a wide model lineup." },
         "api.recommendYuliPerk": { zh: "签到送积分", en: "Daily check-in credits" },
+        "api.recommendAgnesSummary": { zh: "免费可用的 Agnes AI 接口，支持图像与视频生成，适合快速测试和低成本接入。", en: "Free Agnes AI API for image and video generation, suitable for quick testing and low-cost setup." },
+        "api.recommendAgnesFree": { zh: "免费", en: "Free" },
         "api.recommendFeatured": { zh: "首选推荐", en: "Top Pick" },
         "api.tagImageModels": { zh: "图像模型", en: "Image Models" },
         "api.tagVideoModels": { zh: "视频模型", en: "Video Models" },

@@ -1,6 +1,7 @@
 # Infinite-Canvas
 Supports comfyui/API calls/modelscope calls
 
+
 详细教程：[https://youtu.be/1y9ShTvgC_w](https://youtu.be/r_y_9ALr7fg)
 
 由于最近很多API网址关停，我找到一个稳定的网址：
@@ -44,6 +45,8 @@ Commercial use is prohibited.
 * Software developed based on this code must remain open source and the original author must be credited.
 
 --------
+
+<img width="930" height="1446" alt="4667c56659701b214eedb7c933487a7f" src="https://github.com/user-attachments/assets/7c9a5366-52ed-4f11-a3fd-52a501901c51" />
 
 <img width="2079" height="665" alt="image" src="https://github.com/user-attachments/assets/8469923b-f7a2-403c-9c37-e6e789211f28" />
 
