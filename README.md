@@ -1,4 +1,16 @@
 # Infinite-Canvas
+
+> [!IMPORTANT]
+> 本仓库是 [hero8152/Infinite-Canvas](https://github.com/hero8152/Infinite-Canvas) 的 fork，由 `zhao-wuyan` 维护桌面打包、Docker 适配和发布流程。当前默认分支为 `pkg`，不代表上游官方发行版本；需要原始上游代码时请查看本仓库的 `main` 分支或直接访问上游仓库。
+
+## Fork 分支说明
+
+- `main`：纯上游基线，必须与 `hero8152/Infinite-Canvas` 的 `upstream/main` 保持 commit 和 tree 一致，不包含 fork 专属改动。
+- `docker`：从 `main` 单向继承，承载最小 Docker、容器运行和容器所需的即梦 runtime 适配。
+- `pkg`：从 `docker` 单向继承，承载 Windows/macOS 桌面打包、launcher、自更新、发布流程、AI 协作资产，以及 `pkg` 自己的 Docker/runtime 增强。
+
+上游同步方向固定为：`upstream/main → main → docker → pkg`。`pkg` 的增强不会反向合并到 `docker`，`docker` 的适配也不会反向合并到 `main`。
+
 Supports comfyui/API calls/modelscope calls
 
 配套的chrome采集插件已经上线：https://chromewebstore.google.com/detail/infinite-canvas-%E5%9B%BE%E5%83%8F%E8%A7%86%E9%A2%91%E6%96%87%E5%AD%97%E6%8A%93%E5%8F%96%E5%B7%A5/ajfhnbklbmpfaaookhfakohabnpmlcic?authuser=0&hl=en

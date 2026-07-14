@@ -14,7 +14,7 @@ keywords:
 
 ## Entries
 
-<spec-entry category="rule" keywords="upstream-sync,pkg-compatibility,pr-prep,gitnexus,repo-url" date="2026-05-25" source="user:2026-05-25">
+<spec-entry category="rule" keywords="upstream-sync,pkg-compatibility,pr-prep,gitnexus,repo-url" date="2026-05-25" source="user:2026-05-25" sid="S-20260714-8uvb" status="deprecated" superseded-by="S-20260714-l745">
 
 ### 上游同步、fork 适配与上游 PR 准备流程
 
@@ -42,7 +42,7 @@ keywords:
 
 </spec-entry>
 
-<spec-entry category="rule" keywords="ai-assets,pkg-only,pr-cleanup,workflow,upstream-pr" date="2026-05-25" source="user:2026-05-25">
+<spec-entry category="rule" keywords="ai-assets,pkg-only,pr-cleanup,workflow,upstream-pr" date="2026-05-25" source="user:2026-05-25" sid="S-20260714-6eq1">
 
 ### AI 协作资产只允许存在于 pkg，不得进入上游 PR
 
@@ -66,7 +66,7 @@ GitNexus 或其他影响分析工具可以使用 AI 协作资产理解 fork 的�
 
 </spec-entry>
 
-<spec-entry category="rule" keywords="pr-filtering,gitignore,ai-assets,defensive-filters,upstream-pr" date="2026-05-30" source="user:2026-05-30">
+<spec-entry category="rule" keywords="pr-filtering,gitignore,ai-assets,defensive-filters,upstream-pr" date="2026-05-30" source="user:2026-05-30" sid="S-20260714-1zlh">
 
 ### PR 过滤规则允许 .gitignore 与防御性排除例外
 
@@ -80,7 +80,7 @@ GitNexus 或其他影响分析工具可以使用 AI 协作资产理解 fork 的�
 
 </spec-entry>
 
-<spec-entry category="rule" keywords="upstream-sync,branch-flow,origin-main,pkg,pr-authorization" date="2026-05-27" source="user:2026-05-27">
+<spec-entry category="rule" keywords="upstream-sync,branch-flow,origin-main,pkg,pr-authorization" date="2026-05-27" source="user:2026-05-27" sid="S-20260714-wiga" status="deprecated" superseded-by="S-20260714-l745">
 
 ### 本 fork 的上游同步分支流向与推送授权规则
 
