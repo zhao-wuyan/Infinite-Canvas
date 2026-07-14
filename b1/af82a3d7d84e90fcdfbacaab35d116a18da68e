@@ -1,0 +1,24 @@
+README.md
+  s_b3d15f9cf194da::t_c16d5554e77bcb 3-12
+  s_b3d15f9cf194da::t_f5d8e8ca31f767 2,13
+.workflow/specs/quality-rules.md
+  s_b3d15f9cf194da::t_115df8b216b8ab 17,45,69,83
+.workflow/specs/review-standards.md
+  s_b3d15f9cf194da::t_c30eaaaef104dc 18-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "b1af82a3d7d84e90fcdfbacaab35d116a18da68e",
+  "prompts": {},
+  "sessions": {
+    "s_b3d15f9cf194da": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6067-da7b-7511-bf1c-a95281034343",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
