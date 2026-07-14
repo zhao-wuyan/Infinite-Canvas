@@ -5,23 +5,58 @@ function trf(key, values={}){
     return Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), tr(key));
 }
 function langIsEn(){ return window.StudioI18n?.lang?.() === 'en'; }
+const CANVAS_UPLOAD_MAX = 20;
+const CANVAS_REFERENCE_IMAGE_MAX = 20;
 function actionFailed(labelKey, detail=''){
     const label = tr(labelKey);
     return langIsEn() ? `${label} failed${detail ? `: ${detail}` : ''}` : `${label}失败${detail ? `：${detail}` : ''}`;
 }
 function noReturnedImage(labelKey){ return langIsEn() ? `${tr(labelKey)} failed: no image returned` : `${tr(labelKey)}失败：未返回图片`; }
-function canvasMediaPreviewUrl(url, size=512){
+function canvasOriginalMediaUrl(url){
     const raw = String(url || '');
+    if(!raw) return '';
+    try {
+        const parsed = new URL(raw, window.location.origin);
+        if(parsed.pathname === '/api/media-preview'){
+            const original = parsed.searchParams.get('url') || '';
+            return original || raw;
+        }
+    } catch(e) {}
+    return raw;
+}
+function canvasFileNameFromUrl(url=''){
+    try {
+        const parsed = new URL(String(url || ''), window.location.href);
+        return decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() || '');
+    } catch(e) {
+        return decodeURIComponent(String(url || '').split('?')[0].split('#')[0].split('/').filter(Boolean).pop() || '');
+    }
+}
+function canvasProxiedMediaUrl(url, name=''){
+    const raw = canvasOriginalMediaUrl(url);
+    if(!raw || raw.startsWith('/assets/') || raw.startsWith('/output/') || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+    if(!/^https?:\/\//i.test(raw)) return raw;
+    const filename = name || canvasFileNameFromUrl(raw) || 'preview';
+    return `/api/download-output?inline=1&url=${encodeURIComponent(raw)}&name=${encodeURIComponent(filename)}`;
+}
+function canvasDisplayMediaUrl(url, name=''){
+    const raw = canvasOriginalMediaUrl(url);
+    return /^https?:\/\//i.test(raw) ? canvasProxiedMediaUrl(raw, name) : raw;
+}
+function canvasMediaPreviewUrl(url, size=512){
+    const raw = canvasOriginalMediaUrl(url);
     if(!raw || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
-    if(!raw.startsWith('/output/') && !raw.startsWith('/assets/')) return raw;
-    if(!/\.(png|jpe?g|webp|gif|bmp|avif|tiff?|mp4|webm|mov|m4v|avi|mkv)(\?|#|$)/i.test(raw)) return raw;
+    if(!raw.startsWith('/output/') && !raw.startsWith('/assets/')) return canvasDisplayMediaUrl(raw);
+    if(!/\.(png|jpe?g|webp|gif|bmp|avif|tiff?|mp4|webm|mov|m4v|avi|mkv|flv)(\?|#|$)/i.test(raw)) return raw;
     const width = Math.max(64, Math.min(2048, Math.round(Number(size) || 512)));
     return `/api/media-preview?w=${width}&url=${encodeURIComponent(raw)}`;
 }
 function canvasPreviewImgHtml(url, size=512, attrs=''){
-    const original = String(url || '');
+    const original = canvasOriginalMediaUrl(url);
     const preview = canvasMediaPreviewUrl(original, size);
-    return `<img src="${escapeAttr(preview)}" data-preview-src="${escapeAttr(preview)}" data-original-src="${escapeAttr(original)}" data-url="${escapeAttr(original)}"${attrs ? ` ${attrs}` : ''}>`;
+    // loading=lazy：画布内容多时，视口外的缩略图不加载/不解码，避免一次性解码上百张图卡顿；
+    // decoding=async：解码放到主线程外，渲染时不阻塞。
+    return `<img loading="lazy" decoding="async" src="${escapeAttr(preview)}" data-preview-src="${escapeAttr(preview)}" data-original-src="${escapeAttr(original)}" data-url="${escapeAttr(original)}"${attrs ? ` ${attrs}` : ''}>`;
 }
 function loadCanvasOriginalImageDimensions(url){
     const src = String(url || '');
@@ -34,27 +69,40 @@ function loadCanvasOriginalImageDimensions(url){
     });
 }
 function canvasVideoPreviewHtml(url, size=512, attrs=''){
-    const original = String(url || '');
+    const original = canvasOriginalMediaUrl(url);
     const preview = canvasMediaPreviewUrl(original, size);
-    return `<img src="${escapeAttr(preview)}" data-preview-src="${escapeAttr(preview)}" data-original-src="${escapeAttr(original)}" data-url="${escapeAttr(original)}" data-preview-kind="video"${attrs ? ` ${attrs}` : ''}>`;
+    return `<img loading="lazy" decoding="async" src="${escapeAttr(preview)}" data-preview-src="${escapeAttr(preview)}" data-original-src="${escapeAttr(original)}" data-url="${escapeAttr(original)}" data-preview-kind="video"${attrs ? ` ${attrs}` : ''}>`;
 }
 function canvasVideoFallbackHtml(url, attrs=''){
-    const safe = escapeAttr(url || '');
-    return `<video src="${safe}" data-url="${safe}" muted preload="metadata" playsinline disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"${attrs ? ` ${attrs}` : ''}></video>`;
+    const original = canvasOriginalMediaUrl(url);
+    const src = canvasDisplayMediaUrl(original);
+    return `<video src="${escapeAttr(src)}" data-url="${escapeAttr(original)}" muted preload="metadata" playsinline disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"${attrs ? ` ${attrs}` : ''}></video>`;
 }
 function canvasVideoPlayerHtml(url, attrs=''){
-    const safe = escapeAttr(url || '');
-    return `<video src="${safe}" data-url="${safe}" controls autoplay playsinline preload="metadata" disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"${attrs ? ` ${attrs}` : ''}></video>`;
+    const original = canvasOriginalMediaUrl(url);
+    const src = canvasDisplayMediaUrl(original);
+    return `<video src="${escapeAttr(src)}" data-url="${escapeAttr(original)}" controls autoplay playsinline preload="metadata" disablepictureinpicture controlslist="nodownload noplaybackrate noremoteplayback"${attrs ? ` ${attrs}` : ''}></video>`;
 }
 function canvasActivateVideoPreview(img){
-    if(!img || img.dataset?.previewKind !== 'video') return false;
-    const original = img.dataset.originalSrc || img.dataset.url || img.getAttribute('src') || '';
+    if(!img) return false;
+    const target = img.matches?.('img[data-preview-kind="video"]') ? img : img.querySelector?.('img[data-preview-kind="video"]');
+    if(!target) {
+        const fallback = img.matches?.('video[data-url]') ? img : img.querySelector?.('video[data-url]');
+        if(fallback){
+            fallback.controls = true;
+            fallback.muted = false;
+            fallback.play?.().catch(() => {});
+            return true;
+        }
+        return false;
+    }
+    const original = canvasOriginalMediaUrl(target.dataset.originalSrc || target.dataset.url || target.getAttribute('src') || '');
     if(!original) return false;
     const tpl = document.createElement('template');
-    tpl.innerHTML = canvasVideoPlayerHtml(original, img.dataset.videoPlayerAttrs || '');
+    tpl.innerHTML = canvasVideoPlayerHtml(original, target.dataset.videoPlayerAttrs || '');
     const video = tpl.content.firstElementChild;
     if(!video) return false;
-    img.replaceWith(video);
+    target.replaceWith(video);
     video.parentElement?.querySelector?.('.canvas-video-play')?.style?.setProperty('display', 'none');
     video.play?.().catch(() => {});
     return true;
@@ -80,6 +128,70 @@ function bindCanvasPreviewImageFallbacks(root=document){
             if(original && img.getAttribute('src') !== original) img.src = original;
         });
     });
+}
+const CANVAS_SELECTED_HIGH_RES_DELAY = 320;
+let canvasSelectedHighResTimer = 0;
+let canvasSelectedHighResSeq = 0;
+const canvasSelectedHighResLoaded = new Set();
+const canvasSelectedHighResLoading = new Map();
+function canvasImageEditorIsOpen(){
+    return Boolean(document.getElementById('imageEditModal')?.classList.contains('open'));
+}
+function preloadCanvasSelectedHighRes(src){
+    if(!src || canvasSelectedHighResLoaded.has(src)) return Promise.resolve(true);
+    if(canvasSelectedHighResLoading.has(src)) return canvasSelectedHighResLoading.get(src);
+    const task = new Promise(resolve => {
+        const img = new Image();
+        img.decoding = 'async';
+        img.onload = async () => {
+            try { if(img.decode) await img.decode(); } catch(e) {}
+            canvasSelectedHighResLoaded.add(src);
+            resolve(true);
+        };
+        img.onerror = () => resolve(false);
+        img.src = src;
+    }).finally(() => canvasSelectedHighResLoading.delete(src));
+    canvasSelectedHighResLoading.set(src, task);
+    return task;
+}
+function syncCanvasSelectedImageResolution(root=nodesEl){
+    const selectedImages = [];
+    root.querySelectorAll?.('.node img[data-preview-src][data-original-src]').forEach(img => {
+        if(img.dataset.previewKind === 'video') return;
+        const nodeEl = img.closest('.node');
+        const selectedNode = Boolean(nodeEl?.dataset?.id && selected.has(nodeEl.dataset.id));
+        const preview = img.dataset.previewSrc || '';
+        const original = img.dataset.originalSrc || img.dataset.url || '';
+        if(!selectedNode){
+            delete img.dataset.selectedHighResTarget;
+            if(preview && img.getAttribute('src') !== preview) img.src = preview;
+            return;
+        }
+        const target = canvasDisplayMediaUrl(original);
+        if(!target) return;
+        img.dataset.selectedHighResTarget = target;
+        if(canvasSelectedHighResLoaded.has(target)){
+            if(img.getAttribute('src') !== target) img.src = target;
+            return;
+        }
+        if(preview && img.getAttribute('src') !== preview) img.src = preview;
+        selectedImages.push({img, target});
+    });
+    if(canvasSelectedHighResTimer) clearTimeout(canvasSelectedHighResTimer);
+    const seq = ++canvasSelectedHighResSeq;
+    if(!selectedImages.length || canvasImageEditorIsOpen()) return;
+    canvasSelectedHighResTimer = setTimeout(async () => {
+        canvasSelectedHighResTimer = 0;
+        if(seq !== canvasSelectedHighResSeq || canvasImageEditorIsOpen()) return;
+        await Promise.all(selectedImages.map(item => preloadCanvasSelectedHighRes(item.target)));
+        if(seq !== canvasSelectedHighResSeq || canvasImageEditorIsOpen()) return;
+        selectedImages.forEach(({img, target}) => {
+            if(!img.isConnected || img.dataset.selectedHighResTarget !== target) return;
+            const nodeEl = img.closest('.node');
+            if(!nodeEl?.dataset?.id || !selected.has(nodeEl.dataset.id)) return;
+            if(canvasSelectedHighResLoaded.has(target) && img.getAttribute('src') !== target) img.src = target;
+        });
+    }, CANVAS_SELECTED_HIGH_RES_DELAY);
 }
 function applyLanguage(lang){
     if(lang && window.StudioI18n) StudioI18n.set(lang);
@@ -120,6 +232,7 @@ window.addEventListener('studio-lang-change', () => {
     renderCanvasList();
     render();
 });
+window.addEventListener('studio-ui-scale-change', applyQuickToolbarState);
 const shell = document.getElementById('shell');
 const canvasGate = document.getElementById('canvasGate');
 const board = document.getElementById('board');
@@ -127,6 +240,7 @@ const world = document.getElementById('world');
 const nodesEl = document.getElementById('nodes');
 const minimap = document.getElementById('minimap');
 const minimapContent = document.getElementById('minimapContent');
+const canvasArrangeBtn = document.getElementById('canvasArrangeBtn');
 let minimapViewport = document.getElementById('minimapViewport');
 const linksEl = document.getElementById('links');
 const linkControlsEl = document.getElementById('linkControls');
@@ -221,6 +335,7 @@ let dragBoard = null;
 let minimapDrag = false;
 let minimapState = null;
 let minimapRenderQueued = false;
+let linksRenderQueued = false;
 let zoomPreviewState = null;
 let resizeNode = null;
 let llmPaneDrag = null;
@@ -245,7 +360,12 @@ let pendingPurgeCanvasId = null;
 let emojiPickerCanvasId = null;
 let canvasMetaAnchorId = '';
 let canvasSortMode = (() => { try { return localStorage.getItem('canvasSortMode') || 'recent'; } catch(e){ return 'recent'; } })();
+const CANVAS_LIST_PROJECT_KEY = 'canvasListCurrentProjectId';
 const CANVAS_COLOR_OPTIONS = ['red','orange','amber','green','teal','blue','violet','pink','slate'];
+// 先绑定返回，避免编辑器后续初始化较慢时丢失来源项目。
+backToManagerBtn?.addEventListener('click', () => {
+    window.location.href = canvasListUrlForProject(canvas?.project || requestedCanvasListProject() || rememberedCanvasListProject());
+});
 let localCanvasDirty = false;
 let savingCanvasNow = false;
 let saveCanvasAgain = false;
@@ -324,8 +444,11 @@ const cascadeSerialIds = new Set(); // 记录以串行循环模式启动的运�
 const cascadeContexts = new Map();
 let cropState = null;
 let cropDrag = null;
+let cropAspectPreset = 'free';
+let cropAspectRatio = null;
 let imageEditMode = 'crop';
 let imageEditModeTouched = false;
+let imageResizeScale = 0.5;
 let editDrawState = null;
 let editTextItems = [];
 let editTextSelectedId = '';
@@ -383,6 +506,7 @@ const CANVAS_THEME_KEY = 'canvas_theme';
 const QUICK_TOOLBAR_COLLAPSED_KEY = 'canvas_quick_toolbar_collapsed';
 const CANVAS_SESSION_VIEWPORTS_KEY = 'canvas_session_viewports_v1';
 let canvasSessionViewportFallback = {};
+let quickToolbarExpanded = false;
 const DEFAULT_VIDEO_MODELS = [
     // Veo
     'veo2', 'veo2-fast', 'veo2-pro',
@@ -448,7 +572,10 @@ function applyTheme(theme){
 function applyQuickToolbarState(){
     const toolbar = document.getElementById('quickToolbar');
     if(!toolbar) return;
-    const collapsed = localStorage.getItem(QUICK_TOOLBAR_COLLAPSED_KEY) === '1';
+    const uiScale = Number(getComputedStyle(document.documentElement).getPropertyValue('--studio-ui-scale')) || 1;
+    const isScaledUi = uiScale < 0.995;
+    const collapsed = !quickToolbarExpanded;
+    toolbar.classList.toggle('scale-expanded', isScaledUi && quickToolbarExpanded);
     toolbar.classList.toggle('collapsed', collapsed);
     const btn = toolbar.querySelector('.toolbar-toggle');
     if(btn){
@@ -459,8 +586,7 @@ function applyQuickToolbarState(){
 }
 function toggleQuickToolbar(){
     const toolbar = document.getElementById('quickToolbar');
-    const next = !toolbar?.classList.contains('collapsed');
-    localStorage.setItem(QUICK_TOOLBAR_COLLAPSED_KEY, next ? '1' : '0');
+    quickToolbarExpanded = Boolean(toolbar?.classList.contains('collapsed'));
     applyQuickToolbarState();
 }
 function loadLocalModelLists(){
@@ -632,6 +758,21 @@ function resolveImageModel(value){
     if(value === 'nano') return models.nano;
     return value || allImageModels(managedProviderId)[0] || models.gpt;
 }
+function isGptImageAutoSizeModel(model){
+    const raw = String(model || '').trim().toLowerCase();
+    const normalized = raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const compact = raw.replace(/[^a-z0-9]+/g, '');
+    return normalized === 'gpt-image-2'
+        || normalized.startsWith('gpt-image-2-')
+        || normalized.endsWith('-gpt-image-2')
+        || normalized.includes('-gpt-image-2-')
+        || compact === 'gptimage2'
+        || compact.startsWith('gptimage2')
+        || compact.endsWith('gptimage2');
+}
+function defaultApiImageResolution(model){
+    return isGptImageAutoSizeModel(resolveImageModel(model)) ? '4k' : '1k';
+}
 function normalizedImageQuality(value){
     const quality = String(value || 'auto').trim().toLowerCase();
     return ['low','medium','high'].includes(quality) ? quality : '';
@@ -692,9 +833,7 @@ function closeErrorModal(){
 async function copyErrorMessage(){
     const text = errorMessage?.textContent || '';
     if(!text) return;
-    try {
-        await navigator.clipboard.writeText(text);
-    } catch(e) {
+    if(!(await copyTextToClipboard(text))){
         const range = document.createRange();
         range.selectNodeContents(errorMessage);
         const sel = window.getSelection();
@@ -702,31 +841,66 @@ async function copyErrorMessage(){
         sel.addRange(range);
     }
 }
-async function copyTextToClipboard(text){
-    const value = String(text || '');
-    if(!value) return false;
+function copyTextWithCopyEvent(value){
+    let handled = false;
+    const onCopy = event => {
+        event.preventDefault();
+        event.clipboardData?.setData('text/plain', value);
+        handled = true;
+    };
+    document.addEventListener('copy', onCopy);
     try {
-        if(navigator.clipboard?.writeText){
-            await navigator.clipboard.writeText(value);
-            return true;
-        }
-    } catch(_) {}
+        return document.execCommand('copy') && handled;
+    } catch(_) {
+        return false;
+    } finally {
+        document.removeEventListener('copy', onCopy);
+    }
+}
+function copyTextWithTextarea(value){
+    let ta = null;
     try {
-        const ta = document.createElement('textarea');
+        ta = document.createElement('textarea');
         ta.value = value;
         ta.setAttribute('readonly', '');
         ta.style.position = 'fixed';
         ta.style.left = '-9999px';
         ta.style.top = '0';
+        ta.style.opacity = '0';
         document.body.appendChild(ta);
-        ta.focus();
+        ta.focus({preventScroll:true});
         ta.select();
-        const ok = document.execCommand('copy');
-        ta.remove();
-        return ok;
+        ta.setSelectionRange(0, ta.value.length);
+        return document.execCommand('copy');
     } catch(_) {
         return false;
+    } finally {
+        ta?.remove();
     }
+}
+async function clipboardMatchesText(value){
+    try {
+        if(navigator.clipboard?.readText && window.isSecureContext){
+            return (await navigator.clipboard.readText()) === value;
+        }
+    } catch(_) {}
+    return null;
+}
+async function copyTextToClipboard(text){
+    const value = String(text || '');
+    if(!value) return false;
+    if(copyTextWithCopyEvent(value) || copyTextWithTextarea(value)){
+        const verified = await clipboardMatchesText(value);
+        return verified !== false;
+    }
+    try {
+        if(navigator.clipboard?.writeText && window.isSecureContext !== false){
+            await navigator.clipboard.writeText(value);
+            const verified = await clipboardMatchesText(value);
+            return verified !== false;
+        }
+    } catch(_) {}
+    return false;
 }
 function parseRatioValue(value){
     const raw = String(value || '').trim();
@@ -767,6 +941,7 @@ function ratioPartsFromDimensions(width, height){
     return {width:best.width / g, height:best.height / g};
 }
 function apiImageSize(ratioValue, resolutionValue, customRatioValue = '', customSizeValue = ''){
+    if(resolutionValue === 'auto') return 'auto';
     if(resolutionValue === 'custom') return String(customSizeValue || '').trim();
     const resolutionKey = resolutionValue || '1k';
     if(ratioValue === 'custom' || ratioValue === 'source'){
@@ -808,6 +983,10 @@ function exceedsFourKStandard(width, height){
 }
 function normalizeApiNodeSizeChoice(node){
     if(!node) return;
+    const allowAuto = isGptImageAutoSizeModel(resolveImageModel(node.model));
+    if(allowAuto && node._apiResolutionUserSet !== true && (!node.resolution || node.resolution === '1k' || node.resolution === 'auto')) node.resolution = defaultApiImageResolution(node.model);
+    else if(!node.resolution) node.resolution = defaultApiImageResolution(node.model);
+    if(!allowAuto && node.resolution === 'auto') node.resolution = '1k';
 }
 async function generatorSizeForRun(gen, refs){
     if((gen.ratio || 'square') === 'source'){
@@ -825,7 +1004,7 @@ async function generatorSizeForRun(gen, refs){
     const ratio = (gen.ratio === 'source' && !gen.customRatio)
         ? 'square'
         : (gen.ratio ?? 'square');
-    return apiImageSize(ratio, gen.resolution || '1k', gen.customRatio || '', gen.customSize || '');
+    return apiImageSize(ratio, gen.resolution || defaultApiImageResolution(gen.model), gen.customRatio || '', gen.customSize || '');
 }
 function normalizeApiNodeLayout(node){
     if(!node || node.type !== 'generator') return;
@@ -866,7 +1045,39 @@ function setStatus(text){
     document.getElementById('saveState').textContent = text;
     if(gateStatus) gateStatus.textContent = text;
 }
+let generationCompleteSoundAt = 0;
+function playGenerationCompleteSound(){
+    const now = Date.now();
+    if(now - generationCompleteSoundAt < 1200) return;
+    generationCompleteSoundAt = now;
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if(!AudioCtx) return;
+        const ctx = playGenerationCompleteSound._ctx || (playGenerationCompleteSound._ctx = new AudioCtx());
+        const play = () => {
+            const start = ctx.currentTime + 0.015;
+            [
+                {freq:660, at:0, duration:0.12},
+                {freq:880, at:0.12, duration:0.16}
+            ].forEach(tone => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(tone.freq, start + tone.at);
+                gain.gain.setValueAtTime(0.0001, start + tone.at);
+                gain.gain.exponentialRampToValueAtTime(0.075, start + tone.at + 0.018);
+                gain.gain.exponentialRampToValueAtTime(0.0001, start + tone.at + tone.duration);
+                osc.connect(gain).connect(ctx.destination);
+                osc.start(start + tone.at);
+                osc.stop(start + tone.at + tone.duration + 0.02);
+            });
+        };
+        if(ctx.state === 'suspended') ctx.resume().then(play).catch(() => {});
+        else play();
+    } catch(e) {}
+}
 function refreshGateViewControls(){
+    if(!canvasGate) return;
     canvasGate.classList.toggle('trash-mode', trashMode);
     if(gateTitleText) gateTitleText.textContent = trashMode ? tr('canvas.trash') : tr('canvas.selectCanvas');
     if(gateSubtitle) gateSubtitle.textContent = trashMode ? tr('canvas.trashSubtitle') : tr('canvas.subtitle');
@@ -973,8 +1184,18 @@ function scheduleMinimapRender(){
         renderMinimap();
     });
 }
+// 拖动/缩放节点时每个 mousemove 都全量重建连线 SVG 会掉帧；用 rAF 合并成每帧最多刷新一次。
+function scheduleLinksRender(){
+    if(linksRenderQueued) return;
+    linksRenderQueued = true;
+    requestAnimationFrame(() => {
+        linksRenderQueued = false;
+        renderLinks();
+    });
+}
 function renderMinimap(){
     if(!minimapContent || !minimapViewport) return;
+    canvasArrangeBtn?.classList.toggle('visible', selected.size > 0);
     const bounds = minimapBounds();
     const cw = minimapContent.clientWidth || 172;
     const ch = minimapContent.clientHeight || 110;
@@ -1343,6 +1564,8 @@ async function setTrashMode(active){
     refreshIcons();
 }
 function renderCanvasList(){
+    // 选画布 gate 已拆分到独立页面 canvas-list.html；编辑器页不再有该 DOM，调用直接跳过。
+    if(!gateCanvasList) return;
     renderCanvasListInto(gateCanvasList);
 }
 function compareCanvasRecords(a, b){
@@ -1785,6 +2008,7 @@ async function openCanvas(id){
         const data = await res.json();
         resetCascadeRuntimeState();
         canvas = data.canvas;
+        rememberCanvasListProject(canvas.project || 'default');
         const touched = await touchCanvasOpened(canvas.id);
         if(touched?.updated_at) canvas.updated_at = Number(touched.updated_at);
         if((canvas.kind || 'classic') === 'smart'){
@@ -1812,6 +2036,8 @@ async function openCanvas(id){
     } catch(e) {
         setStatus(tr('canvas.openFailed'));
         console.error(e);
+        // 打开失败（id 无效/已删除）：回到选画布页面，避免停在空白编辑器。
+        window.location.replace(canvasListUrlForProject(canvas?.project || requestedCanvasListProject() || rememberedCanvasListProject()));
     }
 }
 function applyRemoteCanvasData(remote){
@@ -2058,18 +2284,19 @@ window.loadCanvasList = loadCanvasList;
 window.openCanvas = openCanvas;
 window.deleteCanvas = deleteCanvas;
 window.returnToCanvasManager = returnToCanvasManager;
-gateCreateBtn.addEventListener('click', () => setCreateMode(true));
+// 选画布 gate 已拆分到 canvas-list.html；编辑器页不再含这些元素，用可选链避免空引用报错。
+gateCreateBtn?.addEventListener('click', () => setCreateMode(true));
 gateCreateSmartBtn?.addEventListener('click', createSmartCanvas);
-gateBackBtn.addEventListener('click', () => setTrashMode(false));
-gateTrashBtn.addEventListener('click', () => setTrashMode(true));
-gateRefreshBtn.addEventListener('click', () => trashMode ? loadTrashList() : loadCanvasList(false));
+gateBackBtn?.addEventListener('click', () => setTrashMode(false));
+gateTrashBtn?.addEventListener('click', () => setTrashMode(true));
+gateRefreshBtn?.addEventListener('click', () => trashMode ? loadTrashList() : loadCanvasList(false));
 document.getElementById('gateSortSwitch')?.addEventListener('click', e => {
     const btn = e.target.closest('[data-sort]');
     if(btn) setCanvasSortMode(btn.dataset.sort);
 });
-gateConfirmBtn.addEventListener('click', createCanvas);
-gateCancelBtn.addEventListener('click', () => setCreateMode(false));
-gateTitleInput.addEventListener('keydown', e => {
+gateConfirmBtn?.addEventListener('click', createCanvas);
+gateCancelBtn?.addEventListener('click', () => setCreateMode(false));
+gateTitleInput?.addEventListener('keydown', e => {
     if(e.key === 'Enter') createCanvas();
     if(e.key === 'Escape') setCreateMode(false);
 });
@@ -2082,8 +2309,40 @@ document.addEventListener('mousedown', e => {
 gateCanvasList?.addEventListener('scroll', () => requestAnimationFrame(positionCanvasMetaPopover), {passive:true});
 window.addEventListener('resize', () => requestAnimationFrame(positionCanvasMetaPopover));
 window.addEventListener('studio-theme-change', event => applyTheme(event.detail?.theme || 'light'));
-document.getElementById('cropBox').addEventListener('mousedown', event => beginCropDrag(event, 'move'));
-document.getElementById('cropHandle').addEventListener('mousedown', event => beginCropDrag(event, 'resize'));
+function cropDragModeFromPointer(event){
+    const explicit = event.target.closest?.('[data-crop-handle]')?.dataset?.cropHandle;
+    if(explicit) return `crop-${explicit}`;
+    if(imageEditMode !== 'crop') return 'move';
+    const box = document.getElementById('cropBox');
+    const rect = box?.getBoundingClientRect?.();
+    if(!rect) return 'move';
+    const slop = 16;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const nearL = x <= slop;
+    const nearR = rect.width - x <= slop;
+    const nearT = y <= slop;
+    const nearB = rect.height - y <= slop;
+    if(nearT && nearL) return 'crop-nw';
+    if(nearT && nearR) return 'crop-ne';
+    if(nearB && nearL) return 'crop-sw';
+    if(nearB && nearR) return 'crop-se';
+    if(nearT) return 'crop-n';
+    if(nearR) return 'crop-e';
+    if(nearB) return 'crop-s';
+    if(nearL) return 'crop-w';
+    return 'move';
+}
+document.getElementById('cropBox').addEventListener('mousedown', event => beginCropDrag(event, cropDragModeFromPointer(event)));
+document.querySelectorAll('[data-crop-handle]').forEach(handle => {
+    handle.addEventListener('mousedown', event => beginCropDrag(event, `crop-${handle.dataset.cropHandle || 'se'}`));
+});
+document.querySelectorAll('[data-crop-ratio]').forEach(btn => {
+    btn.addEventListener('click', event => {
+        event.stopPropagation();
+        setCropAspectPreset(btn.dataset.cropRatio || 'free');
+    });
+});
 document.getElementById('outpaintFrame')?.addEventListener('mousedown', event => {
     if(event.target.closest('[data-outpaint-handle]')) return;
     document.getElementById('cropCanvas')?.classList.add('dragging-image');
@@ -2135,6 +2394,9 @@ document.getElementById('editTextCanvas')?.addEventListener('dblclick', event =>
         refreshGridSplitPreview();
     });
 });
+['imageResizeScaleRange','imageResizeScaleInput'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', event => setImageResizeScale(event.target.value));
+});
 // 图片编辑区滚轮缩放
 document.getElementById('imageEditStage').addEventListener('wheel', event => {
     if(!cropState) return;
@@ -2158,7 +2420,24 @@ document.getElementById('imageEditStage').addEventListener('wheel', event => {
 window.addEventListener('resize', () => {
     if(cropState) syncImageEditOverflow();
 });
-backToManagerBtn.addEventListener('click', returnToCanvasManager);
+function rememberCanvasListProject(projectId){
+    const pid = projectId || 'default';
+    try { localStorage.setItem(CANVAS_LIST_PROJECT_KEY, pid); } catch(e){}
+    return pid;
+}
+
+function rememberedCanvasListProject(){
+    try { return localStorage.getItem(CANVAS_LIST_PROJECT_KEY) || 'default'; } catch(e){ return 'default'; }
+}
+
+function requestedCanvasListProject(){
+    try { return new URLSearchParams(window.location.search).get('project') || ''; } catch(e){ return ''; }
+}
+
+function canvasListUrlForProject(projectId){
+    const pid = rememberCanvasListProject(projectId);
+    return `/static/canvas-list.html?project=${encodeURIComponent(pid)}`;
+}
 
 function addNode(node){
     if(!ensureCanvas()) return;
@@ -2232,7 +2511,8 @@ function addLLMNode(point){
 function addGeneratorNode(point){
     const p = point || defaultPoint(120, 0);
     const providerId = imageApiProviders()[0]?.id || '';
-    return addNode({id:uid('gen'), type:'generator', x:p.x, y:p.y, apiProvider:providerId, model:allImageModels(providerId)[0] || '', ratio:'square', resolution:'1k', customRatio:'', customSize:'', customRatioWidth:'', customRatioHeight:'', customWidth:'', customHeight:'', inputs:[]});
+    const model = allImageModels(providerId)[0] || '';
+    return addNode({id:uid('gen'), type:'generator', x:p.x, y:p.y, apiProvider:providerId, model, ratio:'square', resolution:defaultApiImageResolution(model), customRatio:'', customSize:'', customRatioWidth:'', customRatioHeight:'', customWidth:'', customHeight:'', inputs:[]});
 }
 function addMsGenNode(point){
     const p = point || defaultPoint(140, 0);
@@ -2744,7 +3024,7 @@ async function runMsGenNode(nodeId, opts={}){
     try {
         const imageUrls = [];
         if(msModel.supportsImage || msModel.acceptsImage){
-            for(const ref of refs.slice(0,3)){
+            for(const ref of refs.slice(0, CANVAS_REFERENCE_IMAGE_MAX)){
                 if(ref.url){
                     try { imageUrls.push(await urlToBase64(ref.url)); }
                     catch(e){ imageUrls.push(ref.url); }
@@ -3301,10 +3581,10 @@ async function uploadFilesFromDataTransfer(dataTransfer){
     return raw.filter(isSupportedUploadFile);
 }
 function isAudioUrl(url){
-    return /\.(mp3|wav|m4a|aac|ogg|flac)(\?|$)/i.test(String(url || ''));
+    return /\.(mp3|wav|m4a|aac|ogg|flac)(\?|$)/i.test(canvasOriginalMediaUrl(url));
 }
 function isTextUrl(url){
-    return /\.(txt|json|csv|srt|vtt|md)(\?|$)/i.test(String(url || ''));
+    return /\.(txt|json|csv|srt|vtt|md)(\?|$)/i.test(canvasOriginalMediaUrl(url));
 }
 function mediaKindForRef(ref){
     const kind = String(ref?.kind || ref?.mediaKind || '').toLowerCase();
@@ -3316,7 +3596,7 @@ function mediaKindForRef(ref){
     return 'image';
 }
 function imageRefsOnly(refs){
-    return (refs || []).filter(ref => ref?.url && mediaKindForRef(ref) === 'image');
+    return (refs || []).filter(ref => ref?.url && mediaKindForRef(ref) === 'image').slice(0, CANVAS_REFERENCE_IMAGE_MAX);
 }
 function videoRefsOnly(refs){
     return (refs || []).filter(ref => ref?.url && mediaKindForRef(ref) === 'video');
@@ -3637,7 +3917,7 @@ async function uploadMediaFiles(files, point, onlyImages=false, opts={}){
     const supported = [...files].filter(file => {
         const kind = mediaKindForUpload(file);
         return onlyImages ? kind === 'image' : ['image','video','audio'].includes(kind);
-    });
+    }).slice(0, CANVAS_UPLOAD_MAX);
     if(!supported.length) return [];
     const form = new FormData();
     supported.forEach(file => form.append('files', file));
@@ -3684,7 +3964,7 @@ async function createImageCardsFromLocalPaths(paths, point){
     if(!ensureCanvas()) return [];
     setStatus(langIsEn() ? 'Importing images...' : '导入图片...');
     try {
-        const files = await importLocalImages(paths);
+        const files = await importLocalImages((paths || []).slice(0, CANVAS_UPLOAD_MAX));
         const base = point || screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
         const created = [];
         files.forEach((file, i) => {
@@ -3721,7 +4001,7 @@ async function applyImageDropPayloadToNode(nodeId, payload){
         return;
     }
     if(payload.type === 'localPaths') {
-        const files = await importLocalImages(payload.localPaths);
+        const files = await importLocalImages((payload.localPaths || []).slice(0, CANVAS_UPLOAD_MAX));
         const file = files[0];
         if(file?.url) {
             pushUndo();
@@ -3775,7 +4055,7 @@ async function handleImageNodeDropEvent(e, nodeId, highlightEl){
 }
 async function fillImageNode(nodeId, files, opts={}){
     if(!ensureCanvas()) return;
-    const imgs = [...files].filter(file => ['image','video','audio'].includes(mediaKindForUpload(file)));
+    const imgs = [...files].filter(file => ['image','video','audio'].includes(mediaKindForUpload(file))).slice(0, CANVAS_UPLOAD_MAX);
     if(!imgs.length) return;
     if(opts.group && imgs.length > 1){
         const source = nodes.find(n => n.id === nodeId);
@@ -4215,20 +4495,24 @@ function setImageEditMode(mode, userTouched=false){
     if(userTouched) imageEditModeTouched = true;
     const prevImageEditMode = imageEditMode;
     if(mode !== 'brush') removeEditTextInlineEditor(true);
-    imageEditMode = ['preview','crop','outpaint','mask','brush','grid'].includes(mode) ? mode : 'crop';
+    imageEditMode = ['preview','crop','outpaint','mask','brush','resize','grid'].includes(mode) ? mode : 'crop';
     const isPreview = imageEditMode === 'preview';
     const cropCanvasEl = document.getElementById('cropCanvas');
     cropCanvasEl.classList.toggle('preview-mode', isPreview);
     cropCanvasEl.classList.toggle('mask-mode', imageEditMode === 'mask');
     cropCanvasEl.classList.toggle('brush-mode', imageEditMode === 'brush');
+    cropCanvasEl.classList.toggle('resize-mode', imageEditMode === 'resize');
     cropCanvasEl.classList.toggle('grid-mode', imageEditMode === 'grid');
     cropCanvasEl.classList.toggle('outpaint-mode', imageEditMode === 'outpaint');
     _syncGridCustomCursor();
     document.querySelectorAll('[data-image-edit-mode]').forEach(btn => btn.classList.toggle('active', btn.dataset.imageEditMode === imageEditMode));
+    document.getElementById('imageCropTools')?.classList.toggle('active', imageEditMode === 'crop');
     document.getElementById('imageMaskTools').classList.toggle('active', imageEditMode === 'mask');
     document.getElementById('imageBrushTools').classList.toggle('active', imageEditMode === 'brush');
+    document.getElementById('imageResizeTools')?.classList.toggle('active', imageEditMode === 'resize');
     document.getElementById('imageGridTools').classList.toggle('active', imageEditMode === 'grid');
     syncGridGapValue();
+    syncImageResizeControls();
     const title = document.getElementById('imageEditTitle');
     const sub = document.getElementById('imageEditSub');
     const apply = document.getElementById('imageEditApplyBtn');
@@ -4238,19 +4522,25 @@ function setImageEditMode(mode, userTouched=false){
         sub.textContent = tr('canvas.previewHint');
     } else {
         apply.style.display = '';
-        const icon = imageEditMode === 'crop' ? 'crop' : imageEditMode === 'outpaint' ? 'expand' : imageEditMode === 'mask' ? 'brush' : imageEditMode === 'brush' ? 'paintbrush' : 'grid-3x3';
-        const labelKey = imageEditMode === 'crop' ? 'canvas.applyCrop' : imageEditMode === 'outpaint' ? 'canvas.applyOutpaint' : imageEditMode === 'mask' ? 'canvas.applyMask' : imageEditMode === 'brush' ? 'canvas.applyBrush' : 'canvas.applyGrid';
-        const titleKey = imageEditMode === 'crop' ? 'canvas.cropImage' : imageEditMode === 'outpaint' ? 'canvas.outpaintImage' : imageEditMode === 'mask' ? 'canvas.maskEdit' : imageEditMode === 'brush' ? 'canvas.brushEdit' : 'canvas.modeGrid';
-        const subKey = imageEditMode === 'crop' ? 'canvas.cropHint' : imageEditMode === 'outpaint' ? 'canvas.outpaintHint' : imageEditMode === 'mask' ? 'canvas.maskHint2' : imageEditMode === 'brush' ? 'canvas.brushHint' : 'canvas.gridHint';
-        title.textContent = tr(titleKey);
-        sub.textContent = tr(subKey);
-        apply.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4"></i><span>${tr(labelKey)}</span>`;
+        if(imageEditMode === 'resize'){
+            title.textContent = '缩放图片';
+            sub.textContent = '选择缩小倍数，应用会替换当前原图';
+            apply.innerHTML = `<i data-lucide="minimize-2" class="w-4 h-4"></i><span>应用缩放</span>`;
+        } else {
+            const icon = imageEditMode === 'crop' ? 'crop' : imageEditMode === 'outpaint' ? 'expand' : imageEditMode === 'mask' ? 'brush' : imageEditMode === 'brush' ? 'paintbrush' : 'grid-3x3';
+            const labelKey = imageEditMode === 'crop' ? 'canvas.applyCrop' : imageEditMode === 'outpaint' ? 'canvas.applyOutpaint' : imageEditMode === 'mask' ? 'canvas.applyMask' : imageEditMode === 'brush' ? 'canvas.applyBrush' : 'canvas.applyGrid';
+            const titleKey = imageEditMode === 'crop' ? 'canvas.cropImage' : imageEditMode === 'outpaint' ? 'canvas.outpaintImage' : imageEditMode === 'mask' ? 'canvas.maskEdit' : imageEditMode === 'brush' ? 'canvas.brushEdit' : 'canvas.modeGrid';
+            const subKey = imageEditMode === 'crop' ? 'canvas.cropHint' : imageEditMode === 'outpaint' ? 'canvas.outpaintHint' : imageEditMode === 'mask' ? 'canvas.maskHint2' : imageEditMode === 'brush' ? 'canvas.brushHint' : 'canvas.gridHint';
+            title.textContent = tr(titleKey);
+            sub.textContent = tr(subKey);
+            apply.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4"></i><span>${tr(labelKey)}</span>`;
+        }
     }
     resizeEditDrawCanvas();
     if(isPreview) clearEditDrawing(true);
     else if(imageEditMode === 'grid') refreshGridSplitPreview();
     else if(imageEditMode === 'outpaint') resetOutpaintBox();
-    else if(imageEditMode === 'crop') clearEditDrawing(true);
+    else if(imageEditMode === 'crop' || imageEditMode === 'resize') clearEditDrawing(true);
     else if(prevImageEditMode === 'grid') clearEditDrawing(true); // 离开 grid 时主动清掉画布上残留的分割线预览
     syncEditDrawingHistoryButtons();
     syncBrushToolButtons();
@@ -4670,6 +4960,55 @@ function _syncGridCustomUndoBtn(){
     btn.disabled = gridCustomHistory.length === 0;
     btn.style.opacity = gridCustomHistory.length === 0 ? '0.4' : '1';
 }
+function clampImageResizeScale(value){
+    const num = Number(value);
+    if(!Number.isFinite(num)) return 0.5;
+    return Math.max(0.05, Math.min(1, Math.round(num * 100) / 100));
+}
+function imageResizeDimensions(){
+    const img = document.getElementById('cropImage');
+    const sourceW = Math.max(1, Math.round(Number(img?.naturalWidth || 0)));
+    const sourceH = Math.max(1, Math.round(Number(img?.naturalHeight || 0)));
+    const scale = clampImageResizeScale(imageResizeScale);
+    return {
+        sourceW,
+        sourceH,
+        scale,
+        targetW:Math.max(1, Math.round(sourceW * scale)),
+        targetH:Math.max(1, Math.round(sourceH * scale))
+    };
+}
+function syncImageResizeControls(){
+    imageResizeScale = clampImageResizeScale(imageResizeScale);
+    const range = document.getElementById('imageResizeScaleRange');
+    const input = document.getElementById('imageResizeScaleInput');
+    const label = document.getElementById('imageResizeResolution');
+    const overlay = document.getElementById('resizeResolutionOverlay');
+    const dims = imageResizeDimensions();
+    const text = `${dims.targetW}×${dims.targetH}`;
+    if(range && Number(range.value) !== dims.scale) range.value = String(dims.scale);
+    if(input && Number(input.value) !== dims.scale) input.value = String(dims.scale);
+    if(label) label.textContent = text;
+    if(overlay) overlay.textContent = text;
+}
+function setImageResizeScale(value){
+    imageResizeScale = clampImageResizeScale(value);
+    syncImageResizeControls();
+}
+async function resizedImageBlobFromEditor(){
+    const img = document.getElementById('cropImage');
+    if(!img?.naturalWidth || !img?.naturalHeight) return null;
+    const dims = imageResizeDimensions();
+    const canvasEl = document.createElement('canvas');
+    canvasEl.width = dims.targetW;
+    canvasEl.height = dims.targetH;
+    const ctx = canvasEl.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, 0, 0, dims.targetW, dims.targetH);
+    const blob = await new Promise(resolve => canvasEl.toBlob(resolve, 'image/png'));
+    return blob ? {blob, ...dims} : null;
+}
 // ——— 图片缩放 ———
 function applyImageEditZoom(){
     if(!imageEditBaseW) return;
@@ -4691,6 +5030,7 @@ function applyImageEditZoom(){
         renderCropBox();
     }
     if(imageEditMode === 'grid') refreshGridSplitPreview();
+    syncImageResizeControls();
     syncImageEditOverflow();
     _updateZoomLabel();
 }
@@ -4900,21 +5240,69 @@ function resetOutpaintBox(){
     cropState.h = h;
     renderCropBox();
 }
+function cropRatioFromPreset(preset){
+    if(!preset || preset === 'free') return null;
+    if(preset === 'source'){
+        const {w, h} = cropBounds();
+        return w > 0 && h > 0 ? w / h : null;
+    }
+    const parts = String(preset).split(':').map(v => Math.max(0, Number(v)));
+    return parts.length === 2 && parts[0] > 0 && parts[1] > 0 ? parts[0] / parts[1] : null;
+}
+function syncCropRatioButtons(){
+    document.querySelectorAll('[data-crop-ratio]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.cropRatio === cropAspectPreset);
+    });
+}
+function fitCropRectToAspect(ratio, sourceRect=null){
+    const {w:boundsW, h:boundsH} = cropBounds();
+    const rect = sourceRect || cropState || {x:0, y:0, w:boundsW, h:boundsH};
+    const minSize = 24;
+    let nextW = Math.max(minSize, Number(rect.w || boundsW));
+    let nextH = Math.max(minSize, Number(rect.h || boundsH));
+    if(ratio){
+        if(nextW / nextH > ratio) nextW = nextH * ratio;
+        else nextH = nextW / ratio;
+        if(nextW > boundsW){ nextW = boundsW; nextH = nextW / ratio; }
+        if(nextH > boundsH){ nextH = boundsH; nextW = nextH * ratio; }
+    } else {
+        nextW = Math.min(nextW, boundsW);
+        nextH = Math.min(nextH, boundsH);
+    }
+    const cx = Number(rect.x || 0) + Number(rect.w || nextW) / 2;
+    const cy = Number(rect.y || 0) + Number(rect.h || nextH) / 2;
+    cropState.w = Math.round(nextW);
+    cropState.h = Math.round(nextH);
+    cropState.x = Math.round(cx - cropState.w / 2);
+    cropState.y = Math.round(cy - cropState.h / 2);
+    clampCrop();
+}
+function setCropAspectPreset(preset='free'){
+    cropAspectPreset = preset || 'free';
+    cropAspectRatio = cropRatioFromPreset(cropAspectPreset);
+    syncCropRatioButtons();
+    if(cropState && imageEditMode === 'crop' && cropAspectRatio){
+        fitCropRectToAspect(cropAspectRatio);
+        renderCropBox();
+    }
+}
 function resetCropBox(){
     if(!cropState) return;
     if(imageEditMode === 'outpaint') return resetOutpaintBox();
     const {w, h} = cropBounds();
-    cropState.x = Math.round(w * 0.08);
-    cropState.y = Math.round(h * 0.08);
-    cropState.w = Math.round(w * 0.84);
-    cropState.h = Math.round(h * 0.84);
+    const rect = {x:Math.round(w * 0.08), y:Math.round(h * 0.08), w:Math.round(w * 0.84), h:Math.round(h * 0.84)};
+    cropState.x = rect.x;
+    cropState.y = rect.y;
+    cropState.w = rect.w;
+    cropState.h = rect.h;
+    if(cropAspectRatio) fitCropRectToAspect(cropAspectRatio, rect);
     renderCropBox();
 }
 function openImageEditor(nodeId, initialMode='crop'){
     const node = nodes.find(n => n.id === nodeId);
     if(!node?.url) return;
     if(mediaKindForNode(node) !== 'image') return;
-    if(!['preview','crop','outpaint','mask','brush','grid'].includes(initialMode)) initialMode = 'crop';
+    if(!['preview','crop','outpaint','mask','brush','resize','grid'].includes(initialMode)) initialMode = 'crop';
     cropState = {nodeId, x:0, y:0, w:0, h:0};
     // 重置自定义宫格状态
     gridCustomMode = false;
@@ -4925,7 +5313,11 @@ function openImageEditor(nodeId, initialMode='crop'){
     imageEditZoom = 1.0;
     imageEditBaseW = 0;
     imageEditBaseH = 0;
+    imageResizeScale = 0.5;
     imageEditModeTouched = false;
+    cropAspectPreset = 'free';
+    cropAspectRatio = null;
+    syncCropRatioButtons();
     editTextItems = [];
     editTextSelectedId = '';
     editTextDrag = null;
@@ -4948,11 +5340,14 @@ function openImageEditor(nodeId, initialMode='crop'){
     img.style.maxWidth = '';
     img.style.maxHeight = '';
     modal.classList.add('open');
+    const editorSrcToken = `${nodeId}:${Date.now()}`;
+    img.dataset.editorSrcToken = editorSrcToken;
     img.onload = () => {
         // 记录 zoom=1 时的基础显示尺寸
         imageEditBaseW = img.clientWidth;
         imageEditBaseH = img.clientHeight;
         _updateZoomLabel();
+        syncImageResizeControls();
         resizeEditDrawCanvas();
         resetEditDrawingHistory();
         clearEditDrawing(true);
@@ -4962,7 +5357,20 @@ function openImageEditor(nodeId, initialMode='crop'){
         refreshIcons();
     };
     img.crossOrigin = 'anonymous';
-    img.src = node.url;
+    const fullEditorSrc = canvasDisplayMediaUrl(node.url, node.name || '');
+    const quickEditorSrc = canvasMediaPreviewUrl(node.url, initialMode === 'preview' ? 1536 : 2048);
+    if(quickEditorSrc && quickEditorSrc !== fullEditorSrc){
+        img.src = quickEditorSrc;
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                if(!cropState || cropState.nodeId !== nodeId) return;
+                if(!modal.classList.contains('open') || img.dataset.editorSrcToken !== editorSrcToken) return;
+                if(img.getAttribute('src') !== fullEditorSrc) img.src = fullEditorSrc;
+            }, initialMode === 'preview' ? 120 : 60);
+        });
+    } else {
+        img.src = fullEditorSrc;
+    }
     setImageEditMode(initialMode);
     refreshIcons();
 }
@@ -4970,6 +5378,7 @@ function closeImageEditor(){
     document.getElementById('imageEditModal').classList.remove('open');
     const img = document.getElementById('cropImage');
     img.onload = null;
+    delete img.dataset.editorSrcToken;
     img.removeAttribute('src');
     img.style.width = '';
     img.style.height = '';
@@ -4984,10 +5393,14 @@ function closeImageEditor(){
     imageEditZoom = 1.0;
     imageEditBaseW = 0;
     imageEditBaseH = 0;
+    imageResizeScale = 0.5;
     imageEditModeTouched = false;
+    cropAspectPreset = 'free';
+    cropAspectRatio = null;
+    syncCropRatioButtons();
     document.getElementById('imageEditStage')?.classList.remove('overflowing', 'overflow-x', 'overflow-y');
     const cropCanvasEl = document.getElementById('cropCanvas');
-    cropCanvasEl.classList.remove('grid-custom-h', 'grid-custom-v', 'outpaint-mode', 'outpaint-warning', 'dragging-image', 'text-mode');
+    cropCanvasEl.classList.remove('grid-custom-h', 'grid-custom-v', 'outpaint-mode', 'outpaint-warning', 'dragging-image', 'text-mode', 'resize-mode');
     cropCanvasEl.style.width = '';
     cropCanvasEl.style.height = '';
     const textCanvas = editTextCanvas();
@@ -5030,6 +5443,93 @@ function resizeOutpaintFromDrag(dx, dy){
     cropState.y = start.y + Math.round((nextH - start.h) / 2);
     clampOutpaint();
 }
+function clampAspectCropToBounds(anchorX, anchorY, movingX, movingY, ratio, handle){
+    const {w:boundsW, h:boundsH} = cropBounds();
+    const minSize = 24;
+    let width = Math.max(minSize, Math.abs(movingX - anchorX));
+    let height = Math.max(minSize, Math.abs(movingY - anchorY));
+    const corner = /[ns][ew]/.test(handle);
+    if(corner){
+        if(width / height > ratio) width = height * ratio;
+        else height = width / ratio;
+    } else if(handle === 'e' || handle === 'w'){
+        height = width / ratio;
+    } else {
+        width = height * ratio;
+    }
+    const dirX = handle.includes('w') ? -1 : 1;
+    const dirY = handle.includes('n') ? -1 : 1;
+    const maxW = dirX < 0 ? anchorX : boundsW - anchorX;
+    const maxH = dirY < 0 ? anchorY : boundsH - anchorY;
+    width = Math.min(width, maxW);
+    height = Math.min(height, maxH);
+    if(width / height > ratio) width = height * ratio;
+    else height = width / ratio;
+    return {
+        x:dirX < 0 ? anchorX - width : anchorX,
+        y:dirY < 0 ? anchorY - height : anchorY,
+        w:width,
+        h:height
+    };
+}
+function resizeCropFromDrag(dx, dy){
+    const start = cropDrag?.start;
+    if(!start) return;
+    const handle = String(cropDrag.mode || 'resize').replace(/^crop-/, '') || 'se';
+    if(!cropAspectRatio){
+        let left = start.x;
+        let top = start.y;
+        let right = start.x + start.w;
+        let bottom = start.y + start.h;
+        if(handle.includes('w')) left += dx;
+        if(handle.includes('e') || handle === 'resize') right += dx;
+        if(handle.includes('n')) top += dy;
+        if(handle.includes('s') || handle === 'resize') bottom += dy;
+        cropState.x = Math.min(left, right - 24);
+        cropState.y = Math.min(top, bottom - 24);
+        cropState.w = Math.max(24, right - cropState.x);
+        cropState.h = Math.max(24, bottom - cropState.y);
+        return;
+    }
+    const normalized = handle === 'resize' ? 'se' : handle;
+    const centerX = start.x + start.w / 2;
+    const centerY = start.y + start.h / 2;
+    if(normalized === 'e' || normalized === 'w'){
+        const {w:boundsW, h:boundsH} = cropBounds();
+        let width = Math.max(24, normalized === 'e' ? start.w + dx : start.w - dx);
+        const maxW = normalized === 'e' ? boundsW - start.x : start.x + start.w;
+        const maxH = Math.max(24, 2 * Math.min(centerY, boundsH - centerY));
+        width = Math.min(width, maxW, maxH * cropAspectRatio);
+        const height = width / cropAspectRatio;
+        cropState.x = Math.round(normalized === 'e' ? start.x : start.x + start.w - width);
+        cropState.y = Math.round(centerY - height / 2);
+        cropState.w = Math.round(width);
+        cropState.h = Math.round(height);
+        return;
+    }
+    if(normalized === 'n' || normalized === 's'){
+        const {w:boundsW, h:boundsH} = cropBounds();
+        let height = Math.max(24, normalized === 's' ? start.h + dy : start.h - dy);
+        const maxH = normalized === 's' ? boundsH - start.y : start.y + start.h;
+        const maxW = Math.max(24, 2 * Math.min(centerX, boundsW - centerX));
+        height = Math.min(height, maxH, maxW / cropAspectRatio);
+        const width = height * cropAspectRatio;
+        cropState.x = Math.round(centerX - width / 2);
+        cropState.y = Math.round(normalized === 's' ? start.y : start.y + start.h - height);
+        cropState.w = Math.round(width);
+        cropState.h = Math.round(height);
+        return;
+    }
+    let anchorX = normalized.includes('w') ? start.x + start.w : normalized.includes('e') ? start.x : centerX;
+    let anchorY = normalized.includes('n') ? start.y + start.h : normalized.includes('s') ? start.y : centerY;
+    let movingX = normalized.includes('w') ? start.x + dx : normalized.includes('e') ? start.x + start.w + dx : centerX;
+    let movingY = normalized.includes('n') ? start.y + dy : normalized.includes('s') ? start.y + start.h + dy : centerY;
+    const next = clampAspectCropToBounds(anchorX, anchorY, movingX, movingY, cropAspectRatio, normalized);
+    cropState.x = Math.round(next.x);
+    cropState.y = Math.round(next.y);
+    cropState.w = Math.round(next.w);
+    cropState.h = Math.round(next.h);
+}
 window.addEventListener('mousemove', event => {
     if(!cropDrag || !cropState) return;
     const dx = event.clientX - cropDrag.sx;
@@ -5043,8 +5543,7 @@ window.addEventListener('mousemove', event => {
     } else if(String(cropDrag.mode || '').startsWith('outpaint-')){
         resizeOutpaintFromDrag(dx, dy);
     } else {
-        cropState.w = cropDrag.start.w + dx;
-        cropState.h = cropDrag.start.h + dy;
+        resizeCropFromDrag(dx, dy);
     }
     clampCrop();
     renderCropBox();
@@ -5216,10 +5715,36 @@ async function applyImageGridSplit(){
         scheduleSave();
     }
 }
+async function applyImageResize(){
+    if(!cropState) return;
+    const node = nodes.find(n => n.id === cropState.nodeId);
+    if(!node) return;
+    let resized = null;
+    try {
+        resized = await resizedImageBlobFromEditor();
+    } catch(err) {
+        alert('缩放失败：当前图片无法写入画布，请换成本地图片或重新上传后再试。');
+        return;
+    }
+    if(!resized?.blob) return;
+    const base = (node.name || 'image').replace(/\.[^.]+$/, '');
+    const suffix = `${Math.round(resized.scale * 100)}pct`;
+    const file = await uploadCroppedBlob(resized.blob, `${base}_resize_${suffix}.png`);
+    if(!file) return;
+    node.url = file.url;
+    node.name = file.name;
+    node.mediaKind = 'image';
+    node.natural_w = resized.targetW;
+    node.natural_h = resized.targetH;
+    closeImageEditor();
+    render();
+    scheduleSave();
+}
 function applyImageEdit(){
     if(imageEditMode === 'outpaint') return applyImageOutpaint();
     if(imageEditMode === 'mask') return applyImageMask();
     if(imageEditMode === 'brush') return applyImageBrush();
+    if(imageEditMode === 'resize') return applyImageResize();
     if(imageEditMode === 'grid') return applyImageGridSplit();
     return applyImageCrop();
 }
@@ -5342,6 +5867,7 @@ function render(){
     refreshGeometryAfterLayout();
     refreshIcons();
     bindCanvasPreviewImageFallbacks(nodesEl);
+    syncCanvasSelectedImageResolution(nodesEl);
     measureCanvasOriginalImageNodes(nodesEl);
     refreshOutputTimer();
 }
@@ -5372,6 +5898,7 @@ function refreshNodes(ids=[]){
     refreshGeometryAfterLayout();
     refreshIcons();
     bindCanvasPreviewImageFallbacks(nodesEl);
+    syncCanvasSelectedImageResolution(nodesEl);
     measureCanvasOriginalImageNodes(nodesEl);
     refreshOutputTimer();
 }
@@ -5597,7 +6124,7 @@ function renderNode(node){
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
-                    canvasActivateVideoPreview(loadedImg);
+                    canvasActivateVideoPreview(e.currentTarget || loadedImg);
                 }, true);
             }
             if(videoPlayBtn && loadedImg && mediaKind === 'video'){
@@ -5610,7 +6137,7 @@ function renderNode(node){
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
-                    canvasActivateVideoPreview(loadedImg);
+                    canvasActivateVideoPreview(videoPlayBtn.closest('.media-card,.image-preview-wrap') || loadedImg);
                 }, true);
             }
             body.addEventListener('dblclick', openPreview, true);
@@ -5643,8 +6170,7 @@ function renderNode(node){
             node.text = e.target.value;
             refreshPromptCounter(body, node.text);
             scheduleSave();
-            syncGeneratorInputs();
-            refreshGeneratorInputViews();
+            scheduleGeneratorInputSync();
         };
     }
     if(node.type === 'loop') body.appendChild(renderLoopBody(node));
@@ -5800,7 +6326,7 @@ function bindOutputWrap(wrap, node){
         playBtn.onclick = e => {
             e.preventDefault();
             e.stopPropagation();
-            canvasActivateVideoPreview(img);
+            canvasActivateVideoPreview(wrap);
         };
     }
     if(recoverQuery){
@@ -5867,6 +6393,8 @@ function refreshOutputNodeContent(node){
         }
         grid.appendChild(child);
     });
+    bindCanvasPreviewImageFallbacks(grid);
+    syncCanvasSelectedImageResolution(el);
     refreshOutputTimer();
     return true;
 }
@@ -6589,7 +7117,8 @@ function defaultCanvasPromptTemplateGroups(){
         {id:'character', name:tr('smart.tplCatCharacter')},
         {id:'product', name:tr('smart.tplCatProduct')},
         {id:'lighting', name:tr('smart.tplCatLighting')},
-        {id:'mine', name:tr('smart.tplCatMine')}
+        // “我的”分组在后端/智能画布里用的分类 id 是 custom，这里保持一致，否则后端 custom 条目在普通画布看不到。
+        {id:'custom', name:tr('smart.tplCatMine')}
     ];
 }
 function loadCanvasPromptTemplateGroups(){
@@ -6641,7 +7170,9 @@ function activeCanvasPromptLibraryItems(){
             ...(canvasPromptTemplateOverrides.editedBuiltins?.[t.id] || {}),
             sourceId:t.id,
             builtin:true,
-            remote:false,
+            // 系统提示词库本身是后端真实库（/api/prompt-libraries 返回的 system 库），标记为 remote，
+            // 这样编辑/删除走后端 PATCH/DELETE 并同步（与智能画布一致），而不是只存本地、不同步。
+            remote:true,
             libraryId:'system',
             libraryName:'系统提示词库',
         }));
@@ -6685,6 +7216,7 @@ function canvasPromptTemplateCategoryLabel(category){
         character:tr('smart.tplCatCharacter'),
         product:tr('smart.tplCatProduct'),
         lighting:tr('smart.tplCatLighting'),
+        custom:tr('smart.tplCatMine'),
         mine:tr('smart.tplCatMine')
     };
     return builtin[category] || promptTemplateGroups.find(g => g.id === category)?.name || category || '';
@@ -6726,8 +7258,9 @@ function canvasPromptTemplateVisibleItems(){
     });
 }
 function currentCanvasPromptTemplateLibraryEditable(){
+    // 系统库后端 readonly=false，也允许新增/编辑（走后端，与智能画布、素材库管理同步）。只按 readonly 判断。
     const lib = activeCanvasPromptLibrary();
-    return Boolean(lib && lib.id !== 'system' && !lib.readonly);
+    return Boolean(lib && !lib.readonly);
 }
 function currentCanvasPromptTemplateNodeText(){
     const node = nodes.find(n => n.id === promptTemplateNodeId && n.type === 'prompt');
@@ -6766,7 +7299,7 @@ async function saveCurrentCanvasPromptAsTemplate(){
             body:JSON.stringify({
                 library_id:lib.id,
                 name:canvasPromptTemplateDefaultName(text),
-                category:promptTemplateCategory === 'all' ? 'mine' : promptTemplateCategory,
+                category:promptTemplateCategory === 'all' ? 'custom' : promptTemplateCategory,
                 positive:text,
                 scene:'我的提示词预设'
             })
@@ -6785,7 +7318,7 @@ async function saveCurrentCanvasPromptAsTemplate(){
 async function createBlankCanvasPromptTemplate(){
     const lib = activeCanvasPromptLibrary();
     if(!currentCanvasPromptTemplateLibraryEditable()){ setStatus('请选择可编辑的提示词库'); return; }
-    const category = promptTemplateCategory && promptTemplateCategory !== 'all' ? promptTemplateCategory : 'mine';
+    const category = promptTemplateCategory && promptTemplateCategory !== 'all' ? promptTemplateCategory : 'custom';
     try {
         const data = await fetch('/api/prompt-libraries/items', {
             method:'POST',
@@ -6813,7 +7346,8 @@ async function saveCanvasPromptTemplateEdit(){
     const category = promptTemplatePanel.querySelector('[data-template-edit-category]')?.value || 'mine';
     if(!name || !positive){ setStatus(tr('smart.tplRequired')); return; }
     try {
-        if(item.builtin){
+        // 仅当模板不是后端项（非 remote）时才退回本地覆盖；系统库现在是 remote，走下面的后端 PATCH 同步。
+        if(item.builtin && !item.remote){
             canvasPromptTemplateOverrides.editedBuiltins = canvasPromptTemplateOverrides.editedBuiltins || {};
             canvasPromptTemplateOverrides.editedBuiltins[item.sourceId || item.id] = {
                 ...(canvasPromptTemplateOverrides.editedBuiltins[item.sourceId || item.id] || {}),
@@ -6835,6 +7369,12 @@ async function saveCanvasPromptTemplateEdit(){
             if(!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || '保存失败');
             return r.json();
         });
+        // 迁移：清掉这条系统模板的旧本地覆盖，避免它盖住刚同步到后端的最新内容。
+        const legacyKey = item.sourceId || item.id;
+        if(canvasPromptTemplateOverrides.editedBuiltins && canvasPromptTemplateOverrides.editedBuiltins[legacyKey]){
+            delete canvasPromptTemplateOverrides.editedBuiltins[legacyKey];
+            saveCanvasPromptTemplateOverrides();
+        }
         syncCanvasPromptTemplateMutation(data, item.id);
         promptTemplateEditing = false;
         renderPromptTemplateModal();
@@ -6847,7 +7387,8 @@ async function deleteCanvasPromptTemplate(){
     if(!item) return;
     if(!window.confirm(`删除提示词「${canvasPromptTemplateName(item) || '提示词'}」？`)) return;
     try {
-        if(item.builtin){
+        // 系统库现在是 remote，删除走后端 DELETE 并同步；仅非 remote 的内置项才退回本地隐藏。
+        if(item.builtin && !item.remote){
             canvasPromptTemplateOverrides.hiddenBuiltinIds = [...new Set([...(canvasPromptTemplateOverrides.hiddenBuiltinIds || []), item.sourceId || item.id])];
             saveCanvasPromptTemplateOverrides();
             promptTemplateSelectedId = '';
@@ -7649,6 +8190,7 @@ function renderGeneratorBody(node){
     const mediaInputs = ordered.filter(src => src.refs?.some(ref => ['image','video','audio'].includes(mediaKindForRef(ref))));
     const promptInputs = ordered.filter(src => src.prompt && !src.refs?.length);
     sanitizeImageNodeProviderModel(node);
+    normalizeApiNodeSizeChoice(node);
     wrap.innerHTML = `
         <div class="prompt-list mb-3"></div>
         <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">${tr('canvas.images')}</div>
@@ -7660,6 +8202,7 @@ function renderGeneratorBody(node){
             </div>
             <div class="gen-settings-row api-size-row">
                 <select class="select-lite resolution compact-select" data-field="resolution">
+                    <option value="auto">自动</option>
                     <option value="1k">1K</option>
                     <option value="2k">2K</option>
                     <option value="4k">4K</option>
@@ -7729,7 +8272,10 @@ function renderGeneratorBody(node){
         node.apiProvider = e.target.value;
         const providerModels = providerImageModels(node.apiProvider);
         if(!providerModels.includes(resolveImageModel(node.model))) node.model = providerModels[0] || '';
+        node._apiResolutionUserSet = false;
+        node.resolution = defaultApiImageResolution(node.model);
         modelSelect.innerHTML = imageModelOptions(node.model, node.apiProvider);
+        syncSizeControls();
         syncQualityControls();
         scheduleSave();
     };
@@ -7738,6 +8284,9 @@ function renderGeneratorBody(node){
     modelSelect.onchange = e => {
         e.stopPropagation();
         node.model = e.target.value;
+        node._apiResolutionUserSet = false;
+        if(node.resolution !== 'custom') node.resolution = defaultApiImageResolution(node.model);
+        syncSizeControls();
         syncQualityControls();
         scheduleSave();
     };
@@ -7800,6 +8349,8 @@ function renderGeneratorBody(node){
     };
     const syncSizeControls = () => {
         normalizeApiNodeSizeChoice(node);
+        const autoOption = resolutionSelect.querySelector('option[value="auto"]');
+        if(autoOption) autoOption.disabled = !isGptImageAutoSizeModel(resolveImageModel(node.model));
         const squareOption = ratioSelect.querySelector('option[value="square"]');
         if(squareOption){
             squareOption.disabled = false;
@@ -7807,9 +8358,9 @@ function renderGeneratorBody(node){
         }
         const ratioValue = node.ratio && [...ratioSelect.options].some(opt => opt.value === node.ratio) ? node.ratio : 'square';
         ratioSelect.value = ratioValue;
-        resolutionSelect.value = node.resolution || '1k';
-        ratioSelect.disabled = node.resolution === 'custom';
-        customRatioRow.style.display = (node.ratio === 'custom' || node.ratio === 'source') ? 'flex' : 'none';
+        resolutionSelect.value = node.resolution || defaultApiImageResolution(node.model);
+        ratioSelect.disabled = node.resolution === 'custom' || node.resolution === 'auto';
+        customRatioRow.style.display = (node.resolution !== 'auto' && (node.ratio === 'custom' || node.ratio === 'source')) ? 'flex' : 'none';
         customSizeRow.style.display = node.resolution === 'custom' ? 'flex' : 'none';
         customRatioWInput.disabled = node.ratio === 'source';
         customRatioHInput.disabled = node.ratio === 'source';
@@ -7851,8 +8402,14 @@ function renderGeneratorBody(node){
     resolutionSelect.onchange = e => {
         e.stopPropagation();
         node.resolution = e.target.value;
+        node._apiResolutionUserSet = true;
         if(node.resolution === 'custom') {
             node.ratio = '';
+        } else if(node.resolution === 'auto') {
+            if(!node.ratio) node.ratio = 'square';
+            node.customSize = '';
+            node.customWidth = '';
+            node.customHeight = '';
         } else if(!node.ratio) {
             node.ratio = 'square';
             node.customSize = '';
@@ -7887,6 +8444,7 @@ function renderGeneratorBody(node){
             node.customHeight = customHInput.value;
             node.customSize = node.customWidth && node.customHeight ? `${node.customWidth}x${node.customHeight}` : '';
             node.resolution = 'custom';
+            node._apiResolutionUserSet = true;
             node.ratio = '';
             syncSizeControls();
             scheduleSave();
@@ -7904,6 +8462,7 @@ function renderGeneratorBody(node){
                 node.customHeight = dims.height;
                 node.customSize = `${dims.width}x${dims.height}`;
                 node.resolution = 'custom';
+                node._apiResolutionUserSet = true;
                 node.ratio = '';
                 syncSizeControls();
                 scheduleSave();
@@ -8468,14 +9027,25 @@ function runningHubProvider(){
 }
 function runningHubEntries(kind){
     const provider = runningHubProvider();
+    if(kind === 'model'){
+        return uniqueModels(provider?.image_models || []).map(model => ({
+            id:model,
+            model,
+            title:model,
+            enabled:true,
+            source:'model'
+        }));
+    }
     const key = kind === 'workflow' ? 'rh_workflows' : 'rh_apps';
     return Array.isArray(provider?.[key]) ? provider[key].filter(item => item?.enabled !== false && item?.hidden !== true) : [];
 }
 function runningHubEntryId(entry, kind){
+    if(kind === 'model') return String(typeof entry === 'string' ? entry : (entry?.model || entry?.id || entry?.name || '')).trim();
     return String(kind === 'workflow' ? (entry?.workflowId || entry?.id || '') : (entry?.appId || entry?.id || '')).trim();
 }
 function runningHubEntryLabel(entry, kind){
     const id = runningHubEntryId(entry, kind);
+    if(kind === 'model') return entry?.title || entry?.name || id;
     return entry?.title || entry?.name || (kind === 'workflow' ? `工作流 ${id.slice(-6)}` : `AI 应用 ${id.slice(-6)}`);
 }
 function runningHubEntryKey(kind, id){
@@ -8483,12 +9053,13 @@ function runningHubEntryKey(kind, id){
 }
 function parseRunningHubEntryKey(value){
     const text = String(value || '').trim();
-    const match = text.match(/^(app|workflow):(.+)$/);
+    const match = text.match(/^(app|workflow|model):(.+)$/);
     if(match) return {kind:match[1], id:match[2]};
     return null;
 }
 function runningHubAllEntries(){
     return [
+        ...runningHubEntries('model').map(entry => ({kind:'model', id:runningHubEntryId(entry, 'model'), entry})),
         ...runningHubEntries('app').map(entry => ({kind:'app', id:runningHubEntryId(entry, 'app'), entry})),
         ...runningHubEntries('workflow').map(entry => ({kind:'workflow', id:runningHubEntryId(entry, 'workflow'), entry}))
     ].filter(item => item.id);
@@ -8517,7 +9088,16 @@ function applyRhEntrySelection(node, ref){
     node.rhConfigKey = runningHubEntryKey(ref.kind, ref.id);
     node.rhMode = ref.kind;
     if(ref.kind === 'workflow') node.workflowId = ref.id;
-    else node.webappId = ref.id;
+    else if(ref.kind === 'app') node.webappId = ref.id;
+    else if(ref.kind === 'model'){
+        node.rhModel = ref.id;
+        node.model = ref.id;
+        node.apiProvider = 'runninghub';
+        node.resolution = node.resolution || defaultApiImageResolution(ref.id);
+        node.ratio = node.ratio || 'square';
+        node.quality = node.quality || 'auto';
+        node.count = Math.max(1, Math.min(8, Number(node.count || 1)));
+    }
 }
 function currentRunningHubAppConfig(node){
     const webappId = String(node?.webappId || '').trim();
@@ -8542,7 +9122,9 @@ function rhCurrentEntry(node){
     return rhSelectedEntryRef(node)?.entry || null;
 }
 function rhCurrentKind(node){
-    return rhSelectedEntryRef(node)?.kind || (node?.rhMode === 'workflow' ? 'workflow' : 'app');
+    const selected = rhSelectedEntryRef(node)?.kind;
+    if(selected) return selected;
+    return ['model','workflow','app'].includes(node?.rhMode) ? node.rhMode : 'app';
 }
 function ensureRhNodeSelection(node){
     if(!node || node.type !== 'rh') return null;
@@ -8557,9 +9139,10 @@ function ensureRhNodeSelection(node){
     return null;
 }
 function rhEntryOptions(selected){
+    const models = runningHubEntries('model');
     const apps = runningHubEntries('app');
     const workflows = runningHubEntries('workflow');
-    if(!apps.length && !workflows.length) return `<option value="">请先在 API 设置里添加 RunningHub 配置</option>`;
+    if(!models.length && !apps.length && !workflows.length) return `<option value="">请先在 API 设置里添加 RunningHub 配置</option>`;
     const group = (kind, entries, label) => entries.length ? `
         <optgroup label="${label}">
             ${entries.map(entry => {
@@ -8569,7 +9152,7 @@ function rhEntryOptions(selected){
             }).join('')}
         </optgroup>
     ` : '';
-    return `${group('app', apps, 'AI 应用')}${group('workflow', workflows, '工作流')}`;
+    return `${group('model', models, '模型 API')}${group('app', apps, 'AI 应用')}${group('workflow', workflows, '工作流')}`;
 }
 function rhPaymentOptions(node){
     const provider = runningHubProvider();
@@ -8582,7 +9165,14 @@ function rhPaymentOptions(node){
 function rhUseWallet(node){
     return node?.rhPayment === 'wallet';
 }
+function rhUsableFields(fields){
+    const list = Array.isArray(fields) ? fields : [];
+    if(!list.length) return [];
+    const enabled = list.filter(f => f.enabled === true);
+    return enabled.length ? enabled : list;
+}
 function rhActiveFields(node){
+    if(rhCurrentKind(node) === 'model') return [];
     const sortFields = fields => [...(fields || [])].sort((a, b) => {
         const ak = rhFieldKind(a), bk = rhFieldKind(b);
         if(ak === 'image' && bk === 'image'){
@@ -8597,13 +9187,13 @@ function rhActiveFields(node){
     if(rhCurrentKind(node) === 'workflow') {
         const workflowId = validRunningHubWorkflowId(node.workflowId || '');
         const savedEntry = currentRunningHubWorkflowEntry(node);
-        if(Array.isArray(savedEntry?.fields) && savedEntry.fields.length) return sortFields(savedEntry.fields.filter(f => f.enabled === true));
+        if(Array.isArray(savedEntry?.fields) && savedEntry.fields.length) return sortFields(rhUsableFields(savedEntry.fields));
         const saved = workflowId ? runningHubWorkflowCache[workflowId] : null;
-        if(Array.isArray(saved?.fields)) return sortFields(saved.fields.filter(f => f.enabled === true));
+        if(Array.isArray(saved?.fields)) return sortFields(rhUsableFields(saved.fields));
         return sortFields(node.rhWorkflowInfo?.nodeInfoList || []);
     }
     const savedApp = currentRunningHubAppConfig(node);
-    if(Array.isArray(savedApp?.fields) && savedApp.fields.length) return sortFields(savedApp.fields.filter(f => f.enabled === true));
+    if(Array.isArray(savedApp?.fields) && savedApp.fields.length) return sortFields(rhUsableFields(savedApp.fields));
     return sortFields(node.rhAppInfo?.nodeInfoList || []);
 }
 function currentRunningHubWorkflowConfig(node){
@@ -8765,17 +9355,21 @@ function renderRhBody(node){
     const selectedId = selectedRef?.id || (mode === 'workflow' ? (node.workflowId || '') : (node.webappId || ''));
     const selectedKey = selectedRef ? runningHubEntryKey(selectedRef.kind, selectedRef.id) : '';
     const entryNote = entry?.note || entry?.description || '';
+    if(mode === 'model'){
+        node.model = selectedRef?.id || node.rhModel || node.model || '';
+        normalizeApiNodeSizeChoice(node);
+    }
     wrap.innerHTML = `
         <div class="rh-top">
             <label class="field rh-webapp-field">
                 <div class="setting-title">RunningHub 配置</div>
                 <select class="select-lite rh-entry-select">${rhEntryOptions(selectedKey)}</select>
             </label>
-            <label class="field rh-payment-field">
+            <label class="field rh-payment-field" style="${mode === 'model' ? 'display:none' : ''}">
                 <div class="setting-title">Key</div>
                 <select class="select-lite rh-payment-select">${rhPaymentOptions(node)}</select>
             </label>
-            <label class="field rh-machine-field">
+            <label class="field rh-machine-field" style="${mode === 'model' ? 'display:none' : ''}">
                 <div class="setting-title">显存</div>
                 <select class="select-lite rh-machine-select">
                     <option value="" ${!node.instanceType ? 'selected' : ''}>24G</option>
@@ -8788,8 +9382,9 @@ function renderRhBody(node){
             <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">${tr('canvas.rhInputs')}</div>
             <div class="input-list rh-input-list"></div>
         </div>
+        ${mode === 'model' ? rhModelSettingsHtml(node) : ''}
         <div class="rh-param-head">
-            <span>${mode === 'workflow' ? tr('canvas.rhWorkflowParams') : tr('canvas.rhParams')}</span>
+            <span>${mode === 'model' ? '模型 API 参数' : mode === 'workflow' ? tr('canvas.rhWorkflowParams') : tr('canvas.rhParams')}</span>
             <span>${fields.length}</span>
         </div>
         <div class="rh-param-list"></div>
@@ -8819,13 +9414,126 @@ function renderRhBody(node){
         node.instanceType = e.target.value === 'plus' ? 'plus' : '';
         scheduleSave();
     };
-    renderRhPromptFields(wrap.querySelector('.rh-prompt-list'), node, fields);
+    if(mode === 'model') renderPromptPreview(wrap.querySelector('.rh-prompt-list'), media.sources.filter(src => src.prompt && !src.refs?.length));
+    else renderRhPromptFields(wrap.querySelector('.rh-prompt-list'), node, fields);
     renderRhInputs(wrap.querySelector('.rh-input-list'), node, media);
     renderRhParams(wrap.querySelector('.rh-param-list'), node, fields, media);
+    if(mode === 'model') bindRhModelControls(wrap, node, media);
     wrap.querySelector('.rh-run').onclick = e => { e.stopPropagation(); runCanvasGenerate(node.id); };
     bindCascadeButtons(wrap, node.id);
     refreshIcons();
     return wrap;
+}
+function rhModelSettingsHtml(node){
+    const count = Math.max(1, Math.min(8, Number(node.count || 1)));
+    return `
+        <div class="gen-settings rh-model-settings">
+            <div class="gen-settings-row api-size-row">
+                <select class="select-lite resolution compact-select" data-rh-model-field="resolution">
+                    <option value="auto">自动</option>
+                    <option value="1k">1K</option>
+                    <option value="2k">2K</option>
+                    <option value="4k">4K</option>
+                    <option value="custom">${tr('canvas.custom')}</option>
+                </select>
+                <select class="select-lite ratio compact-select" data-rh-model-field="ratio">
+                    <option value="square">1:1</option>
+                    <option value="portrait">2:3</option>
+                    <option value="landscape">3:2</option>
+                    <option value="portrait43">3:4</option>
+                    <option value="landscape43">4:3</option>
+                    <option value="story">9:16</option>
+                    <option value="wide">16:9</option>
+                    <option value="ultrawide">21:9</option>
+                    <option value="ultratall">9:21</option>
+                    <option value="source">${tr('canvas.adaptiveRatio')}</option>
+                    <option value="custom">${tr('canvas.custom')}</option>
+                </select>
+                <select class="select-lite quality-select" data-rh-model-field="quality">
+                    <option value="auto">Q auto</option>
+                    <option value="low">Q low</option>
+                    <option value="medium">Q med</option>
+                    <option value="high">Q high</option>
+                </select>
+                <input class="setting-input rh-model-count-input" data-rh-model-field="count" type="number" min="1" max="8" step="1" value="${count}" style="width:64px">
+            </div>
+            <div class="gen-settings-row custom-ratio-row" style="display:none">
+                <label class="field"><div class="setting-title">${tr('canvas.ratioWidth')}</div><input class="setting-input custom-ratio-w-input" data-rh-model-field="customRatioWidth" type="number" min="1" step="1" value="${escapeHtml(node.customRatioWidth || '')}" placeholder="4"></label>
+                <label class="field"><div class="setting-title">${tr('canvas.ratioHeight')}</div><input class="setting-input custom-ratio-h-input" data-rh-model-field="customRatioHeight" type="number" min="1" step="1" value="${escapeHtml(node.customRatioHeight || '')}" placeholder="3"></label>
+            </div>
+            <div class="gen-settings-row custom-size-row" style="display:none">
+                <label class="field"><div class="setting-title">${tr('canvas.width')}</div><input class="setting-input custom-w-input" data-rh-model-field="customWidth" type="number" min="64" step="64" value="${escapeHtml(node.customWidth || '')}" placeholder="Auto"></label>
+                <label class="field"><div class="setting-title">${tr('canvas.height')}</div><input class="setting-input custom-h-input" data-rh-model-field="customHeight" type="number" min="64" step="64" value="${escapeHtml(node.customHeight || '')}" placeholder="Auto"></label>
+            </div>
+        </div>
+    `;
+}
+function bindRhModelControls(wrap, node, media){
+    const resolutionSelect = wrap.querySelector('[data-rh-model-field="resolution"]');
+    const ratioSelect = wrap.querySelector('[data-rh-model-field="ratio"]');
+    const qualitySelect = wrap.querySelector('[data-rh-model-field="quality"]');
+    const countInput = wrap.querySelector('[data-rh-model-field="count"]');
+    const customRatioRow = wrap.querySelector('.custom-ratio-row');
+    const customSizeRow = wrap.querySelector('.custom-size-row');
+    const customRatioWInput = wrap.querySelector('[data-rh-model-field="customRatioWidth"]');
+    const customRatioHInput = wrap.querySelector('[data-rh-model-field="customRatioHeight"]');
+    const customWInput = wrap.querySelector('[data-rh-model-field="customWidth"]');
+    const customHInput = wrap.querySelector('[data-rh-model-field="customHeight"]');
+    const hydrateCustomParts = () => {
+        if((!node.customRatioWidth || !node.customRatioHeight) && node.customRatio) {
+            const raw = String(node.customRatio || '');
+            if(raw.includes(':')){
+                const [w,h] = raw.split(':');
+                node.customRatioWidth = node.customRatioWidth || w;
+                node.customRatioHeight = node.customRatioHeight || h;
+            }
+        }
+        if((!node.customWidth || !node.customHeight) && node.customSize) {
+            const parsed = parseSizeValue(node.customSize);
+            node.customWidth = node.customWidth || parsed?.width || '';
+            node.customHeight = node.customHeight || parsed?.height || '';
+        }
+    };
+    const sync = () => {
+        hydrateCustomParts();
+        normalizeApiNodeSizeChoice(node);
+        if(resolutionSelect) resolutionSelect.value = node.resolution || defaultApiImageResolution(node.model);
+        if(ratioSelect) ratioSelect.value = node.ratio || 'square';
+        if(qualitySelect) qualitySelect.value = node.quality || 'auto';
+        if(countInput) countInput.value = Math.max(1, Math.min(8, Number(node.count || 1)));
+        if(customRatioRow) customRatioRow.style.display = node.ratio === 'custom' ? '' : 'none';
+        if(customSizeRow) customSizeRow.style.display = node.resolution === 'custom' ? '' : 'none';
+        if(customRatioWInput) customRatioWInput.value = node.customRatioWidth || '';
+        if(customRatioHInput) customRatioHInput.value = node.customRatioHeight || '';
+        if(customWInput) customWInput.value = node.customWidth || '';
+        if(customHInput) customHInput.value = node.customHeight || '';
+    };
+    wrap.querySelectorAll('[data-rh-model-field]').forEach(control => {
+        control.onmousedown = e => e.stopPropagation();
+        control.onclick = e => e.stopPropagation();
+        control.oninput = control.onchange = e => {
+            const field = control.dataset.rhModelField;
+            if(field === 'resolution'){
+                node.resolution = e.target.value || defaultApiImageResolution(node.model);
+                node._apiResolutionUserSet = true;
+            } else if(field === 'ratio'){
+                node.ratio = e.target.value || 'square';
+            } else if(field === 'quality'){
+                node.quality = e.target.value || 'auto';
+            } else if(field === 'count'){
+                node.count = Math.max(1, Math.min(8, Number(e.target.value || 1)));
+            } else if(field === 'customRatioWidth' || field === 'customRatioHeight'){
+                node[field] = e.target.value;
+                node.customRatio = node.customRatioWidth && node.customRatioHeight ? `${node.customRatioWidth}:${node.customRatioHeight}` : '';
+            } else if(field === 'customWidth' || field === 'customHeight'){
+                node[field] = e.target.value;
+                node.customSize = node.customWidth && node.customHeight ? `${node.customWidth}x${node.customHeight}` : '';
+            }
+            sync();
+            scheduleSave();
+        };
+    });
+    sync();
 }
 function renderRhInputs(list, node, media){
     if(!list) return;
@@ -9082,9 +9790,6 @@ async function rhBuildNodeInfoList(node, media){
         let value = rhFieldValue(node, field, media);
         if(['image','video','audio'].includes(kind)) value = await rhUploadValueIfNeeded(value, node);
         if(['number','slider'].includes(kind) && String(value ?? '').trim() !== '' && !Number.isNaN(Number(value))) value = Number(value);
-        // 只对“单值”字段（下拉/选项等）去换行；prompt / text 这类自由文本必须保留换行，
-        // 否则多行提示词会被截成第一行（例如“一只红猫\n金色的眼睛”只剩“一只红猫”）。
-        if(typeof value === 'string' && !['prompt','text'].includes(rhFieldRole(field)) && /[\r\n]/.test(value)) value = value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || '';
         result.push({nodeId:field.nodeId, fieldName:field.fieldName, fieldValue:value});
     }
     return result;
@@ -9095,6 +9800,7 @@ async function runRhNode(nodeId, opts={}){
     const cascadeTargetId = cascadeTargetIdFromOptions(opts);
     ensureRhNodeSelection(node);
     const mode = rhCurrentKind(node);
+    if(mode === 'model') return runRhModelNode(node, opts);
     node.rhRandomValues = {};
     if(mode === 'workflow' && !String(node.workflowId || '').trim()){ alert(tr('canvas.rhNeedWorkflowId')); return; }
     if(mode === 'app' && !String(node.webappId || '').trim()){ alert(tr('canvas.rhNeedWebappId')); return; }
@@ -9178,6 +9884,103 @@ async function runRhNode(nodeId, opts={}){
     } finally {
         node.running = false;
         refreshRunNodes(node, out);
+    }
+}
+async function runRhModelNode(node, opts={}){
+    if(!node || (node.running && !opts.cascade)) return;
+    const cascadeTargetId = cascadeTargetIdFromOptions(opts);
+    const selectedRef = rhSelectedEntryRef(node);
+    const model = selectedRef?.id || node.rhModel || node.model || '';
+    if(!model){
+        alert('请先在 API 设置里添加 RunningHub 模型 API');
+        return;
+    }
+    node.rhModel = model;
+    node.model = model;
+    node.apiProvider = 'runninghub';
+    const media = rhMediaSources(node);
+    const prompt = media.prompt || '';
+    const refs = imageRefsOnly(media.refs || []);
+    if(!prompt && !refs.length){ alert(tr('canvas.needPromptOrImage')); return; }
+    const count = Math.max(1, Math.min(8, Number(node.count || 1)));
+    let out = outputForNode(node, 500);
+    const run = runSnapshot(node, prompt || 'Edit the reference images.', refs);
+    run.taskLabel = 'RunningHub';
+    const payload = {
+        prompt:prompt || 'Edit the reference images.',
+        provider_id:'runninghub',
+        model,
+        size:await generatorSizeForRun(node, refs),
+        reference_images:refs.slice(0, CANVAS_REFERENCE_IMAGE_MAX)
+    };
+    const quality = normalizedImageQuality(node.quality);
+    if(quality) payload.quality = quality;
+    let pendingIds = [];
+    const startedAt = nowMs();
+    if(!opts.cascade){
+        node.running = true;
+        refreshRunNodes(node, out);
+        setTimeout(() => { node.running = false; refreshRunNodes(node, out); }, 2000);
+    }
+    try {
+        const taskInfos = await Promise.all(Array.from({length:count}, () => createCanvasImageTask(payload, {cascadeTargetId})));
+        if(!out){
+            let outputs = [];
+            for(const task of taskInfos){
+                const result = await waitCanvasImageTaskResult(task.task_id, {cascadeTargetId});
+                outputs.push(...(result.images || []));
+                run.request = requestMetaFromResult(result);
+            }
+            if(!outputs.length) throw new Error(tr('canvas.generationFailed'));
+            mergeGeneratedOutputs(node, outputs, Boolean(opts.cascade));
+            addGenerationLog({run, outputs, runMs:nowMs() - startedAt});
+            node.runStatus = 'done';
+            node.runError = '';
+            node.running = false;
+            refreshRunNodes(node, out);
+            scheduleSave();
+            return;
+        }
+        pendingIds = taskInfos.map(() => uid('p'));
+        out._pending = [
+            ...(out._pending || []),
+            ...taskInfos.map((task, index) => makePendingForRun(pendingIds[index], run, node, {refs, requestSize:payload.size, cascadeTargetId}, {
+                canvasTaskId:task.task_id,
+                canvasTaskType:'online-image',
+                providerId:payload.provider_id,
+                model:payload.model,
+                appendGenerated:Boolean(opts.cascade)
+            }))
+        ];
+        refreshRunNodes(node, out);
+        scheduleSave();
+        await saveCanvas();
+        const statuses = await Promise.all(taskInfos.map(task => pollCanvasImageTask(task.task_id, {cascadeTargetId})));
+        if(statuses.includes('aborted')) throw cascadeAbortError(cascadeStopMessage());
+        if(statuses.includes('failed')) throw new Error(node.runError || tr('canvas.generationFailed'));
+    } catch(err) {
+        const remainingPending = pendingIds.map(id => pendingById(out, id)).filter(Boolean);
+        const removableIds = remainingPending.filter(p => !(p.failed && p.recoverTaskId)).map(p => p.id);
+        if(removableIds.length){
+            const metas = collectRunMetas(out, removableIds);
+            addGenerationLog({run, outputs:[], runMs:Math.max(...metas.map(m => m.runMs || 0), 0), error:err.message || String(err)});
+            if(out) out._pending = (out._pending || []).filter(p => !removableIds.includes(p.id));
+        }
+        if(isCascadeAbortError(err)){
+            node.running = false;
+            refreshRunNodes(node, out);
+            scheduleSave();
+            if(opts.cascade) throw err;
+            return;
+        }
+        node.runStatus = 'failed';
+        node.runError = err.message || String(err);
+        node.running = false;
+        refreshRunNodes(node, out);
+        scheduleSave();
+        if(remainingPending.some(p => p.failed && p.recoverTaskId) && !removableIds.length) return;
+        if(opts.cascade) throw err;
+        showErrorModal(err.message || tr('canvas.generationFailed'), tr('canvas.apiFailed'));
     }
 }
 function renderComfySettings(container, node){
@@ -9566,6 +10369,16 @@ function syncGeneratorInputs(){
         if(gen.type === 'ltxDirector') ltxSyncConnectedImagesToTimeline(gen);
     });
 }
+// 提示词节点每敲一个字都全量重建所有生成器节点的输入/预览 DOM 会卡顿。节点的 text 已即时写入
+// （运行时实时读取，不受影响），生成器里的预览只需稍后同步一次即可，这里做防抖。
+let generatorInputSyncTimer = 0;
+function scheduleGeneratorInputSync(){
+    clearTimeout(generatorInputSyncTimer);
+    generatorInputSyncTimer = setTimeout(() => {
+        syncGeneratorInputs();
+        refreshGeneratorInputViews();
+    }, 160);
+}
 function refreshGeneratorInputViews(){
     nodes.filter(n => CANVAS_GENERATOR_TYPES.includes(n.type)).forEach(gen => {
         const el = nodesEl.querySelector(`.node[data-id="${gen.id}"]`);
@@ -9585,7 +10398,8 @@ function refreshGeneratorInputViews(){
         if(gen.type === 'video') renderVideoImageInputs(el.querySelector('.video-img-list'), gen, imageInputs);
         if(gen.type === 'rh'){
             const media = rhMediaSources(gen);
-            renderRhPromptFields(el.querySelector('.rh-prompt-list'), gen, rhActiveFields(gen));
+            if(rhCurrentKind(gen) === 'model') renderPromptPreview(el.querySelector('.rh-prompt-list'), media.sources.filter(src => src.prompt && !src.refs?.length));
+            else renderRhPromptFields(el.querySelector('.rh-prompt-list'), gen, rhActiveFields(gen));
             renderRhInputs(el.querySelector('.rh-input-list'), gen, media);
             renderRhParams(el.querySelector('.rh-param-list'), gen, rhActiveFields(gen), media);
         }
@@ -9607,7 +10421,7 @@ async function runGenerator(genId, opts={}){
         provider_id:resolveImageProviderId(gen.apiProvider || 'comfly'),
         model:resolveImageModel(gen.model),
         size:await generatorSizeForRun(gen, refs),
-        reference_images:refs
+        reference_images:refs.slice(0, CANVAS_REFERENCE_IMAGE_MAX)
     };
     const quality = normalizedImageQuality(gen.quality);
     if(quality) payload.quality = quality;
@@ -9703,7 +10517,7 @@ async function runGeneratorLegacy(genId, opts={}){
             provider_id:resolveImageProviderId(gen.apiProvider || 'comfly'),
             model:resolveImageModel(gen.model),
             size:requestSize,
-            reference_images:refs
+            reference_images:refs.slice(0, CANVAS_REFERENCE_IMAGE_MAX)
         };
         const quality = normalizedImageQuality(gen.quality);
         if(quality) payload.quality = quality;
@@ -9826,22 +10640,18 @@ async function comfyNameForRef(ref){
     if(!ref.url) throw new Error(langIsEn() ? 'Missing input image' : '缺少输入图片');
     return uploadCanvasUrlToComfy(ref.url);
 }
-async function runComfyUpscale(imageUrl, resolution){
+async function runComfyUpscale(imageUrl, resolution, options={}){
     if(!imageUrl) throw new Error(actionFailed('studio.superResolution', langIsEn() ? 'missing input image' : '缺少输入图片'));
     const nextInput = await uploadCanvasUrlToComfy(imageUrl);
-    const upscale = await fetch('/api/generate', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-            workflow_json:'upscale.json',
-            params:{
-                "15": { image:nextInput },
-                "172": { seed:Math.floor(Math.random() * 4294967295), resolution:Number(resolution || 2048) }
-            },
-            type:'enhance',
-            client_id:CLIENT_ID
-        })
-    }).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('studio.superResolution'))); return r.json(); });
+    const upscale = await runQueuedComfyGenerate({
+        workflow_json:'upscale.json',
+        params:{
+            "15": { image:nextInput },
+            "172": { seed:Math.floor(Math.random() * 4294967295), resolution:Number(resolution || 2048) }
+        },
+        type:'enhance',
+        client_id:CLIENT_ID
+    }, options);
     if(upscale.error) throw new Error(actionFailed('studio.superResolution', upscale.error));
     if(!upscale.images?.length) throw new Error(noReturnedImage('studio.superResolution'));
     return upscale.images || [];
@@ -10424,20 +11234,13 @@ async function runLTXDirectorNode(nodeId, opts={}){
             [LTX_DIRECTOR_WF_NODE]:directorInputs,
             [LTX_DIRECTOR_SEED_NODE]:{noise_seed:Number(node.noiseSeed ?? 12)}
         };
-        const result = await cascadeFetch('/api/generate', {
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                prompt:globalPrompt,
-                workflow_json:LTX_DIRECTOR_WORKFLOW,
-                params,
-                type:'ltx-director',
-                client_id:CLIENT_ID
-            })
-        }, {cascadeTargetId}).then(async r => {
-            if(!r.ok) throw new Error(await responseErrorMessage(r, tr('canvas.ltxFailed')));
-            return r.json();
-        });
+        const result = await runQueuedComfyGenerate({
+            prompt:globalPrompt,
+            workflow_json:LTX_DIRECTOR_WORKFLOW,
+            params,
+            type:'ltx-director',
+            client_id:CLIENT_ID
+        }, {cascadeTargetId});
         run.request = requestMetaFromResult(result);
         if(result.error) throw new Error(result.error);
         const outputs = comfyResultOutputs(result);
@@ -10504,41 +11307,33 @@ async function runComfyNode(nodeId, opts={}){
         let images = [];
         if(mode === 'text'){
             run.taskLabel = tr('canvas.comfyText');
-            const result = await cascadeFetch('/api/generate', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
-                    prompt,
-                    width:Number(node.width || 1024),
-                    height:Number(node.height || 1024),
-                    workflow_json:'Z-Image.json',
-                    type:'zimage',
-                    client_id:CLIENT_ID
-                })
-            }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyText'))); return r.json(); });
+            const result = await runQueuedComfyGenerate({
+                prompt,
+                width:Number(node.width || 1024),
+                height:Number(node.height || 1024),
+                workflow_json:'Z-Image.json',
+                type:'zimage',
+                client_id:CLIENT_ID
+            }, {cascadeTargetId});
             run.request = requestMetaFromResult(result);
             images = comfyResultOutputs(result);
         } else if(mode === 'enhance'){
             run.taskLabel = tr('canvas.comfyEnhance');
             const inputName = await comfyNameForRef(refs[0]);
-            const enhance = await cascadeFetch('/api/generate', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
-                    workflow_json:'Z-Image-Enhance.json',
-                    params:{
-                        "15": { image:inputName },
-                        "204": { value:Number(node.enhanceStrength ?? 0.5) }
-                    },
-                    type:'enhance',
-                    client_id:CLIENT_ID
-                })
-            }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyEnhance'))); return r.json(); });
+            const enhance = await runQueuedComfyGenerate({
+                workflow_json:'Z-Image-Enhance.json',
+                params:{
+                    "15": { image:inputName },
+                    "204": { value:Number(node.enhanceStrength ?? 0.5) }
+                },
+                type:'enhance',
+                client_id:CLIENT_ID
+            }, {cascadeTargetId});
             run.request = requestMetaFromResult(enhance);
             if(enhance.error) throw new Error(actionFailed('canvas.comfyEnhance', enhance.error));
             if(!enhance.images?.length) throw new Error(noReturnedImage('canvas.comfyEnhance'));
             if(node.enhanceUpscale){
-                images = await runComfyUpscale(enhance.images?.[0], node.enhanceUpscaleRes || 2048);
+                images = await runComfyUpscale(enhance.images?.[0], node.enhanceUpscaleRes || 2048, {cascadeTargetId});
             } else {
                 images = enhance.images || [];
             }
@@ -10581,17 +11376,13 @@ async function runComfyNode(nodeId, opts={}){
                 }
                 params[f.node][f.input] = comfyParamValue(node, f);
             });
-            const result = await cascadeFetch('/api/generate', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
-                    prompt,
-                    workflow_json:workflowName,
-                    params,
-                    type:'workflow-custom',
-                    client_id:CLIENT_ID
-                })
-            }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyCustom'))); return r.json(); });
+            const result = await runQueuedComfyGenerate({
+                prompt,
+                workflow_json:workflowName,
+                params,
+                type:'workflow-custom',
+                client_id:CLIENT_ID
+            }, {cascadeTargetId});
             run.request = requestMetaFromResult(result);
             if(result.error) throw new Error(actionFailed('canvas.comfyCustom', result.error));
             images = comfyResultOutputs(result);
@@ -10600,29 +11391,25 @@ async function runComfyNode(nodeId, opts={}){
             run.taskLabel = tr('canvas.comfyEdit');
             const names = [];
             for (const ref of refs.slice(0, 3)) names.push(await comfyNameForRef(ref));
-            const result = await cascadeFetch('/api/generate', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
-                    prompt,
-                    workflow_json:'Flux2-Klein.json',
-                    type:'klein',
-                    params:{
-                        "168": { text:prompt },
-                        "158": { noise_seed:Math.floor(Math.random() * 1000000) },
-                        "278": { image:names[0] || "" },
-                        "270": { image:names[1] || "" },
-                        "292": { image:names[2] || "" },
-                        "313": { value:Boolean(names[1]) },
-                        "314": { value:Boolean(names[2]) }
-                    },
-                    client_id:CLIENT_ID
-                })
-            }, {cascadeTargetId}).then(async r => { if(!r.ok) throw new Error(await responseErrorMessage(r, actionFailed('canvas.comfyEdit'))); return r.json(); });
+            const result = await runQueuedComfyGenerate({
+                prompt,
+                workflow_json:'Flux2-Klein.json',
+                type:'klein',
+                params:{
+                    "168": { text:prompt },
+                    "158": { noise_seed:Math.floor(Math.random() * 1000000) },
+                    "278": { image:names[0] || "" },
+                    "270": { image:names[1] || "" },
+                    "292": { image:names[2] || "" },
+                    "313": { value:Boolean(names[1]) },
+                    "314": { value:Boolean(names[2]) }
+                },
+                client_id:CLIENT_ID
+            }, {cascadeTargetId});
             run.request = requestMetaFromResult(result);
             if(result.error) throw new Error(actionFailed('canvas.comfyEdit', result.error));
             if(!result.images?.length) throw new Error(noReturnedImage('canvas.comfyEdit'));
-            images = node.editUpscale ? await runComfyUpscale(result.images?.[0], node.editUpscaleRes || 2048) : result.images || [];
+            images = node.editUpscale ? await runComfyUpscale(result.images?.[0], node.editUpscaleRes || 2048, {cascadeTargetId}) : result.images || [];
         }
         const meta = collectRunMeta(out, pendingId);
         if(out) out._pending = (out._pending||[]).filter(p => p.id !== pendingId);
@@ -11184,8 +11971,8 @@ function outputDownloadName(url){
     return `canvas-output-${Date.now()}.${ext || 'png'}`;
 }
 function isVideoUrl(url){
-    const clean = (url || '').split('?')[0].toLowerCase();
-    return /\.(mp4|webm|mov|m4v|avi|mkv)$/.test(clean);
+    const clean = canvasOriginalMediaUrl(url).split('?')[0].toLowerCase();
+    return /\.(mp4|webm|mov|m4v|avi|mkv|flv)$/.test(clean);
 }
 function mediaKindForOutputItem(item){
     const explicit = String(item?.kind || item?.mediaKind || '').toLowerCase();
@@ -11286,6 +12073,7 @@ function logTaskLabel(log){
 function addGenerationLog({run, outputs=[], runMs=0, error=''}) {
     if(!canvas) return;
     canvas.logs = canvas.logs || [];
+    if(!error && (outputs || []).some(item => outputUrlValue(item))) playGenerationCompleteSound();
     const entry = {
         id:uid('log'),
         createdAt:Date.now(),
@@ -11339,7 +12127,7 @@ function renderCanvasLog(){
                     <span class="log-chip">${escapeHtml(formatRunDuration(log.runMs || 0))}</span>
                 </div>
                 <div class="log-subline">${subParts.map(part => `<span title="${escapeAttr(part)}">${escapeHtml(part)}</span>`).join('')}</div>
-                ${log.error ? `<div class="log-error" title="${escapeAttr(log.error)}">${escapeHtml(log.error)}</div>` : ''}
+                ${log.error ? `<div class="log-error" title="${escapeAttr(log.error)}" data-error="${escapeAttr(log.error)}">${escapeHtml(log.error)}</div>` : ''}
                 <div class="log-prompt" title="${escapeAttr(log.prompt || tr('canvas.noPromptMeta'))}" data-prompt="${escapeAttr(log.prompt || '')}">${escapeHtml(log.prompt || tr('canvas.noPromptMeta'))}</div>
             </div>
             <div class="log-thumbs">${thumbs}</div>
@@ -11352,20 +12140,24 @@ function renderCanvasLog(){
             openOutputLightbox(el.dataset.url, null);
         };
     });
-    list.querySelectorAll('[data-prompt]').forEach(el => {
-        el.onclick = e => {
-            e.stopPropagation();
-            const text = el.dataset.prompt || '';
-            if(text) navigator.clipboard?.writeText(text).catch(() => {});
-            const oldText = el.textContent;
-            el.textContent = tr('canvas.copied');
-            el.classList.add('copied');
-            setTimeout(() => {
-                el.textContent = oldText;
-                el.classList.remove('copied');
-            }, 900);
-        };
-    });
+    const bindCanvasLogCopy = (selector, key) => {
+        list.querySelectorAll(selector).forEach(el => {
+            el.onclick = async e => {
+                e.stopPropagation();
+                const text = el.dataset[key] || '';
+                const copied = await copyTextToClipboard(text);
+                const oldText = el.textContent;
+                el.textContent = copied ? tr('canvas.copied') : tr('canvas.copyFailed');
+                if(copied) el.classList.add('copied');
+                setTimeout(() => {
+                    el.textContent = oldText;
+                    el.classList.remove('copied');
+                }, 900);
+            };
+        });
+    };
+    bindCanvasLogCopy('[data-prompt]', 'prompt');
+    bindCanvasLogCopy('[data-error]', 'error');
     refreshIcons();
 }
 async function importWorkflowAssetUrl(url, name='workflow'){
@@ -11468,6 +12260,35 @@ async function createCanvasImageTask(payload, options={}){
     }, options);
     if(!res.ok) throw new Error(await responseErrorMessage(res, tr('canvas.generationFailed')));
     return res.json();
+}
+async function createCanvasComfyTask(payload, options={}){
+    const res = await cascadeFetch('/api/canvas-comfy-tasks', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload)
+    }, options);
+    if(!res.ok) throw new Error(await responseErrorMessage(res, actionFailed('canvas.comfyGenerate')));
+    return res.json();
+}
+async function waitCanvasComfyTaskResult(taskId, options={}){
+    if(!taskId) throw new Error(actionFailed('canvas.comfyGenerate'));
+    while(true){
+        const cascadeTargetId = cascadeTargetIdFromOptions(options);
+        if(cascadeTargetId) ensureCascadeActive(cascadeTargetId);
+        const res = await cascadeFetch(`/api/canvas-comfy-tasks/${encodeURIComponent(taskId)}`, {}, {cascadeTargetId});
+        if(!res.ok){
+            if(res.status === 404) throw new Error(cascadeBackendRestartMessage());
+            throw new Error(await responseErrorMessage(res, actionFailed('canvas.comfyGenerate')));
+        }
+        const data = await res.json();
+        if(data.status === 'succeeded') return data.result || {};
+        if(data.status === 'failed') throw new Error(data.error || actionFailed('canvas.comfyGenerate'));
+        await sleep(1600);
+    }
+}
+async function runQueuedComfyGenerate(payload, options={}){
+    const task = await createCanvasComfyTask(payload, options);
+    return waitCanvasComfyTaskResult(task.task_id, options);
 }
 function extractUpstreamTaskId(text){
     const match = String(text || '').match(/(?:task_id|taskId|task id)\s*[=:：]\s*([A-Za-z0-9_.:-]+)/i);
@@ -12442,7 +13263,7 @@ function openOutputLightbox(url, out){
             if(currentOutputLightboxOutId) downloadGroupNodeImages(currentOutputLightboxOutId);
         };
     }
-    const videoMode = isVideoUrl(url);
+    const videoMode = mediaKindForOutputItem(meta && Object.keys(meta).length ? {...meta, url} : url) === 'video';
     outputLightboxImg.style.display = videoMode ? 'none' : 'block';
     outputLightboxVideo.style.display = videoMode ? 'block' : 'none';
     outputCompareResult.style.display = videoMode ? 'none' : 'block';
@@ -12456,7 +13277,7 @@ function openOutputLightbox(url, out){
                 ? `${outputLightboxVideo.videoWidth} x ${outputLightboxVideo.videoHeight}`
                 : 'Video', meta);
         };
-        outputLightboxVideo.src = url;
+        outputLightboxVideo.src = canvasDisplayMediaUrl(url, outputDownloadName(url));
         outputPreview.ondblclick = null;
         outputDownloadBtn.onclick = e => {
             e.stopPropagation();
@@ -12474,9 +13295,9 @@ function openOutputLightbox(url, out){
     outputLightboxImg.onload = () => {
         outputResolutionText(`${outputLightboxImg.naturalWidth} x ${outputLightboxImg.naturalHeight}`, meta);
     };
-    outputLightboxImg.src = url;
-    outputCompareResult.src = url;
-    outputCompareOriginal.src = currentOutputCompareUrl || '';
+    outputLightboxImg.src = canvasDisplayMediaUrl(url, outputDownloadName(url));
+    outputCompareResult.src = canvasDisplayMediaUrl(url, outputDownloadName(url));
+    outputCompareOriginal.src = currentOutputCompareUrl ? canvasDisplayMediaUrl(currentOutputCompareUrl, outputDownloadName(currentOutputCompareUrl)) : '';
     outputPreview.ondblclick = e => {
         e.stopPropagation();
         if(!currentOutputCompareUrl) return;
@@ -12650,6 +13471,46 @@ function cloneNode(n, dx, dy){
     copy.running = false;
     return copy;
 }
+function duplicateNodesForAltDrag(node, preserveConnections=false){
+    const copy = cloneNode(node, 0, 0);
+    const sourceIds = new Set([node.id]);
+    const idMap = new Map([[node.id, copy.id]]);
+    const copies = [copy];
+    const isGroup = node.type === 'group' || node.type === 'promptGroup';
+    if(isGroup && node.items?.length){
+        const childCopies = node.items
+            .map(id => nodes.find(n => n.id === id))
+            .filter(Boolean)
+            .map(child => {
+                const childCopy = cloneNode(child, 0, 0);
+                sourceIds.add(child.id);
+                idMap.set(child.id, childCopy.id);
+                copies.push(childCopy);
+                return childCopy;
+            });
+        copy.items = copy.items.map(id => idMap.get(id) || id);
+        nodes.push(...childCopies, copy);
+    } else {
+        nodes.push(copy);
+    }
+    if(preserveConnections){
+        const copiedConnections = (connections || [])
+            .filter(conn => sourceIds.has(conn.to))
+            .map(conn => ({
+                ...conn,
+                id:uid('c'),
+                from:idMap.get(conn.from) || conn.from,
+                to:idMap.get(conn.to) || conn.to
+            }))
+            .filter(conn => conn.from && conn.to && conn.from !== conn.to);
+        copiedConnections.forEach(conn => {
+            if(canConnect(conn.from, conn.to) && !connections.some(c => c.from === conn.from && c.to === conn.to)){
+                connections.push(conn);
+            }
+        });
+    }
+    return copy;
+}
 function copySelectedNodes(){
     if(!canvas || !selected.size) return;
     const el = document.activeElement;
@@ -12724,14 +13585,19 @@ function downloadBlob(blob, filename){
     setTimeout(() => URL.revokeObjectURL(link.href), 1200);
 }
 function downloadUrl(url, filename='download'){
-    if(!url) return;
+    if(!url) return Promise.resolve(false);
+    const raw = canvasOriginalMediaUrl(url);
+    const href = (raw.startsWith('data:') || raw.startsWith('blob:') || raw.startsWith('/api/download-output'))
+        ? raw
+        : `/api/download-output?url=${encodeURIComponent(raw)}&name=${encodeURIComponent(filename || outputDownloadName(raw))}`;
     const link = document.createElement('a');
-    link.href = url;
+    link.href = href;
     link.download = filename || '';
     link.target = '_blank';
     document.body.appendChild(link);
     link.click();
     link.remove();
+    return Promise.resolve(true);
 }
 function openWorkflowTransferModal(){
     if(!canvas){ setStatus(tr('canvas.needCanvas')); return; }
@@ -12928,21 +13794,15 @@ function startNodeDrag(e, node){
     e.stopPropagation();
     let dragTarget = node;
     if(e.altKey){
-        const copy = cloneNode(node, 0, 0);
-        const isGroup = node.type === 'group' || node.type === 'promptGroup';
-        if(isGroup && node.items?.length){
-            const idMap = new Map();
-            const childCopies = node.items
-                .map(id => nodes.find(n => n.id === id)).filter(Boolean)
-                .map(child => { const cc = cloneNode(child, 0, 0); idMap.set(child.id, cc.id); return cc; });
-            copy.items = copy.items.map(id => idMap.get(id) || id);
-            nodes.push(...childCopies, copy);
-        } else {
-            nodes.push(copy);
-        }
+        setKnifeMode(false);
+        const copy = duplicateNodesForAltDrag(node, e.shiftKey);
         selected.clear();
         selected.add(copy.id);
         dragTarget = copy;
+        if(e.shiftKey){
+            sanitizeConnections();
+            syncGeneratorInputs();
+        }
         render();
     }
     const isGroup = dragTarget.type === 'group' || dragTarget.type === 'promptGroup';
@@ -12987,7 +13847,7 @@ function onNodeDrag(e){
             childEl.style.top = `${childDrag.node.y}px`;
         }
     });
-    renderLinks();
+    scheduleLinksRender();
     renderSelectionHub();
     if(workflowTransferModal?.classList.contains('open')) updateWorkflowTransferMeta();
     scheduleMinimapRender();
@@ -13021,7 +13881,7 @@ function onNodeResize(e){
         el.style.width = `${resizeNode.node.w}px`;
         el.style.height = `${resizeNode.node.h}px`;
     }
-    renderLinks();
+    scheduleLinksRender();
     renderSelectionHub();
     scheduleMinimapRender();
 }
@@ -13174,6 +14034,111 @@ function nodeRect(n){
     const h = el?.offsetHeight || n.h || 200;
     return {x:n.x, y:n.y, w, h, cx:n.x + w/2, cy:n.y + h/2};
 }
+function connectedClusterIds(seedId){
+    const ids = new Set(nodes.map(n => n.id));
+    if(!ids.has(seedId)) return [];
+    const seen = new Set([seedId]);
+    const queue = [seedId];
+    while(queue.length){
+        const id = queue.shift();
+        connections.forEach(c => {
+            if(c.from !== id && c.to !== id) return;
+            const next = c.from === id ? c.to : c.from;
+            if(!ids.has(next) || seen.has(next)) return;
+            seen.add(next);
+            queue.push(next);
+        });
+    }
+    return [...seen];
+}
+function canvasArrangeAtomicIds(ids){
+    const out = new Set((ids || []).filter(id => nodes.some(n => n.id === id)));
+    let changed = true;
+    while(changed){
+        changed = false;
+        nodes.filter(n => (n.type === 'group' || n.type === 'promptGroup') && Array.isArray(n.items)).forEach(group => {
+            (group.items || []).forEach(itemId => {
+                if(!out.has(itemId)) return;
+                out.delete(itemId);
+                out.add(group.id);
+                changed = true;
+            });
+        });
+    }
+    return [...out];
+}
+function translateCanvasNodeWithMembers(node, dx, dy, seen=new Set()){
+    if(!node || seen.has(node.id)) return;
+    seen.add(node.id);
+    node.x = Math.round((Number(node.x) || 0) + dx);
+    node.y = Math.round((Number(node.y) || 0) + dy);
+    if(node.type === 'group' || node.type === 'promptGroup'){
+        (node.items || []).forEach(id => translateCanvasNodeWithMembers(nodes.find(n => n.id === id), dx, dy, seen));
+    }
+}
+function moveCanvasNodeAtom(node, x, y){
+    const dx = Math.round(x - (Number(node.x) || 0));
+    const dy = Math.round(y - (Number(node.y) || 0));
+    translateCanvasNodeWithMembers(node, dx, dy);
+}
+function arrangeIdsByConnections(ids){
+    const idSet = new Set(canvasArrangeAtomicIds(ids));
+    const selectedNodes = [...idSet].map(id => nodes.find(n => n.id === id)).filter(Boolean);
+    if(selectedNodes.length < 2) return false;
+    const rects = selectedNodes.map(n => ({node:n, rect:nodeRect(n)}));
+    const startX = Math.min(...rects.map(item => item.rect.x));
+    const startY = Math.min(...rects.map(item => item.rect.y));
+    const internal = connections.filter(c => idSet.has(c.from) && idSet.has(c.to));
+    const depth = new Map(selectedNodes.map(n => [n.id, 0]));
+    if(internal.length){
+        const indegree = new Map(selectedNodes.map(n => [n.id, 0]));
+        internal.forEach(c => indegree.set(c.to, (indegree.get(c.to) || 0) + 1));
+        const roots = [...indegree.entries()].filter(([, n]) => n === 0).map(([id]) => id);
+        const queue = roots.length ? roots.slice() : [selectedNodes[0].id];
+        const seen = new Set(queue);
+        while(queue.length){
+            const id = queue.shift();
+            internal.filter(c => c.from === id).forEach(c => {
+                depth.set(c.to, Math.max(depth.get(c.to) || 0, (depth.get(id) || 0) + 1));
+                if(!seen.has(c.to)){
+                    seen.add(c.to);
+                    queue.push(c.to);
+                }
+            });
+        }
+    }
+    const groups = new Map();
+    selectedNodes.forEach(n => {
+        const d = depth.get(n.id) || 0;
+        if(!groups.has(d)) groups.set(d, []);
+        groups.get(d).push(n);
+    });
+    const sortedDepths = [...groups.keys()].sort((a, b) => a - b);
+    let x = startX;
+    sortedDepths.forEach(d => {
+        const col = groups.get(d).slice().sort((a, b) => nodeRect(a).y - nodeRect(b).y || String(a.id).localeCompare(String(b.id)));
+        let y = startY;
+        let maxW = 0;
+        col.forEach(n => {
+            const r = nodeRect(n);
+            moveCanvasNodeAtom(n, x, y);
+            y += Math.max(120, r.h) + 56;
+            maxW = Math.max(maxW, Math.max(220, r.w));
+        });
+        x += maxW + 180;
+    });
+    return true;
+}
+function arrangeSelectedCanvasNodes(){
+    if(!canvas || !selected.size) return;
+    const explicit = [...selected].filter(id => nodes.some(n => n.id === id));
+    const ids = canvasArrangeAtomicIds(explicit.length > 1 ? explicit : connectedClusterIds(explicit[0]));
+    if(ids.length < 2) return;
+    pushUndo();
+    if(!arrangeIdsByConnections(ids)) return;
+    render();
+    scheduleSave();
+}
 function handoffExistingInputsToGroup(group, children){
     if(!group || group.type !== 'group') return false;
     const childIds = new Set((children || []).filter(n => ['image','prompt'].includes(n?.type)).map(n => n.id));
@@ -13273,14 +14238,20 @@ function canResolvePort(id){
 function renderLinks(){
     linksEl.innerHTML = '';
     linkControlsEl.innerHTML = '';
+    // 先批量读取所有端点坐标（portPoint 里有 getBoundingClientRect），再统一写入 DOM。
+    // 否则“读一条 rect → append 一条线”交错进行，每次 append 都让布局失效，下一次读 rect 就触发一次
+    // 全量强制重排（layout thrashing），连线一多拖动就掉帧。读写分离后每帧只强制重排一次。
+    const segments = [];
     connections.forEach(c => {
         // 端点无法解析（节点已删除、或尚未渲染出 DOM）就跳过，否则连线会被画到 (0,0)，
         // 看起来像很多连线都从同一个空白处中转。
         if(!canResolvePort(c.from) || !canResolvePort(c.to)) return;
-        const a = portPoint(c.from, 'out'), b = portPoint(c.to, 'in');
-        linksEl.appendChild(pathEl(a.x, a.y, b.x, b.y, 'link'));
-        const btn = linkDeleteButton(c, a, b);
-        linkControlsEl.appendChild(btn);
+        segments.push({c, a:portPoint(c.from, 'out'), b:portPoint(c.to, 'in')});
+    });
+    segments.forEach(({c, a, b}) => {
+        const relClass = isConnectionSelected(c) ? ' link-active' : '';
+        linksEl.appendChild(pathEl(a.x, a.y, b.x, b.y, `link${relClass}`));
+        linkControlsEl.appendChild(linkDeleteButton(c, a, b));
         linksEl.appendChild(linkHitEl(a.x, a.y, b.x, b.y, c.id));
     });
     if(tempLink){
@@ -13365,6 +14336,7 @@ function refreshSelectionVisuals(){
     nodesEl.querySelectorAll('.node').forEach(el => {
         el.classList.toggle('selected', selected.has(el.dataset.id));
     });
+    syncCanvasSelectedImageResolution(nodesEl);
     renderLinks();
     renderSelectionHub();
     if(workflowTransferModal?.classList.contains('open')) updateWorkflowTransferMeta();
@@ -13455,7 +14427,7 @@ function setKnifeMode(active){
     }
 }
 function startKnifeDrag(e){
-    if(!canvas || e.button !== 0 || !e.shiftKey || isEditableTarget(e.target)) return false;
+    if(!canvas || e.button !== 0 || !e.shiftKey || e.altKey || isEditableTarget(e.target)) return false;
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation?.();
@@ -13490,6 +14462,7 @@ function isEditableTarget(target){
 }
 minimap?.addEventListener('mousedown', e => {
     if(!canvas || e.button !== 0) return;
+    if(e.target.closest?.('#canvasArrangeBtn')) return;
     e.preventDefault();
     e.stopPropagation();
     minimapDrag = true;
@@ -13503,6 +14476,12 @@ minimap?.addEventListener('mousedown', e => {
         window.onmouseup = null;
         scheduleViewportSave();
     };
+});
+canvasArrangeBtn?.addEventListener('mousedown', e => e.stopPropagation());
+canvasArrangeBtn?.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    arrangeSelectedCanvasNodes();
 });
 function isZoomPreviewIgnoredTarget(target){
     return !!target?.closest?.('#createMenu, #linkCreateMenu, #nodeInputMenu, #nodeOutputMenu, #imageNodeMenu, .minimap, #canvasAssetPanel, #assetManagerModal, #workflowTransferModal, #logModal, #promptTemplateModal, #imageEditModal, #outputLightbox');
@@ -13679,7 +14658,7 @@ window.addEventListener('keydown', e => {
     if(!canvas) return;
     const key = String(e.key || '').toLowerCase();
     if(key === 'r' && !isEditableTarget(e.target)) isRKeyDown = true;
-    if(e.key === 'Shift' && !isEditableTarget(document.activeElement)) setKnifeMode(true);
+    if(e.key === 'Shift' && !e.altKey && !isEditableTarget(document.activeElement)) setKnifeMode(true);
     if(e.key === 'Escape' && document.getElementById('imageEditModal').classList.contains('open')) { closeImageEditor(); return; }
     if(e.key === 'Escape' && promptTemplateModal?.classList.contains('open')) { closePromptTemplateModal(); return; }
     if(outputLightbox.classList.contains('open') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')){
@@ -13805,6 +14784,11 @@ window.onload = async () => {
     applyViewport();
     await loadConfig();
     pruneMissingComfyWorkflows();
-    await loadCanvasList(false);
-    setCanvasMode(false);
+    // 编辑器页只负责打开单个画布：必须带 ?id；没有 id 就回到独立的选画布页面。
+    const openId = new URLSearchParams(window.location.search).get('id');
+    if(openId){
+        await openCanvas(openId);
+    } else {
+        window.location.replace(canvasListUrlForProject(rememberedCanvasListProject()));
+    }
 };

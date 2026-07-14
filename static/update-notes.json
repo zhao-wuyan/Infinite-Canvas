@@ -1,14 +1,18 @@
 {
-  "version": "2026.06.12",
-  "updated_at": "2026-06-12T18:50:36+08:00",
+  "version": "2026.07.13",
+  "updated_at": "2026-07-13T23:41:36+08:00",
   "items": [
     {
       "type": "feature",
-      "text": "新增图像采集工具"
+      "text": "修复EXELLOME的本地多图参考bug"
     },
     {
       "type": "feature",
-      "text": "修复方舟协议bug"
+      "text": "修复FHL的生图报错bug"
+    },
+    {
+      "type": "feature",
+      "text": "增加RunningHub拉取模型的翻译功能"
     }
   ]
 }

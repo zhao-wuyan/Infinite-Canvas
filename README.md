@@ -1,16 +1,18 @@
 # Infinite-Canvas
 Supports comfyui/API calls/modelscope calls
 
+配套的chrome采集插件已经上线：https://chromewebstore.google.com/detail/infinite-canvas-%E5%9B%BE%E5%83%8F%E8%A7%86%E9%A2%91%E6%96%87%E5%AD%97%E6%8A%93%E5%8F%96%E5%B7%A5/ajfhnbklbmpfaaookhfakohabnpmlcic?authuser=0&hl=en
 
 详细教程：[https://youtu.be/1y9ShTvgC_w](https://youtu.be/r_y_9ALr7fg)
 
 由于最近很多API网址关停，我找到一个稳定的网址：
 
-https://apimart.ai/register?aff=1uyAbb  （包含所有生图模型/视频模型/LLM模型）
+https://apib.ai/register?aff=1uyAbb （包含所有生图模型/视频模型/LLM模型）
 
 https://www.fhl.mom/register?aff=86L574B4T2N9  （包含codex和GPT image 2模型）
 
 功能请求/功能更新/视频教程/联系我，都可以在B站评论或私信：https://space.bilibili.com/78652351
+
 
 ----
 
@@ -28,6 +30,7 @@ https://www.fhl.mom/register?aff=86L574B4T2N9  （包含codex和GPT image 2模�
 5. 即梦CLI调用，可直接调用即梦高级会员的积分，支持文生图/图生图/文生视频/图生视频
 6. 支持调用本地局域网的ComfyUI
 7. 扩展图片/360全景图预览截图/视频帧抽取/循环节点等诸多功能
+8. tools文件夹中，增加了chrome批量采集到素材库的插件，PS直连画布调用所有功能的插件
 
 --------
 
@@ -46,7 +49,6 @@ Commercial use is prohibited.
 
 --------
 
-<img width="930" height="1446" alt="4667c56659701b214eedb7c933487a7f" src="https://github.com/user-attachments/assets/7c9a5366-52ed-4f11-a3fd-52a501901c51" />
 
 <img width="2079" height="665" alt="image" src="https://github.com/user-attachments/assets/8469923b-f7a2-403c-9c37-e6e789211f28" />
 
