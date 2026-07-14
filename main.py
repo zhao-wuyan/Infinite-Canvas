@@ -15,6 +15,7 @@ import subprocess
 import time
 import traceback
 import shutil
+import glob
 import asyncio
 import logging
 import platform
@@ -194,6 +195,11 @@ async def startup_event():
         await asyncio.to_thread(migrate_double_extension_uploads)
     except Exception as exc:
         print(f"修复双重扩展名素材失败: {exc}")
+    # 纠正内容与扩展名不符的图片（如 WebP 内容却叫 .png），否则严格客户端解不出来
+    try:
+        await asyncio.to_thread(migrate_mislabeled_image_extensions)
+    except Exception as exc:
+        print(f"纠正图片扩展名失败: {exc}")
 
 @app.websocket("/ws/stats")
 async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
@@ -264,8 +270,8 @@ JIMENG_INSTALL_LOCK = Lock()
 JIMENG_INSTALL_SESSIONS = {}
 
 PROVIDER_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{2,40}$")
-SUPPORTED_PROVIDER_PROTOCOLS = {"openai", "apimart", "gemini", "volcengine", "runninghub", "jimeng"}
-SUPPORTED_IMAGE_REQUEST_MODES = {"openai", "openai-json"}
+SUPPORTED_PROVIDER_PROTOCOLS = {"openai", "apimart", "gemini", "gemini-cli", "volcengine", "runninghub", "jimeng", "codex"}
+SUPPORTED_IMAGE_REQUEST_MODES = {"openai", "openai-json", "openai-video-proxy", "openai-responses"}
 RUNNINGHUB_DEFAULT_BASE_URL = "https://www.runninghub.cn"
 JIMENG_INSTALL_SCRIPT_URL = "https://jimeng.jianying.com/cli"
 JIMENG_DOWNLOAD_BASE = "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta"
@@ -274,6 +280,10 @@ JIMENG_VERSION_URL = "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk
 RUNNINGHUB_OPENAPI_BASE_URL = "https://www.runninghub.cn/openapi/v2"
 RUNNINGHUB_MODEL_REGISTRY_URL = "https://raw.githubusercontent.com/HM-RunningHub/ComfyUI_RH_OpenAPI/main/models_registry.json"
 RUNNINGHUB_LLM_BASE_URL = "https://llm.runninghub.cn/v1"
+RUNNINGHUB_FILE_HOST_REWRITES = {
+    "rh-images-1252422369.cos.ap-beijing.myqcloud.com": "rh-images.xiaoyaoyou.com",
+}
+LINGJING_DEFAULT_BASE_URL = "https://apistudio.vip"
 RUNNINGHUB_LLM_MODELS_URLS = [
     "https://llm.runninghub.cn/v1/models",
     "https://llm.runninghub.ai/v1/models",
@@ -303,6 +313,18 @@ JIMENG_DEFAULT_VIDEO_MODELS = [
     "3.0",
     "3.0fast",
 ]
+CODEX_DEFAULT_IMAGE_MODELS = ["gpt-image-2"]
+CODEX_DEFAULT_CHAT_MODELS = ["gpt-5.5"]
+GEMINI_CLI_DEFAULT_IMAGE_MODELS = ["auto"]
+GEMINI_CLI_DEFAULT_CHAT_MODELS = ["auto"]
+try:
+    CODEX_DEFAULT_TIMEOUT = max(30, min(3600, int(os.getenv("CODEX_CLI_TIMEOUT", "900"))))
+except Exception:
+    CODEX_DEFAULT_TIMEOUT = 900
+try:
+    GEMINI_CLI_DEFAULT_TIMEOUT = max(30, min(3600, int(os.getenv("GEMINI_CLI_TIMEOUT", "900"))))
+except Exception:
+    GEMINI_CLI_DEFAULT_TIMEOUT = 900
 AGNES_DEFAULT_VIDEO_MODELS = ["agnes-video-v2.0"]
 JIMENG_LEGACY_IMAGE_MODELS = {
     "jimeng-image-2k",
@@ -319,15 +341,9 @@ except Exception:
 VOLCENGINE_DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 VOLCENGINE_DEFAULT_PROJECT_NAME = "default"
 VOLCENGINE_DEFAULT_REGION = "cn-beijing"
-VOLCENGINE_DEFAULT_VIDEO_MODELS = [
-    "doubao-seedance-2-0-260128",
-    "doubao-seedance-2-0-fast-260128",
-    "doubao-seedance-1-5-pro-251215",
-    "doubao-seedance-1-0-pro-250528",
-    "doubao-seedance-1-0-lite-t2v-250428",
-    "doubao-seedance-1-0-lite-i2v-250428",
-]
 RUNNINGHUB_DEFAULT_IMAGE_MODELS = [
+    "gpt-image-2.0/text-to-image-channel-low-price",
+    "gpt-image-2.0/edit-channel-low-price",
     "gpt-image-2/text-to-image-official-stable",
     "gpt-image-2/image-to-image-official-stable",
     "nano-banana/text-to-image-official-stable",
@@ -339,6 +355,16 @@ RUNNINGHUB_DEFAULT_VIDEO_MODELS = [
     "seedance-2.0-global/text-to-video",
     "seedance-2.0-global/image-to-video",
 ]
+RUNNINGHUB_MODEL_ENDPOINT_ALIASES = {
+    "gpt-image-2.0/text-to-image-channel-low-price": "rhart-image-g-2/text-to-image",
+    "gpt-image-2/text-to-image-channel-low-price": "rhart-image-g-2/text-to-image",
+    "gpt-image-2.0/edit-channel-low-price": "rhart-image-g-2/image-to-image",
+    "gpt-image-2/edit-channel-low-price": "rhart-image-g-2/image-to-image",
+    "gpt-image-2.0/image-to-image-channel-low-price": "rhart-image-g-2/image-to-image",
+    "gpt-image-2/image-to-image-channel-low-price": "rhart-image-g-2/image-to-image",
+    "nano-banana/text-to-image-channel-low-price": "rhart-image-v1/text-to-image",
+    "nano-banana/edit-channel-low-price": "rhart-image-v1/edit",
+}
 RUNNINGHUB_DEFAULT_APPS = [
     {
         "id": "2058517022748798977",
@@ -525,6 +551,9 @@ AI_REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", "1800"))
 IMAGE_POLL_INTERVAL = float(os.getenv("IMAGE_POLL_INTERVAL", "2"))
 IMAGE_TASK_TIMEOUT = float(os.getenv("IMAGE_TASK_TIMEOUT", str(AI_REQUEST_TIMEOUT)))
 COMFYUI_HISTORY_TIMEOUT = int(float(os.getenv("COMFYUI_HISTORY_TIMEOUT", "1800")))
+# 下载 ComfyUI 产物的 socket 超时（秒，作用于连接和每次 read）。没有它时一次网络卡顿会让 urlopen 永久挂起，
+# 导致 generate() 不返回、画布卡片一直转圈拿不到结果。给得足够大以容纳大视频/大图的正常下载。
+COMFYUI_DOWNLOAD_TIMEOUT = float(os.getenv("COMFYUI_DOWNLOAD_TIMEOUT", "120"))
 APIMART_IMAGE_TASK_TIMEOUT = float(os.getenv("APIMART_IMAGE_TASK_TIMEOUT", "1800"))
 APIMART_IMAGE_POLL_INTERVAL = float(os.getenv("APIMART_IMAGE_POLL_INTERVAL", "5"))
 APIMART_IMAGE_INITIAL_POLL_DELAY = float(os.getenv("APIMART_IMAGE_INITIAL_POLL_DELAY", "10"))
@@ -532,6 +561,8 @@ VIDEO_POLL_TIMEOUT = float(os.getenv("VIDEO_POLL_TIMEOUT", "1800"))
 ONLINE_IMAGE_PROMPT_MAX_LENGTH = int(os.getenv("ONLINE_IMAGE_PROMPT_MAX_LENGTH", "20000"))
 VIDEO_PROMPT_MAX_LENGTH = int(os.getenv("VIDEO_PROMPT_MAX_LENGTH", "4000"))
 LLM_MESSAGE_MAX_LENGTH = int(os.getenv("LLM_MESSAGE_MAX_LENGTH", "20000"))
+CHAT_ATTACHMENT_MAX = int(os.getenv("CHAT_ATTACHMENT_MAX", "20"))
+ONLINE_IMAGE_REFERENCE_MAX = int(os.getenv("ONLINE_IMAGE_REFERENCE_MAX", "20"))
 
 FIELD_LABELS = {
     "prompt": "提示词",
@@ -755,7 +786,7 @@ def default_api_providers():
             "primary": False,
             "image_models": [],
             "chat_models": [],
-            "video_models": VOLCENGINE_DEFAULT_VIDEO_MODELS,
+            "video_models": [],
             "ms_loras": [],
             "ms_defaults_version": 0,
             "volcengine_project_name": VOLCENGINE_DEFAULT_PROJECT_NAME,
@@ -763,14 +794,15 @@ def default_api_providers():
         },
     ]
 
-def merge_default_api_providers(providers):
+def merge_default_api_providers(providers, inject_missing=True):
     merged = [dict(item) for item in providers]
     # 强制保留独立入口平台（不再强制 comfly）
     ms_default = next((d for d in default_api_providers() if d["id"] == "modelscope"), None)
     if ms_default:
         current = next((item for item in merged if item.get("id") == "modelscope"), None)
         if not current:
-            merged.append(ms_default)
+            if inject_missing:
+                merged.append(ms_default)
         else:
             if not current.get("base_url"):
                 current["base_url"] = ms_default["base_url"]
@@ -787,7 +819,8 @@ def merge_default_api_providers(providers):
     if rh_default:
         current = next((item for item in merged if item.get("id") == "runninghub"), None)
         if not current:
-            merged.append(rh_default)
+            if inject_missing:
+                merged.append(rh_default)
         else:
             if not current.get("base_url"):
                 current["base_url"] = rh_default["base_url"]
@@ -811,10 +844,10 @@ def merge_default_api_providers(providers):
                     "base_url": legacy.get("base_url") or volc_default["base_url"],
                     "image_models": legacy_image_models or model_list_from_values(volc_default.get("image_models") or []),
                     "chat_models": model_list_from_values(legacy.get("chat_models") or []),
-                    "video_models": legacy_video_models or model_list_from_values(volc_default.get("video_models") or []),
+                    "video_models": legacy_video_models,
                 }
                 merged.append(current)
-            else:
+            elif inject_missing:
                 merged.append(volc_default)
         else:
             if not current.get("base_url"):
@@ -836,6 +869,21 @@ def merge_default_api_providers(providers):
             *[item for item in (current.get("video_models") or []) if str(item or "").strip() not in JIMENG_LEGACY_VIDEO_MODELS],
             *JIMENG_DEFAULT_VIDEO_MODELS,
         ])
+    # OpenAI/Antigravity CLI 和即梦一样作为协议使用：用户选中 CLI 协议时再规范化模型与地址，不强制额外注入平台。
+    for current in merged:
+        current_protocol = str((current or {}).get("protocol") or "").strip().lower()
+        if current_protocol not in {"codex", "gemini-cli"}:
+            continue
+        current["protocol"] = current_protocol
+        current["base_url"] = ""
+        default_image_models = CODEX_DEFAULT_IMAGE_MODELS if current_protocol == "codex" else GEMINI_CLI_DEFAULT_IMAGE_MODELS
+        default_chat_models = CODEX_DEFAULT_CHAT_MODELS if current_protocol == "codex" else GEMINI_CLI_DEFAULT_CHAT_MODELS
+        image_models = current.get("image_models") or []
+        if current_protocol == "codex":
+            image_models = [item for item in image_models if str(item or "").strip().lower() != "$imagegen"]
+        current["image_models"] = model_list_from_values([*image_models, *default_image_models])
+        current["chat_models"] = model_list_from_values([*(current.get("chat_models") or []), *default_chat_models])
+        current["video_models"] = []
     return merged
 
 def normalize_model_list(values):
@@ -977,17 +1025,14 @@ def apply_runninghub_system_thumbnails(entries, kind):
     return result
 
 def merge_runninghub_entry_overlay(system_entry, user_entry):
-    # 同 ID 的系统模板条目由模板主导：后续维护只更新 static/runninghub/api_providers.json 即可。
-    # 用户侧只保留启用/隐藏等管理状态；自定义新增条目不受影响。
+    # 系统模板只提供默认值；同 ID 的用户配置优先，允许用户修改/隐藏内置模板。
     if not isinstance(system_entry, dict):
         return user_entry
     if not isinstance(user_entry, dict):
         return system_entry
-    merged = dict(system_entry)
-    if "enabled" in user_entry:
-        merged["enabled"] = bool(user_entry.get("enabled", True))
-    if user_entry.get("hidden") is True:
-        merged["hidden"] = True
+    merged = {**system_entry, **user_entry}
+    if not merged.get("thumbnail") and system_entry.get("thumbnail"):
+        merged["thumbnail"] = system_entry.get("thumbnail")
     return merged
 
 def merge_runninghub_system_entries(system_entries, user_entries, kind):
@@ -1086,6 +1131,47 @@ def normalize_image_request_mode(value):
     mode = str(value or "").strip().lower()
     return mode if mode in SUPPORTED_IMAGE_REQUEST_MODES else "openai"
 
+LOCKED_RECOMMENDED_PROVIDER_RULES = {
+    "exellome": {
+        "names": {"exellome"},
+        "base_urls": {"https://new.exellome.online"},
+        "protocol": "apimart",
+        "image_request_mode": "openai-video-proxy",
+        "video_models": [],
+    },
+    "fhl": {
+        "names": {"fhl"},
+        "base_urls": {"https://www.fhl.mom"},
+        "protocol": "openai",
+        "image_request_mode": "openai",
+        "video_models": [],
+    },
+}
+
+def locked_recommended_provider_rule(provider_id="", name="", base_url=""):
+    pid = str(provider_id or "").strip().lower()
+    pname = str(name or "").strip().lower()
+    pbase = str(base_url or "").strip().rstrip("/").lower()
+    try:
+        phost = urllib.parse.urlsplit(pbase).netloc.lower()
+    except Exception:
+        phost = ""
+    for key, rule in LOCKED_RECOMMENDED_PROVIDER_RULES.items():
+        hosts = {urllib.parse.urlsplit(url).netloc.lower() for url in rule["base_urls"]}
+        if pid == key or pname in rule["names"] or pbase in rule["base_urls"] or (phost and phost in hosts):
+            return rule
+    return None
+
+def apply_locked_recommended_model_rules(base_url="", grouped=None):
+    rule = locked_recommended_provider_rule("", "", base_url)
+    if not rule or "video_models" not in rule:
+        return grouped
+    grouped = {key: list(value or []) for key, value in (grouped or {}).items()}
+    grouped.setdefault("image", [])
+    grouped.setdefault("chat", [])
+    grouped["video"] = list(rule.get("video_models") or [])
+    return grouped
+
 def provider_endpoint_url(provider, key, default_path):
     base_url = str((provider or {}).get("base_url") or AI_BASE_URL).strip().rstrip("/")
     override = str((provider or {}).get(key) or "").strip()
@@ -1140,12 +1226,21 @@ def normalize_provider(item):
         base_url = base_url or VOLCENGINE_DEFAULT_BASE_URL
         volc_project = volc_project or VOLCENGINE_DEFAULT_PROJECT_NAME
         volc_region = volc_region or VOLCENGINE_DEFAULT_REGION
-    if provider_id == "jimeng":
+    if provider_id == "jimeng" or protocol == "jimeng":
         protocol = "jimeng"
+        base_url = ""
+    if protocol in {"codex", "gemini-cli"}:
         base_url = ""
     if provider_id == "runninghub":
         protocol = "runninghub"
         base_url = base_url or RUNNINGHUB_DEFAULT_BASE_URL
+    locked_rule = locked_recommended_provider_rule(provider_id, name, base_url)
+    if locked_rule:
+        protocol = locked_rule["protocol"]
+        image_request_mode = locked_rule["image_request_mode"]
+    video_models = model_list_from_values(item.get("video_models") or [])
+    if locked_rule and "video_models" in locked_rule:
+        video_models = model_list_from_values(locked_rule.get("video_models") or [])
     return {
         "id": provider_id,
         "name": name,
@@ -1158,7 +1253,8 @@ def normalize_provider(item):
         "primary": bool(item.get("primary", False)),
         "image_models": model_list_from_values(item.get("image_models") or []),
         "chat_models": model_list_from_values(item.get("chat_models") or []),
-        "video_models": model_list_from_values(item.get("video_models") or []),
+        "video_models": video_models,
+        "model_names": normalize_model_name_map(item.get("model_names")),
         "model_protocols": normalize_model_protocols(item.get("model_protocols")),
         "ms_loras": normalize_ms_loras(item.get("ms_loras") or []),
         "ms_defaults_version": int(item.get("ms_defaults_version") or 0),
@@ -1176,7 +1272,7 @@ def load_api_providers():
         with open(API_PROVIDERS_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
         providers = [normalize_provider(item) for item in raw if isinstance(item, dict)]
-        return merge_default_api_providers(providers or defaults)
+        return merge_default_api_providers(providers or defaults, inject_missing=not bool(providers))
     except Exception as e:
         print(f"加载 API 平台配置失败: {e}")
         return defaults
@@ -2674,6 +2770,12 @@ class RunningHubUploadAssetRequest(BaseModel):
 class JimengHelpRequest(BaseModel):
     command: str = ""
 
+class CodexHelpRequest(BaseModel):
+    command: str = ""
+
+class GeminiCliHelpRequest(BaseModel):
+    command: str = ""
+
 class JimengQueryMediaRequest(BaseModel):
     submit_id: str = ""
     kind: str = "image"
@@ -2719,6 +2821,7 @@ class ApiProviderPayload(BaseModel):
     image_models: List[str] = []
     chat_models: List[str] = []
     video_models: List[str] = []
+    model_names: Dict[str, str] = {}
     model_protocols: Dict[str, str] = {}
     ms_loras: List[Dict[str, Any]] = []
     ms_defaults_version: int = 0
@@ -2738,6 +2841,7 @@ class ApiProviderPayload(BaseModel):
 class ChatRequest(BaseModel):
     conversation_id: str = ""
     message: str = Field(min_length=1, max_length=LLM_MESSAGE_MAX_LENGTH)
+    system_prompt: str = ""
     model: str = ""
     image_model: str = ""
     image_provider: str = ""
@@ -2747,6 +2851,10 @@ class ChatRequest(BaseModel):
     reference_images: List[AIReference] = []
     provider: str = "comfly"
     ms_model: str = ""
+
+def chat_system_prompt(payload):
+    prompt = str(getattr(payload, "system_prompt", "") or "").strip()
+    return prompt or SYSTEM_PROMPT
 
 class MsGenerateRequest(BaseModel):
     prompt: str
@@ -2776,6 +2884,9 @@ class CanvasCreateRequest(BaseModel):
     title: str = "未命名画布"
     icon: str = "🧩"
     kind: str = "classic"
+    project: Optional[str] = None
+    board_x: Optional[float] = None
+    board_y: Optional[float] = None
 
 class CanvasMetaUpdate(BaseModel):
     title: Optional[str] = None
@@ -2783,6 +2894,16 @@ class CanvasMetaUpdate(BaseModel):
     owner: Optional[str] = None
     color: Optional[str] = None
     pinned: Optional[bool] = None
+    project: Optional[str] = None
+    board_x: Optional[float] = None
+    board_y: Optional[float] = None
+
+class ProjectCreateRequest(BaseModel):
+    name: str = "新项目"
+
+class ProjectUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    order: Optional[int] = None
 
 class CanvasSaveRequest(BaseModel):
     title: str = "未命名画布"
@@ -3047,7 +3168,7 @@ def download_image(comfy_address, comfy_url_path, prefix="studio_"):
     local_path = output_path_for(filename, "output")
     full_url = f"http://{comfy_address}{comfy_url_path}"
     try:
-        with urllib.request.urlopen(full_url) as response, open(local_path, 'wb') as out_file:
+        with urllib.request.urlopen(full_url, timeout=COMFYUI_DOWNLOAD_TIMEOUT) as response, open(local_path, 'wb') as out_file:
             shutil.copyfileobj(response, out_file)
         return output_url_for(filename, "output")
     except Exception as e:
@@ -3114,7 +3235,7 @@ def download_comfy_output(comfy_address, item, prefix="studio_"):
     comfy_url_path = f"/view?filename={urllib.parse.quote(str(item['filename']))}&subfolder={subfolder}&type={file_type}"
     full_url = f"http://{comfy_address}{comfy_url_path}"
     try:
-        with urllib.request.urlopen(full_url) as response, open(local_path, 'wb') as out_file:
+        with urllib.request.urlopen(full_url, timeout=COMFYUI_DOWNLOAD_TIMEOUT) as response, open(local_path, 'wb') as out_file:
             shutil.copyfileobj(response, out_file)
         return output_url_for(filename, "output")
     except Exception as e:
@@ -3294,7 +3415,71 @@ def save_canvas(canvas):
 def normalize_canvas_kind(kind="classic"):
     return "smart" if str(kind or "").strip().lower() == "smart" else "classic"
 
-def new_canvas(title="未命名画布", icon="layers", kind="classic"):
+# ===== 项目（按项目分类管理画布）=====
+PROJECTS_PATH = os.path.join(DATA_DIR, "projects.json")
+DEFAULT_PROJECT_ID = "default"
+
+def load_projects():
+    try:
+        with open(PROJECTS_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        projects = data.get("projects") if isinstance(data, dict) else data
+        if isinstance(projects, list):
+            return [p for p in projects if isinstance(p, dict) and p.get("id")]
+    except Exception:
+        pass
+    return []
+
+def save_projects(projects):
+    with CANVAS_LOCK:
+        with open(PROJECTS_PATH, 'w', encoding='utf-8') as f:
+            json.dump({"projects": projects}, f, ensure_ascii=False, indent=2)
+
+def project_record(p):
+    return {
+        "id": p.get("id"),
+        "name": (p.get("name") or "未命名项目")[:60],
+        "order": int(p.get("order") or 0),
+        "created_at": p.get("created_at", 0),
+        "updated_at": p.get("updated_at", 0),
+    }
+
+def ensure_default_project():
+    """保证存在一个“默认项目”，并把没有归属项目的画布迁移进去（一次性、幂等）。"""
+    projects = load_projects()
+    changed = False
+    if not any(p.get("id") == DEFAULT_PROJECT_ID for p in projects):
+        ts = now_ms()
+        projects.insert(0, {"id": DEFAULT_PROJECT_ID, "name": "默认项目", "order": 0, "created_at": ts, "updated_at": ts})
+        changed = True
+    if changed:
+        save_projects(projects)
+    return projects
+
+def new_project(name="新项目"):
+    projects = ensure_default_project()
+    ts = now_ms()
+    clean = (str(name or "").strip() or "新项目")[:60]
+    order = max([int(p.get("order") or 0) for p in projects], default=0) + 1
+    proj = {"id": uuid.uuid4().hex, "name": clean, "order": order, "created_at": ts, "updated_at": ts}
+    projects.append(proj)
+    save_projects(projects)
+    return proj
+
+def list_projects():
+    projects = ensure_default_project()
+    counts = {}
+    for rec in iter_canvas_records(include_deleted=False):
+        pid = rec.get("project") or DEFAULT_PROJECT_ID
+        counts[pid] = counts.get(pid, 0) + 1
+    out = []
+    for p in sorted(projects, key=lambda x: (int(x.get("order") or 0), x.get("created_at") or 0)):
+        rec = project_record(p)
+        rec["canvas_count"] = counts.get(rec["id"], 0)
+        out.append(rec)
+    return out
+
+def new_canvas(title="未命名画布", icon="layers", kind="classic", project=None, board_x=None, board_y=None):
     timestamp = now_ms()
     canvas_kind = normalize_canvas_kind(kind)
     canvas = {
@@ -3305,12 +3490,17 @@ def new_canvas(title="未命名画布", icon="layers", kind="classic"):
         "owner": "",
         "color": "",
         "pinned": False,
+        "project": str(project or "").strip() or DEFAULT_PROJECT_ID,
         "created_at": timestamp,
         "updated_at": timestamp,
         "nodes": [],
         "connections": [],
         "viewport": {"x": 0, "y": 0, "scale": 1},
     }
+    if board_x is not None:
+        canvas["board_x"] = float(board_x)
+    if board_y is not None:
+        canvas["board_y"] = float(board_y)
     save_canvas(canvas)
     return canvas
 
@@ -3346,6 +3536,9 @@ def canvas_record(data):
         "owner": str(data.get("owner") or "")[:40],
         "color": normalize_canvas_color(data.get("color")),
         "pinned": bool(data.get("pinned") or False),
+        "project": str(data.get("project") or "").strip() or DEFAULT_PROJECT_ID,
+        "board_x": data.get("board_x"),
+        "board_y": data.get("board_y"),
         "created_at": data.get("created_at", 0),
         "updated_at": data.get("updated_at", 0),
         "deleted_at": data.get("deleted_at", 0),
@@ -3552,6 +3745,10 @@ def resolve_chat_provider(provider: str, model: str, ms_model: str):
         mdl = selected_model(ms_model or model, MODELSCOPE_CHAT_MODELS[0] if MODELSCOPE_CHAT_MODELS else "MiniMax/MiniMax-M2.7")
         return base, hdrs, mdl
     api_provider = get_api_provider(provider or "")
+    if is_codex_provider(api_provider):
+        raise HTTPException(status_code=400, detail="OpenAI CLI 使用本机 codex 登录态，不需要 API Key。请使用画布/聊天里的 OpenAI CLI 专用通道。")
+    if is_gemini_cli_provider(api_provider):
+        raise HTTPException(status_code=400, detail="Antigravity CLI 使用本机 agy 登录态，不需要 API Key。请使用画布/聊天里的 Antigravity CLI 专用通道。")
     base_root = (api_provider.get("base_url") or AI_BASE_URL).rstrip("/")
     if not base_root:
         raise HTTPException(status_code=400, detail=f"{api_provider.get('name') or api_provider['id']} 未配置 Base URL")
@@ -3602,8 +3799,9 @@ def log_net_error(context, exc, url=""):
 
 def api_headers(json_body=True, provider=None, model=""):
     if provider:
-        key_env = provider_key_env(provider["id"])
-        api_key = os.getenv(key_env, "")
+        if is_codex_provider(provider) or is_gemini_cli_provider(provider):
+            raise HTTPException(status_code=400, detail="CLI 协议使用本机登录态，不需要 API Key。当前入口应走对应 CLI 专用通道。")
+        api_key = provider_env_key_value(provider["id"])
         provider_name = provider.get("name") or provider["id"]
         if not api_key:
             raise HTTPException(status_code=400, detail=f"未配置 {provider_name} 的 API Key，请在 API 平台管理中填写。")
@@ -3717,11 +3915,54 @@ def looks_like_generated_image_url(value):
     clean = text.split("?", 1)[0].split("#", 1)[0].lower()
     return text.startswith(("http://", "https://", "/output/", "/assets/")) and re.search(r"\.(png|jpe?g|webp|gif|bmp|tiff?)$", clean)
 
+def looks_like_image_base64(value):
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if text.startswith("data:image/"):
+        return True
+    if len(text) < 200:
+        return False
+    sample = re.sub(r"\s+", "", text[:4096])
+    if not re.fullmatch(r"[A-Za-z0-9+/=_-]+", sample):
+        return False
+    padded = sample.replace("-", "+").replace("_", "/")
+    padded += "=" * (-len(padded) % 4)
+    try:
+        head = base64.b64decode(padded[:256], validate=False)
+    except Exception:
+        return False
+    return (
+        head.startswith(b"\x89PNG\r\n\x1a\n")
+        or head.startswith(b"\xff\xd8\xff")
+        or head.startswith(b"RIFF") and head[8:12] == b"WEBP"
+        or head.startswith(b"GIF87a")
+        or head.startswith(b"GIF89a")
+    )
+
+def image_payload_from_string(value, mime_type="image/png", assume_b64=False):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.startswith("data:image/"):
+        header, sep, encoded = text.partition(",")
+        if sep and encoded:
+            return {
+                "type": "b64",
+                "value": encoded.strip(),
+                "mime_type": header.split(";", 1)[0].replace("data:", "", 1) or mime_type or "image/png",
+            }
+    if looks_like_generated_image_url(text):
+        return {"type": "url", "value": text}
+    if assume_b64 or looks_like_image_base64(text):
+        return {"type": "b64", "value": text, "mime_type": mime_type or "image/png"}
+    return None
+
 def extract_image_flexible(value, depth=0):
     if depth > 8 or value is None:
         return None
     if isinstance(value, str):
-        return {"type": "url", "value": value} if looks_like_generated_image_url(value) else None
+        return image_payload_from_string(value)
     if isinstance(value, list):
         for item in value:
             found = extract_image_flexible(item, depth + 1)
@@ -3733,11 +3974,13 @@ def extract_image_flexible(value, depth=0):
     for key in IMAGE_BASE64_KEY_HINTS:
         item = value.get(key)
         if isinstance(item, str) and item.strip():
-            return {"type": "b64", "value": item.strip(), "mime_type": value.get("mime_type") or value.get("mimeType") or "image/png"}
+            return image_payload_from_string(item, value.get("mime_type") or value.get("mimeType") or "image/png", assume_b64=True)
     for key in IMAGE_OUTPUT_KEY_HINTS:
         item = value.get(key)
-        if isinstance(item, str) and looks_like_generated_image_url(item):
-            return {"type": "url", "value": item}
+        if isinstance(item, str):
+            found = image_payload_from_string(item, value.get("mime_type") or value.get("mimeType") or "image/png")
+            if found:
+                return found
         found = extract_image_flexible(item, depth + 1)
         if found:
             return found
@@ -3747,7 +3990,118 @@ def extract_image_flexible(value, depth=0):
             return found
     return None
 
+def extract_images(data):
+    found = []
+    seen = set()
+
+    def add_image(item):
+        if not isinstance(item, dict):
+            return
+        img_type = item.get("type") or "url"
+        value = item.get("value")
+        if not value:
+            return
+        key = (img_type, value)
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(item)
+
+    def collect(value, depth=0):
+        if depth > 8 or value is None:
+            return
+        if isinstance(value, str):
+            found = image_payload_from_string(value)
+            if found:
+                add_image(found)
+            return
+        if isinstance(value, list):
+            for item in value:
+                collect(item, depth + 1)
+            return
+        if not isinstance(value, dict):
+            return
+        if value.get("type") == "image_generation_call":
+            result = value.get("result")
+            if isinstance(result, str) and result.strip():
+                add_image(image_payload_from_string(
+                    result,
+                    value.get("mime_type") or value.get("mimeType") or "image/png",
+                    assume_b64=not looks_like_generated_image_url(result),
+                ))
+            else:
+                collect(result, depth + 1)
+        has_direct_url = any(
+            isinstance(value.get(key), str) and looks_like_generated_image_url(value.get(key))
+            for key in IMAGE_OUTPUT_KEY_HINTS
+        )
+        if not has_direct_url:
+            for key in IMAGE_BASE64_KEY_HINTS:
+                item = value.get(key)
+                if isinstance(item, str) and item.strip():
+                    add_image(image_payload_from_string(item, value.get("mime_type") or value.get("mimeType") or "image/png", assume_b64=True))
+        for key in IMAGE_OUTPUT_KEY_HINTS:
+            item = value.get(key)
+            if isinstance(item, str):
+                add_image(image_payload_from_string(item, value.get("mime_type") or value.get("mimeType") or "image/png"))
+            else:
+                collect(item, depth + 1)
+        for key in IMAGE_CONTAINER_KEY_HINTS:
+            collect(value.get(key), depth + 1)
+
+    candidates = data.get("candidates") if isinstance(data, dict) else None
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = candidate.get("content") or {}
+            parts = content.get("parts") if isinstance(content, dict) else None
+            if not isinstance(parts, list):
+                continue
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                inline = part.get("inlineData") or part.get("inline_data") or {}
+                if not isinstance(inline, dict):
+                    continue
+                value = inline.get("data")
+                if value:
+                    add_image({
+                        "type": "b64",
+                        "value": value,
+                        "mime_type": inline.get("mimeType") or inline.get("mime_type") or "image/png",
+                    })
+
+    current = data
+    if isinstance(current, dict) and isinstance(current.get("data"), dict) and isinstance(current["data"].get("result"), dict):
+        current = current["data"]
+    if isinstance(current, dict) and isinstance(current.get("result"), dict):
+        for item in current["result"].get("images") or []:
+            if not isinstance(item, dict):
+                collect(item)
+                continue
+            url = item.get("url")
+            if isinstance(url, list):
+                for one in url:
+                    collect(one)
+            else:
+                collect(url)
+            collect(item)
+
+    collect(data)
+    if isinstance(data, dict) and isinstance(data.get("data"), dict) and isinstance(data["data"].get("data"), dict):
+        collect(data["data"]["data"])
+    if found:
+        return found
+    raise HTTPException(status_code=502, detail="无法识别生图接口返回格式")
+
 def extract_image(data):
+    try:
+        images = extract_images(data)
+        if images:
+            return images[0]
+    except HTTPException:
+        pass
     candidates = data.get("candidates") if isinstance(data, dict) else None
     if isinstance(candidates, list):
         for candidate in candidates:
@@ -3802,6 +4156,14 @@ def extract_image(data):
 def extract_task_id(data):
     if data.get("task_id"):
         return str(data["task_id"])
+    if data.get("taskId"):
+        return str(data["taskId"])
+    if data.get("submit_id"):
+        return str(data["submit_id"])
+    if data.get("video_id"):
+        return str(data["video_id"])
+    if data.get("videoId"):
+        return str(data["videoId"])
     if data.get("id") and str(data.get("id", "")).startswith("task"):
         return str(data["id"])
     nested = data.get("data")
@@ -3822,6 +4184,321 @@ def images_api_unsupported(response):
     text = str(getattr(response, "text", "") or "").lower()
     return "images api is not supported" in text or "not supported for this platform" in text
 
+def responses_image_size_instruction(size: str) -> str:
+    """RS 中转多为网页版逆向：结构化 size 参数（tool.size / 顶层 size / --size 尾注）全被无视，
+    只有内部模型能“听懂”的自然语言比例要求有效（实测中文明确说横版+比例+禁止正方形可让
+    1:1 变成 3:2 横版）。这里生成中英双语的强化指令。"""
+    match = re.match(r"^\s*(\d{2,5})\s*[xX*]\s*(\d{2,5})\s*$", str(size or ""))
+    if not match:
+        return ""
+    width, height = int(match.group(1)), int(match.group(2))
+    if width <= 0 or height <= 0:
+        return ""
+    if width == height:
+        return "请生成正方形图片（宽高比 1:1）。Generate a SQUARE image (aspect ratio 1:1)."
+    from fractions import Fraction
+    ratio = Fraction(width, height).limit_denominator(32)
+    rw, rh = ratio.numerator, ratio.denominator
+    if width > height:
+        zh_shape, en_shape = "横版（宽幅）", "LANDSCAPE (wide)"
+    else:
+        zh_shape, en_shape = "竖版（长幅）", "PORTRAIT (tall)"
+    return (
+        f"请生成{zh_shape}图片：宽高比 {rw}:{rh}，目标尺寸为宽 {width} × 高 {height} 像素，绝对不要输出正方形（1:1）。"
+        f" Generate a {en_shape} image with aspect ratio {rw}:{rh}, target size {width}x{height} pixels (width x height)."
+        f" Never output a square 1:1 image. Do not swap width and height."
+    )
+
+def responses_proxy_tool_size(size: str) -> str:
+    """部分 RS 中转把 image_generation.size 当成 height x width；这里只对 RS 模式做兼容翻转。"""
+    match = re.match(r"^\s*(\d{2,5})\s*[xX*]\s*(\d{2,5})\s*$", str(size or ""))
+    if not match:
+        return str(size or "").strip()
+    width, height = match.group(1), match.group(2)
+    return f"{height}x{width}" if width != height else f"{width}x{height}"
+
+async def responses_input_image_url(ref, require_public_url=False) -> str:
+    """RS / Responses 的 input_image。
+    本机/内网 URL 不能透传（上游拉不到会挂到 Cloudflare 120s 超时/524）。
+    本地文件优先上传图床（同视频卡片的 Litterbox/temp.sh 通道）换公网短链——
+    几 MB 的 base64 请求体会让部分中转源站处理超时，公网 URL 让请求体和文生图一样小；
+    图床不可用时回退内联 base64（Responses 协议两种都支持）。"""
+    raw = ref.get("url", "") if isinstance(ref, dict) else ref
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    local_path = text
+    if re.match(r"^https?://", text, re.I):
+        parsed = urllib.parse.urlsplit(text)
+        host = (parsed.hostname or "").lower()
+        if host in {"127.0.0.1", "localhost", "::1"} or re.match(r"^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)", host):
+            local_path = urllib.parse.unquote(parsed.path or "")
+        else:
+            return text
+    local_file = output_file_from_url(local_path)
+    if not local_file:
+        if require_public_url:
+            raise HTTPException(status_code=400, detail=f"RS 参考图不是公网 URL，无法传给上游：{text[:160]}")
+        return ""
+    if require_public_url:
+        return await openai_video_proxy_public_reference_url(local_path)
+    try:
+        uploaded = await upload_local_video_to_cloud(local_path)
+        url = str((uploaded or {}).get("url") or "")
+        if url.startswith(("http://", "https://")):
+            return url
+    except HTTPException as exc:
+        print(f"RS 参考图上传图床失败，回退内联 base64：{exc.detail}")
+    except Exception as exc:
+        print(f"RS 参考图上传图床异常，回退内联 base64：{exc}")
+    data_url = reference_to_data_url({"url": local_path}, max_size=1536)
+    return data_url if data_url.startswith("data:") else ""
+
+def responses_no_image_detail(data) -> str:
+    if not isinstance(data, dict):
+        return ""
+    details = []
+    error = data.get("error")
+    if isinstance(error, dict):
+        msg = error.get("message") or error.get("detail") or error.get("code")
+        if msg:
+            details.append(str(msg))
+    output_text = data.get("output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        details.append(output_text.strip()[:300])
+    output = data.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict) or item.get("type") != "image_generation_call":
+                continue
+            status = item.get("status")
+            if status:
+                details.append(f"image_generation_call.status={status}")
+            item_error = item.get("error")
+            if isinstance(item_error, dict):
+                msg = item_error.get("message") or item_error.get("detail") or item_error.get("code")
+                if msg:
+                    details.append(str(msg))
+            elif isinstance(item_error, str) and item_error.strip():
+                details.append(item_error.strip())
+    joined = "；".join(dict.fromkeys(details))
+    return f"RS / Responses 没有返回图片数据{f'：{joined}' if joined else ''}"
+
+def responses_output_text_image(raw):
+    """兜底解析：部分 RS 中转不返回标准 image_generation_call，而是把生图结果
+    以 output_text 里的 markdown 图片链接（![...](url)）或裸图片 URL 返回。"""
+    texts = []
+    def collect(value, depth=0):
+        if depth > 6 or len(texts) > 40:
+            return
+        if isinstance(value, str):
+            if value.strip():
+                texts.append(value)
+            return
+        if isinstance(value, list):
+            for item in value:
+                collect(item, depth + 1)
+            return
+        if isinstance(value, dict):
+            for key in ("output", "content", "text", "output_text", "message", "response"):
+                if key in value:
+                    collect(value[key], depth + 1)
+    collect(raw)
+    for text in texts:
+        match = re.search(r"!\[[^\]]*\]\((https?://[^)\s]+)\)", text)
+        if match:
+            return {"type": "url", "value": match.group(1)}
+        match = re.search(r"https?://[^\s)\"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s)\"'<>]*)?", text, re.I)
+        if match:
+            return {"type": "url", "value": match.group(0)}
+    return None
+
+def _responses_wrap(url, status_code, payload):
+    return httpx.Response(
+        status_code,
+        headers={"content-type": "application/json"},
+        content=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        request=httpx.Request("POST", url),
+    )
+
+RESPONSES_REJECT_STATUSES = {400, 404, 405, 415, 422}
+RESPONSES_POLL_INTERVAL = 5.0
+RESPONSES_POLL_MAX_SECONDS = 1500.0
+
+async def post_openai_responses(client, url, headers, body):
+    """RS / Responses 请求。图片编辑经常超过 120 秒，非流式请求会被中转前面的
+    Cloudflare 读超时掐断（Error 524）。策略按可靠性排序：
+    1) background:true 后台任务 + 轮询 GET /v1/responses/{id}（每个请求都秒回，彻底绕开超时）；
+    2) 后台模式被拒（4xx 参数类错误）→ SSE 流式；
+    3) 流式也被拒 → 非流式直接请求。
+    5xx/超时一律不自动重试，避免上游已开始生成后重复扣费。"""
+    bg_body = dict(body)
+    bg_body["background"] = True
+    try:
+        resp = await client.post(url, headers=headers, json=bg_body)
+    except httpx.HTTPError as e:
+        print(f"RS background 请求传输失败，改走流式：{e}")
+        return await post_openai_responses_stream(client, url, headers, body)
+    if resp.status_code in RESPONSES_REJECT_STATUSES:
+        print(f"RS background 模式被拒（{resp.status_code}），改走流式：{resp.text[:200]}")
+        return await post_openai_responses_stream(client, url, headers, body)
+    if resp.status_code >= 400:
+        if resp.status_code == 524:
+            return _responses_wrap(url, 502, {"error": {"message": (
+                "中转在 background 模式下仍然 524 超时：该渠道对 /v1/responses 的 background/stream 都不透传，"
+                "无法完成超过 120 秒的图片编辑。请换支持 Responses 透传的渠道。上游原文："
+                f"{resp.text[:300]}"
+            )}})
+        return resp
+    try:
+        data = resp.json()
+    except ValueError:
+        return resp
+    status = str((data or {}).get("status") or "").lower()
+    rid = str((data or {}).get("id") or "").strip()
+    if status not in {"queued", "in_progress", "processing", "pending", "running"} or not rid:
+        return resp  # 中转忽略 background 直接同步返回了结果（或未知结构），交给下游解析
+    # 轮询后台任务
+    retrieve_url = f"{url.rstrip('/')}/{urllib.parse.quote(rid)}"
+    deadline = time.monotonic() + RESPONSES_POLL_MAX_SECONDS
+    transient_failures = 0
+    while time.monotonic() < deadline:
+        await asyncio.sleep(RESPONSES_POLL_INTERVAL)
+        try:
+            poll = await client.get(retrieve_url, headers=headers)
+        except httpx.HTTPError as e:
+            transient_failures += 1
+            if transient_failures > 5:
+                return _responses_wrap(url, 502, {"error": {"message": f"RS 后台任务轮询连续失败：{e}（任务 id={rid}）"}})
+            continue
+        if poll.status_code >= 400:
+            transient_failures += 1
+            if transient_failures > 5:
+                return _responses_wrap(url, 502, {"error": {"message": f"RS 后台任务轮询失败（{poll.status_code}）：{poll.text[:200]}（任务 id={rid}）"}})
+            continue
+        transient_failures = 0
+        try:
+            data = poll.json()
+        except ValueError:
+            continue
+        status = str((data or {}).get("status") or "").lower()
+        if status == "completed":
+            return _responses_wrap(url, 200, data)
+        if status in {"failed", "cancelled", "incomplete"}:
+            return _responses_wrap(url, 502, data)
+    return _responses_wrap(url, 502, {"error": {"message": f"RS 后台任务超过 {int(RESPONSES_POLL_MAX_SECONDS)}s 仍未完成（任务 id={rid}）"}})
+
+async def post_openai_responses_stream(client, url, headers, body):
+    """RS / Responses 的 SSE 流式请求：流式从一开始就持续有事件字节返回，
+    不会触发中转的 Cloudflare 120s 读超时。收到 response.completed 后
+    把完整 response 对象包装成普通 httpx.Response，下游解析逻辑不变。"""
+    request = httpx.Request("POST", url)
+
+    def wrap(status_code, payload):
+        return _responses_wrap(url, status_code, payload)
+
+    stream_body = dict(body)
+    stream_body["stream"] = True
+    try:
+        async with client.stream("POST", url, headers=headers, json=stream_body) as resp:
+            ctype = (resp.headers.get("content-type") or "").lower()
+            if resp.status_code >= 400 or "text/event-stream" not in ctype:
+                content = await resp.aread()
+                # 个别中转不支持 responses 流式（对 stream 参数直接报错）→ 回退一次非流式。
+                # 仅对“请求被拒绝”类状态码回退，5xx/超时不重试，避免上游已开始生成后重复扣费。
+                if resp.status_code in {400, 404, 405, 415, 422}:
+                    print(f"RS 流式请求被拒（{resp.status_code}），回退非流式：{content[:200]!r}")
+                    return await client.post(url, headers=headers, json=body)
+                return httpx.Response(resp.status_code, headers=resp.headers, content=content, request=request)
+            completed = None
+            error_payload = None
+            stream_images = []
+            stream_seen_images = set()
+
+            def remember_stream_image(image):
+                if not isinstance(image, dict):
+                    return
+                value = image.get("value")
+                if not value:
+                    return
+                key = (image.get("type") or "url", value)
+                if key in stream_seen_images:
+                    return
+                stream_seen_images.add(key)
+                stream_images.append(image)
+
+            def remember_stream_images_from(value):
+                try:
+                    for image in extract_images(value):
+                        remember_stream_image(image)
+                except HTTPException:
+                    pass
+
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                chunk = line[5:].strip()
+                if not chunk or chunk == "[DONE]":
+                    continue
+                try:
+                    event = json.loads(chunk)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                etype = str(event.get("type") or "")
+                if etype in {"response.completed", "response.incomplete"} and isinstance(event.get("response"), dict):
+                    completed = event["response"]
+                elif etype == "response.failed":
+                    failed = event.get("response")
+                    error_payload = failed if isinstance(failed, dict) else {"error": {"message": "response.failed"}}
+                elif etype == "error":
+                    message = event.get("message") or event.get("error") or chunk[:300]
+                    error_payload = {"error": {"message": str(message)}}
+                if isinstance(event.get("item"), dict):
+                    item = event["item"]
+                    if item.get("type") not in {"input_image", "input_text"}:
+                        remember_stream_images_from(item)
+                for key in ("partial_image_b64", "image_b64", "b64_json"):
+                    image = image_payload_from_string(event.get(key), assume_b64=True)
+                    if image:
+                        remember_stream_image(image)
+                for key in ("result", "image", "image_url"):
+                    image = image_payload_from_string(event.get(key))
+                    if image:
+                        remember_stream_image(image)
+            if completed is not None and stream_images:
+                try:
+                    has_completed_image = bool(extract_images(completed))
+                except HTTPException:
+                    has_completed_image = False
+                if not has_completed_image:
+                    completed = dict(completed)
+                    completed["output"] = list(completed.get("output") or [])
+                    for image in stream_images:
+                        if image.get("type") == "b64":
+                            completed["output"].append({
+                                "type": "image_generation_call",
+                                "status": "completed",
+                                "result": image.get("value"),
+                                "mime_type": image.get("mime_type") or "image/png",
+                            })
+                        else:
+                            completed["output"].append({"type": "image", "image_url": image.get("value")})
+            if completed is None and error_payload is None and stream_images:
+                # 流被提前掐断但已收到图片事件：用最后一张图片兜底。
+                image = stream_images[-1]
+                if image.get("type") == "b64":
+                    completed = {"output": [{"type": "image_generation_call", "status": "completed", "result": image.get("value"), "mime_type": image.get("mime_type") or "image/png"}]}
+                else:
+                    completed = {"output": [{"type": "image", "image_url": image.get("value")}]}
+            if completed is not None:
+                return wrap(200, completed)
+            return wrap(502, error_payload or {"error": {"message": "RS 流式响应结束但没有 response.completed 事件"}})
+    except httpx.HTTPError as e:
+        print(f"RS 流式请求传输失败，回退非流式：{e}")
+        return await client.post(url, headers=headers, json=body)
+
 def provider_protocol(provider):
     return str((provider or {}).get("protocol") or "openai").strip().lower()
 
@@ -3840,6 +4517,17 @@ def normalize_model_protocols(value):
             if name and proto in PER_MODEL_PROTOCOL_OPTIONS:
                 out[name] = proto
     return out
+
+def normalize_model_name_map(value):
+    """规整 {模型ID: 展示名}，只保存真正有意义的显示标签。"""
+    normalized = {}
+    if isinstance(value, dict):
+        for raw_model, raw_label in value.items():
+            model = str(raw_model or "").strip()
+            label = re.sub(r"\s+", " ", str(raw_label or "").strip())[:160]
+            if model and label and label != model:
+                normalized[model] = label
+    return normalized
 
 def effective_protocol(provider, model=""):
     """返回某模型实际生效的协议：优先单模型覆盖，否则用平台全局协议。"""
@@ -3885,11 +4573,930 @@ def is_runninghub_provider(provider):
 def is_jimeng_provider(provider):
     return provider_protocol(provider) == "jimeng" or str((provider or {}).get("id") or "").strip().lower() == "jimeng"
 
+def is_codex_provider(provider):
+    return provider_protocol(provider) == "codex"
+
+def is_gemini_cli_provider(provider):
+    return provider_protocol(provider) == "gemini-cli"
+
+def codex_env_value(key):
+    return os.getenv(key, "") or read_api_env_value(key)
+
+def codex_cli_executable():
+    configured = str(codex_env_value("CODEX_BIN") or "").strip()
+    if configured:
+        return configured
+    return shutil.which("codex") or shutil.which("codex.exe") or shutil.which("codex.cmd") or ""
+
+def codex_timeout(default=CODEX_DEFAULT_TIMEOUT):
+    try:
+        return max(30, min(3600, int(os.getenv("CODEX_CLI_TIMEOUT", str(default)) or default)))
+    except Exception:
+        return default
+
+def codex_model_for_exec(model="", fallback=""):
+    value = str(model or fallback or "").strip()
+    low = value.lower()
+    if not value or low.startswith("$imagegen") or low.startswith("gpt-image"):
+        return ""
+    return value
+
+def codex_decode_output(stdout, stderr):
+    out_text = (stdout or b"").decode("utf-8", errors="replace").strip()
+    err_text = (stderr or b"").decode("utf-8", errors="replace").strip()
+    return out_text, err_text
+
+async def run_codex_cli(prompt, model="", image_paths=None, timeout=None, output_last_message=True):
+    exe = codex_cli_executable()
+    if not exe:
+        raise HTTPException(status_code=400, detail="未找到 OpenAI Codex CLI。请先运行 CLI/windows/openai/install_openai_codex_cli.bat，并完成 codex 登录。")
+    image_paths = [str(path) for path in (image_paths or []) if path and os.path.isfile(str(path))]
+    last_path = ""
+    args = [
+        exe,
+        "exec",
+        "--cd",
+        BASE_DIR,
+        "--sandbox",
+        "workspace-write",
+        "--skip-git-repo-check",
+    ]
+    exec_model = codex_model_for_exec(model)
+    if exec_model:
+        args.extend(["--model", exec_model])
+    for path in image_paths:
+        args.extend(["--image", path])
+    if output_last_message:
+        fd, last_path = tempfile.mkstemp(prefix="codex_last_", suffix=".txt", dir=OUTPUT_OUTPUT_DIR)
+        os.close(fd)
+        args.extend(["--output-last-message", last_path])
+    args.append("-")
+    prompt_bytes = str(prompt or "").encode("utf-8")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            cwd=BASE_DIR,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(input=prompt_bytes), timeout=timeout or codex_timeout())
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="OpenAI Codex CLI 执行超时。可设置 CODEX_CLI_TIMEOUT 增大等待时间。") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=f"未找到 OpenAI Codex CLI：{exe}") from exc
+    out_text, err_text = codex_decode_output(stdout, stderr)
+    last_text = ""
+    if last_path and os.path.exists(last_path):
+        try:
+            with open(last_path, "r", encoding="utf-8-sig") as f:
+                last_text = f.read().strip()
+        except Exception:
+            last_text = ""
+        try:
+            os.remove(last_path)
+        except Exception:
+            pass
+    if proc.returncode != 0:
+        message = err_text or out_text or last_text or f"exit={proc.returncode}"
+        raise HTTPException(status_code=502, detail=f"OpenAI Codex CLI 调用失败：{message[:1200]}")
+    return {"text": last_text or out_text, "_stdout": out_text, "_stderr": err_text}
+
+def codex_output_image_files(since_time=0):
+    exts = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+    root = os.path.abspath(OUTPUT_OUTPUT_DIR)
+    files = []
+    try:
+        for name in os.listdir(root):
+            path = os.path.join(root, name)
+            if not os.path.isfile(path):
+                continue
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in exts:
+                continue
+            mtime = os.path.getmtime(path)
+            if mtime + 1 < float(since_time or 0):
+                continue
+            files.append((mtime, path))
+    except Exception:
+        return []
+    return [path for _mtime, path in sorted(files, reverse=True)]
+
+def codex_output_url_from_path(path):
+    path = os.path.abspath(str(path or ""))
+    root = os.path.abspath(OUTPUT_OUTPUT_DIR)
+    try:
+        if os.path.commonpath([root, path]) == root:
+            return output_url_for(os.path.basename(path), "output")
+    except Exception:
+        return ""
+    return ""
+
+def gpt_image_2_skill_executable():
+    configured = str(codex_env_value("GPT_IMAGE_2_SKILL_BIN") or "").strip()
+    if configured:
+        return configured
+    return (
+        shutil.which("gpt-image-2-skill")
+        or shutil.which("gpt-image-2-skill.exe")
+        or shutil.which("gpt-image-2-skill.cmd")
+        or ""
+    )
+
+def gpt_image_2_skill_auth_file():
+    configured = str(codex_env_value("GPT_IMAGE_2_SKILL_AUTH_FILE") or codex_env_value("CODEX_AUTH_FILE") or "").strip()
+    if configured:
+        return configured
+    project_auth = os.path.join(BASE_DIR, "API", "openai-gpt-account-auth.json")
+    user_profile = os.getenv("USERPROFILE", "").strip()
+    candidates = [
+        project_auth,
+        os.path.join(user_profile, ".codex", "auth.json") if user_profile else "",
+        os.path.join(os.path.expanduser("~"), ".codex", "auth.json"),
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return candidates[0] if candidates and candidates[0] else ""
+
+def gpt_image_2_skill_auth_json(auth_file=""):
+    path = str(auth_file or "").strip()
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+def gpt_image_2_skill_access_token(auth_data):
+    if not isinstance(auth_data, dict):
+        return ""
+    for key in ("access_token", "accessToken"):
+        value = str(auth_data.get(key) or "").strip()
+        if value:
+            return value
+    tokens = auth_data.get("tokens")
+    if isinstance(tokens, dict):
+        for key in ("access_token", "accessToken"):
+            value = str(tokens.get(key) or "").strip()
+            if value:
+                return value
+    return ""
+
+def gpt_image_2_skill_api_key(auth_data=None):
+    for key in ("GPT_IMAGE_2_SKILL_API_KEY", "OPENAI_API_KEY"):
+        value = str(codex_env_value(key) or "").strip()
+        if value:
+            return value
+    if isinstance(auth_data, dict):
+        value = str(auth_data.get("OPENAI_API_KEY") or auth_data.get("api_key") or auth_data.get("apiKey") or "").strip()
+        if value:
+            return value
+    user_profile = os.getenv("USERPROFILE", "").strip()
+    user_auth = os.path.join(user_profile, ".codex", "auth.json") if user_profile else ""
+    if user_auth:
+        user_data = gpt_image_2_skill_auth_json(user_auth)
+        value = str(user_data.get("OPENAI_API_KEY") or user_data.get("api_key") or user_data.get("apiKey") or "").strip()
+        if value:
+            return value
+    return ""
+
+def gpt_image_2_skill_provider_args(auth_file=""):
+    auth_data = gpt_image_2_skill_auth_json(auth_file)
+    if gpt_image_2_skill_access_token(auth_data):
+        return ["--provider", "codex", "--auth-file", auth_file] if auth_file else ["--provider", "codex"], "codex"
+    api_key = gpt_image_2_skill_api_key(auth_data)
+    if api_key:
+        return ["--provider", "openai", "--api-key", api_key], "openai"
+    return (["--provider", "codex", "--auth-file", auth_file] if auth_file else ["--provider", "codex"]), "codex"
+
+def gpt_image_2_skill_model_arg(model="", provider="openai"):
+    value = str(model or "").strip()
+    low = value.lower()
+    provider = str(provider or "").strip().lower()
+    if provider == "codex":
+        if not value or low.startswith("$imagegen") or low.startswith("gpt-image"):
+            return "gpt-5.4"
+        return value
+    if not value or low.startswith("$imagegen"):
+        return "gpt-image-2"
+    return value
+
+def gpt_image_2_skill_size_arg(size="", model="", prompt="", provider="openai"):
+    text = " ".join([str(size or ""), str(model or ""), str(prompt or "")]).lower()
+    size_text = str(size or "").strip()
+    if str(provider or "").strip().lower() == "codex":
+        if "1k" in text or "1024" in text:
+            return "1K"
+        if "2k" in text or "2048" in text:
+            return "2K"
+        if "4k" in text or "3840" in text:
+            return "4K"
+        width, height = parse_size_pair(size_text)
+        if 0 < max(width, height) < 1800:
+            return "1K"
+        if 1800 <= max(width, height) < 3000:
+            return "2K"
+        return "4K"
+    match = re.search(r"(\d{3,5})\s*[x×*]\s*(\d{3,5})", size_text, flags=re.I)
+    if match:
+        width = int(match.group(1))
+        height = int(match.group(2))
+        if width > 0 and height > 0:
+            return normalize_gpt_image_2_size(f"{width}x{height}")
+    ratio_match = re.fullmatch(r"\s*(\d{1,2})\s*:\s*(\d{1,2})\s*", size_text)
+    if ratio_match:
+        ratio = f"{int(ratio_match.group(1))}:{int(ratio_match.group(2))}"
+        options = CHAT_RATIO_SIZE_OPTIONS.get(ratio)
+        if options:
+            if "4k" in text or "3840" in text:
+                return options[-1]
+            if "1k" in text or "1024" in text:
+                return options[0]
+            return options[1] if len(options) > 1 else options[0]
+    if "4k" in text or "3840" in text:
+        return "4K"
+    if "1k" in text or "1024" in text:
+        return "1K"
+    return "2K"
+
+def gpt_image_2_skill_prompt_arg(prompt="", size="", provider="openai"):
+    prompt_text = str(prompt or "").strip()
+    if str(provider or "").strip().lower() != "codex":
+        return prompt_text
+    size_arg = gpt_image_2_skill_size_arg(size, "", prompt, provider)
+    size_text = str(size or "").strip()
+    width, height = parse_size_pair(size_text)
+    ratio_text = ""
+    if width and height:
+        divisor = math.gcd(width, height) or 1
+        ratio_text = f"{width // divisor}:{height // divisor}"
+    else:
+        ratio_match = re.fullmatch(r"\s*(\d{1,2})\s*:\s*(\d{1,2})\s*", size_text)
+        if ratio_match:
+            width = int(ratio_match.group(1))
+            height = int(ratio_match.group(2))
+            ratio_text = f"{width}:{height}"
+    if not ratio_text:
+        return f"{prompt_text} 画质要求：目标输出 {size_arg} 高分辨率图片。 Image quality requirement: output a {size_arg} high-resolution image."
+    orientation_zh = "横版/宽幅" if width > height else ("竖版/长幅" if height > width else "正方形")
+    orientation_en = "landscape/wide" if width > height else ("portrait/tall" if height > width else "square")
+    return (
+        f"{prompt_text} "
+        f"画质要求：目标输出 {size_arg} 高分辨率图片。"
+        f"画幅要求：必须生成 {orientation_zh} 图片，宽高比 {ratio_text}。"
+        f"请不要交换宽高，不要输出反向比例。"
+        f" Image quality requirement: output a {size_arg} high-resolution image."
+        f" Canvas requirement: generate a {orientation_en} image with aspect ratio {ratio_text}; "
+        "do not swap width and height."
+    )
+
+def parse_gpt_image_2_skill_output(stdout_text="", stderr_text=""):
+    items = []
+    for line in (stdout_text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            items.append(json.loads(line))
+        except Exception:
+            continue
+    if not items and stdout_text:
+        try:
+            parsed = json.loads(stdout_text)
+            items = parsed if isinstance(parsed, list) else [parsed]
+        except Exception:
+            pass
+    paths = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        candidates = [
+            item.get("path"),
+            item.get("file"),
+            item.get("output"),
+            item.get("out"),
+            item.get("url"),
+        ]
+        for image in item.get("images") or []:
+            if isinstance(image, dict):
+                candidates.extend([image.get("path"), image.get("file"), image.get("url")])
+            else:
+                candidates.append(image)
+        for candidate in candidates:
+            value = str(candidate or "").strip()
+            if value:
+                paths.append(value)
+    text = stdout_text or stderr_text or ""
+    pattern = r"([A-Za-z]:\\[^\r\n\"'<>]+\.(?:png|jpe?g|webp|gif)|/[^\r\n\"'<>]+\.(?:png|jpe?g|webp|gif))"
+    paths.extend(re.findall(pattern, text, flags=re.I))
+    return items, paths
+
+def gpt_image_2_skill_failure_message(stdout_text="", stderr_text="", returncode=0):
+    combined = "\n".join([str(stdout_text or "").strip(), str(stderr_text or "").strip()]).strip()
+    if not combined:
+        return f"exit={returncode}"
+    objects = []
+    plain_lines = []
+    for line in combined.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            objects.append(json.loads(line))
+        except Exception:
+            plain_lines.append(line)
+    if not objects:
+        try:
+            parsed = json.loads(combined)
+            objects = parsed if isinstance(parsed, list) else [parsed]
+            plain_lines = []
+        except Exception:
+            pass
+    messages = []
+    progress = []
+    for item in objects:
+        if not isinstance(item, dict):
+            continue
+        error = item.get("error")
+        if isinstance(error, dict):
+            msg = error.get("message") or error.get("detail") or error.get("code")
+            if msg:
+                messages.append(str(msg))
+        elif isinstance(error, str) and error.strip():
+            messages.append(error.strip())
+        if item.get("ok") is False:
+            msg = item.get("message") or item.get("detail")
+            if msg:
+                messages.append(str(msg))
+        data = item.get("data")
+        if isinstance(data, dict):
+            msg = data.get("error") or data.get("message") or data.get("status")
+            event_type = str(item.get("type") or data.get("phase") or "").strip()
+            if msg and event_type not in {"request.started", "request_started"}:
+                progress.append(f"{event_type}: {msg}" if event_type else str(msg))
+    if messages:
+        return "；".join(dict.fromkeys(messages))[:1600]
+    if plain_lines:
+        return "\n".join(plain_lines)[:1600]
+    if progress:
+        return ("只收到了进度事件，没有收到最终错误详情：" + "；".join(dict.fromkeys(progress)))[:1600]
+    return combined[:1600]
+
+def codex_postprocess_image_to_requested_size(path="", requested_size="", provider=""):
+    provider_text = str(provider or "").strip().lower()
+    if provider_text not in {"codex", "gemini-cli"}:
+        return ""
+    width, height = parse_size_pair(requested_size)
+    if not width or not height or not path or not os.path.isfile(path):
+        return ""
+    try:
+        with Image.open(path) as img:
+            img.load()
+            if img.width == width and img.height == height:
+                return ""
+            resample = getattr(Image, "Resampling", Image).LANCZOS
+            oriented = ImageOps.exif_transpose(img)
+            converted = oriented.convert("RGBA") if oriented.mode in ("RGBA", "LA", "P") else oriented.convert("RGB")
+            resized = ImageOps.fit(converted, (width, height), method=resample, centering=(0.5, 0.5))
+            base, _ext = os.path.splitext(path)
+            upscaled_path = f"{base}_upscaled_{width}x{height}.png"
+            resized.save(upscaled_path, format="PNG")
+            return upscaled_path
+    except Exception as exc:
+        label = "Gemini CLI" if provider_text == "gemini-cli" else "Codex GPT Image 2"
+        print(f"{label} 图片尺寸后处理失败：{exc}")
+        return ""
+
+async def generate_codex_provider_image_via_gpt_image_2_skill(prompt, size, model, ref_paths=None):
+    exe = gpt_image_2_skill_executable()
+    if not exe:
+        return None
+    ref_paths = [str(path) for path in (ref_paths or []) if path and os.path.isfile(str(path))]
+    auth_file = gpt_image_2_skill_auth_file()
+    auth_data = gpt_image_2_skill_auth_json(auth_file)
+    provider_args, tool_provider = gpt_image_2_skill_provider_args(auth_file)
+    attempts = [(provider_args, tool_provider)]
+    fallback_api_key = gpt_image_2_skill_api_key(auth_data)
+    if tool_provider == "codex" and fallback_api_key:
+        attempts.append((["--provider", "openai", "--api-key", fallback_api_key], "openai"))
+    last_message = ""
+    for attempt_index, (attempt_provider_args, attempt_provider) in enumerate(attempts):
+        out_path = os.path.join(OUTPUT_OUTPUT_DIR, f"gpt_image_2_{uuid.uuid4().hex}.png")
+        mode = "edit" if ref_paths else "generate"
+        args = [
+            exe,
+            "--json",
+        ]
+        args.extend(attempt_provider_args)
+        args.extend([
+            "images",
+            mode,
+            "--prompt",
+            gpt_image_2_skill_prompt_arg(prompt, size, attempt_provider),
+            "--out",
+            out_path,
+            "--model",
+            gpt_image_2_skill_model_arg(model, attempt_provider),
+            "--format",
+            "png",
+            "--size",
+            gpt_image_2_skill_size_arg(size, model, prompt, attempt_provider),
+            "--quality",
+            "high",
+        ])
+        for path in ref_paths:
+            args.extend(["--ref-image", path])
+        if ref_paths and attempt_provider == "openai":
+            args.extend(["--input-fidelity", "high"])
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                cwd=BASE_DIR,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=codex_timeout())
+        except asyncio.TimeoutError as exc:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+            raise HTTPException(status_code=504, detail="GPT Image 2 Skill 执行超时。可设置 CODEX_CLI_TIMEOUT 增大等待时间。") from exc
+        except FileNotFoundError:
+            return None
+        out_text, err_text = codex_decode_output(stdout, stderr)
+        if proc.returncode != 0:
+            message = gpt_image_2_skill_failure_message(out_text, err_text, proc.returncode)
+            last_message = f"{attempt_provider}: {message}"
+            auth_failed = bool(re.search(r"\b401\b|unauthori[sz]ed|access[_ -]?token|api[_ -]?key", message, re.I))
+            if attempt_provider == "codex" and attempt_index + 1 < len(attempts) and auth_failed:
+                continue
+            if auth_failed:
+                return None
+            raise HTTPException(status_code=502, detail=f"GPT Image 2 Skill 调用失败：{last_message[:1200]}")
+        parsed, reported_paths = parse_gpt_image_2_skill_output(out_text, err_text)
+        candidate_paths = []
+        if os.path.isfile(out_path):
+            candidate_paths.append(out_path)
+        candidate_paths.extend([path for path in reported_paths if path and os.path.isfile(path)])
+        urls = []
+        for path in candidate_paths:
+            processed_path = codex_postprocess_image_to_requested_size(path, size, attempt_provider)
+            url = codex_output_url_from_path(processed_path or path)
+            if url:
+                urls.append(url)
+        if not urls:
+            status_text = (out_text or err_text or "")[:1200]
+            raise HTTPException(status_code=502, detail=f"GPT Image 2 Skill 已返回，但没有在输出目录发现图片：{status_text}")
+        return {"type": "url", "value": urls[0]}, {
+            "images": urls,
+            "text": out_text,
+            "provider": "codex",
+            "tool": "gpt-image-2-skill",
+            "tool_provider": attempt_provider,
+            "raw": parsed or {"stdout": out_text, "stderr": err_text},
+        }
+    raise HTTPException(status_code=502, detail=f"GPT Image 2 Skill 调用失败：{last_message[:1200]}")
+
+async def codex_prepare_local_media(ref_url):
+    text = str(ref_url or "").strip()
+    if not text:
+        return "", []
+    if text.startswith(("/output/", "/assets/")):
+        path = output_file_from_url(text)
+        if path:
+            return path, []
+        raise HTTPException(status_code=404, detail=f"OpenAI CLI 参考素材不存在：{text}")
+    if text.startswith("file://"):
+        path = urllib.parse.unquote(urllib.parse.urlparse(text).path)
+        if os.name == "nt" and re.match(r"^/[A-Za-z]:/", path):
+            path = path[1:]
+        if os.path.isfile(path):
+            return path, []
+    if os.path.isfile(text):
+        return text, []
+    temp_paths = []
+    suffix = ".png"
+    if text.startswith("data:"):
+        if ";base64," not in text:
+            raise HTTPException(status_code=400, detail="OpenAI CLI 参考素材 data URL 缺少 base64 数据")
+        header, encoded = text.split(";base64,", 1)
+        mime = header.split(":", 1)[1].split(";", 1)[0] if ":" in header else ""
+        suffix = mimetypes.guess_extension(mime) or suffix
+        fd, path = tempfile.mkstemp(prefix="codex_ref_", suffix=suffix)
+        with os.fdopen(fd, "wb") as f:
+            f.write(base64.b64decode(encoded))
+        temp_paths.append(path)
+        return path, temp_paths
+    if text.startswith(("http://", "https://")):
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=20.0, read=300.0, write=60.0, pool=20.0), follow_redirects=True) as client:
+            response = await client.get(text)
+            response.raise_for_status()
+            clean_path = urllib.parse.urlparse(text).path
+            suffix = os.path.splitext(clean_path)[1] or mimetypes.guess_extension(response.headers.get("content-type", "")) or suffix
+            fd, path = tempfile.mkstemp(prefix="codex_ref_", suffix=suffix)
+            with os.fdopen(fd, "wb") as f:
+                f.write(response.content)
+            temp_paths.append(path)
+            return path, temp_paths
+    raise HTTPException(status_code=400, detail=f"OpenAI CLI 无法读取参考素材：{text[:120]}")
+
+async def codex_reference_paths(reference_images=None):
+    paths = []
+    temp_paths = []
+    try:
+        for ref in (reference_images or [])[:ONLINE_IMAGE_REFERENCE_MAX]:
+            url = ref.get("url") if isinstance(ref, dict) else getattr(ref, "url", "")
+            if not url:
+                continue
+            path, created = await codex_prepare_local_media(url)
+            if path:
+                paths.append(path)
+            temp_paths.extend(created)
+        return paths, temp_paths
+    except Exception:
+        for path in temp_paths:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+        raise
+
+def codex_models_payload(raw=None):
+    all_models = [*CODEX_DEFAULT_IMAGE_MODELS, *CODEX_DEFAULT_CHAT_MODELS]
+    return {
+        "ok": True,
+        "protocol": "codex",
+        "status": 200,
+        "message": "OpenAI Codex CLI 可用，模型列表来自本机 CLI 默认配置。",
+        "model_count": len(all_models),
+        "total": len(all_models),
+        "image_models": CODEX_DEFAULT_IMAGE_MODELS,
+        "chat_models": CODEX_DEFAULT_CHAT_MODELS,
+        "video_models": [],
+        "all": all_models,
+        "raw": raw or {},
+    }
+
+async def generate_codex_provider_image(prompt, size, model, reference_images=None, provider=None):
+    ref_paths, temp_paths = await codex_reference_paths(reference_images)
+    try:
+        skill_result = await generate_codex_provider_image_via_gpt_image_2_skill(prompt, size, model, ref_paths)
+        if skill_result:
+            return skill_result
+        raise HTTPException(status_code=400, detail="未找到 GPT Image 2 helper，OpenAI CLI 生图已禁用 $imagegen 回退。请先安装 gpt-image-2-skill 后再生成图片。")
+    finally:
+        for path in temp_paths:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
+def codex_chat_prompt(payload, history_messages=None):
+    parts = []
+    system_prompt = str(getattr(payload, "system_prompt", "") or "").strip()
+    if system_prompt:
+        parts.append(f"系统要求：\n{system_prompt}")
+    for item in (history_messages or [])[-MAX_HISTORY_MESSAGES:]:
+        role = str(item.get("role") or "").strip()
+        content = item.get("content")
+        if role in {"user", "assistant"} and content:
+            label = "用户" if role == "user" else "助手"
+            parts.append(f"{label}：\n{content}")
+    message = str(getattr(payload, "message", "") or "").strip()
+    parts.append(f"用户：\n{message}")
+    parts.append("请直接回答用户，输出纯文本，不要修改项目文件。")
+    return "\n\n".join(part for part in parts if part).strip()
+
+async def codex_chat_text(payload, history_messages=None):
+    image_paths = []
+    temp_paths = []
+    try:
+        image_values = []
+        if hasattr(payload, "images"):
+            image_values.extend([{"url": item} for item in (getattr(payload, "images", None) or []) if item])
+        if hasattr(payload, "reference_images"):
+            image_values.extend([ref.dict() for ref in (getattr(payload, "reference_images", None) or []) if getattr(ref, "url", "")])
+        image_paths, temp_paths = await codex_reference_paths(image_values)
+        raw = await run_codex_cli(
+            codex_chat_prompt(payload, history_messages),
+            model=getattr(payload, "model", "") or CODEX_DEFAULT_CHAT_MODELS[0],
+            image_paths=image_paths,
+            timeout=codex_timeout(),
+            output_last_message=True,
+        )
+        text = str(raw.get("text") or "").strip()
+        return text or "Codex CLI 返回了空回复。", raw
+    finally:
+        for path in temp_paths:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
+def gemini_cli_env_value(key):
+    return os.getenv(key, "") or read_api_env_value(key)
+
+def antigravity_cli_winget_candidates():
+    patterns = [
+        os.path.join(os.path.expanduser("~"), "AppData", "Local", "Microsoft", "WinGet", "Packages", "Google.AntigravityCLI_*", "agy.exe"),
+        os.path.join(os.getenv("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Packages", "Google.AntigravityCLI_*", "agy.exe"),
+    ]
+    candidates = []
+    for pattern in patterns:
+        if not pattern:
+            continue
+        candidates.extend(glob.glob(pattern))
+    return sorted(dict.fromkeys(path for path in candidates if os.path.exists(path)), reverse=True)
+
+def gemini_cli_executable():
+    for key in ("ANTIGRAVITY_BIN", "AGY_BIN", "GEMINI_BIN"):
+        configured = str(gemini_cli_env_value(key) or "").strip().strip('"')
+        if configured:
+            return configured
+    for name in ("agy", "agy.exe"):
+        found = shutil.which(name)
+        if found:
+            return found
+    for candidate in antigravity_cli_winget_candidates():
+        return candidate
+    return shutil.which("gemini") or shutil.which("gemini.exe") or shutil.which("gemini.cmd") or ""
+
+def is_antigravity_cli(exe):
+    text = str(exe or "").lower()
+    return os.path.basename(text).startswith("agy") or "antigravity" in text
+
+def gemini_cli_display_name(exe=None):
+    return "Antigravity CLI" if is_antigravity_cli(exe or gemini_cli_executable()) else "Gemini CLI"
+
+def gemini_cli_timeout(default=GEMINI_CLI_DEFAULT_TIMEOUT):
+    try:
+        return max(30, min(3600, int(os.getenv("GEMINI_CLI_TIMEOUT", str(default)) or default)))
+    except Exception:
+        return default
+
+def gemini_cli_image_timeout():
+    raw = os.getenv("ANTIGRAVITY_IMAGE_TIMEOUT") or os.getenv("GEMINI_CLI_IMAGE_TIMEOUT") or "300"
+    try:
+        return max(60, min(1800, int(raw)))
+    except Exception:
+        return 300
+
+def gemini_cli_model(model="", fallback=""):
+    value = str(model or fallback or "").strip()
+    return value or "auto"
+
+def gemini_cli_text_from_raw(raw, fallback_text=""):
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, dict):
+        for key in ("response", "text", "content", "message", "output"):
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        candidates = []
+        for value in raw.values():
+            if isinstance(value, str) and value.strip():
+                candidates.append(value.strip())
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        text = gemini_cli_text_from_raw(item)
+                        if text:
+                            candidates.append(text)
+                    elif isinstance(item, str) and item.strip():
+                        candidates.append(item.strip())
+        if candidates:
+            return "\n".join(candidates).strip()
+    if isinstance(raw, list):
+        parts = [gemini_cli_text_from_raw(item) for item in raw]
+        return "\n".join(part for part in parts if part).strip()
+    return str(fallback_text or "").strip()
+
+def gemini_cli_parse_stdout(out_text):
+    text = str(out_text or "").strip()
+    if not text:
+        return {}, ""
+    try:
+        raw = json.loads(text)
+        return raw, gemini_cli_text_from_raw(raw, text)
+    except Exception:
+        pass
+    parsed = jimeng_extract_json(text)
+    if isinstance(parsed, (dict, list)) and parsed != {"text": text}:
+        return parsed, gemini_cli_text_from_raw(parsed, text)
+    return {"text": text}, text
+
+async def run_gemini_cli(prompt, model="", timeout=None, allow_tools=False):
+    exe = gemini_cli_executable()
+    if not exe:
+        raise HTTPException(status_code=400, detail="未找到 Antigravity CLI。请先安装 Google Antigravity CLI，并完成 agy 登录。")
+    timeout_seconds = timeout or gemini_cli_timeout()
+    if is_antigravity_cli(exe):
+        args = [exe, "--print-timeout", f"{int(timeout_seconds)}s"]
+        selected = gemini_cli_model(model)
+        if selected and selected != "auto":
+            args.extend(["--model", selected])
+        if allow_tools:
+            args.append("--dangerously-skip-permissions")
+        args.extend(["-p", str(prompt or "")])
+    else:
+        args = [
+            exe,
+            "--model",
+            gemini_cli_model(model),
+            "--output-format",
+            "json",
+            "--skip-trust",
+        ]
+        if allow_tools:
+            args.extend(["--approval-mode", "yolo"])
+        args.extend(["--prompt", str(prompt or "")])
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            cwd=BASE_DIR,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
+    except asyncio.TimeoutError as exc:
+        if proc and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+        raise HTTPException(status_code=504, detail=f"{gemini_cli_display_name(exe)} 执行超时。可设置 GEMINI_CLI_TIMEOUT 增大等待时间。") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=f"未找到 {gemini_cli_display_name(exe)}：{exe}") from exc
+    out_text, err_text = codex_decode_output(stdout, stderr)
+    raw, text = gemini_cli_parse_stdout(out_text)
+    if proc.returncode != 0:
+        message = err_text or out_text or f"exit={proc.returncode}"
+        raise HTTPException(status_code=502, detail=f"{gemini_cli_display_name(exe)} 调用失败：{message[:1200]}")
+    return {"text": text or out_text, "raw": raw, "_stdout": out_text, "_stderr": err_text}
+
+def gemini_cli_models_payload(raw=None):
+    all_models = [*GEMINI_CLI_DEFAULT_IMAGE_MODELS, *GEMINI_CLI_DEFAULT_CHAT_MODELS]
+    all_models = model_list_from_values(all_models)
+    return {
+        "ok": True,
+        "protocol": "gemini-cli",
+        "status": 200,
+        "message": "Antigravity CLI 可用，模型列表使用 auto 默认模型。",
+        "model_count": len(all_models),
+        "total": len(all_models),
+        "image_models": GEMINI_CLI_DEFAULT_IMAGE_MODELS,
+        "chat_models": GEMINI_CLI_DEFAULT_CHAT_MODELS,
+        "video_models": [],
+        "all": all_models,
+        "raw": raw or {},
+    }
+
+def gemini_cli_reference_note(reference_images=None):
+    refs = []
+    temp_paths = []
+    for ref in (reference_images or [])[:ONLINE_IMAGE_REFERENCE_MAX]:
+        url = ref.get("url") if isinstance(ref, dict) else getattr(ref, "url", "")
+        if not url:
+            continue
+        refs.append(url)
+    return refs, temp_paths
+
+async def gemini_cli_reference_paths(reference_images=None):
+    return await codex_reference_paths(reference_images)
+
+def gemini_cli_image_size_instruction(size="", model=""):
+    size_text = str(size or "").strip()
+    model_text = str(model or "").strip()
+    match = re.match(r"^\s*(\d{2,5})\s*[xX*]\s*(\d{2,5})\s*$", size_text)
+    if match:
+        width, height = int(match.group(1)), int(match.group(2))
+        if width > 0 and height > 0:
+            orientation = "正方形" if width == height else ("横版" if width > height else "竖版")
+            return (
+                f"目标输出分辨率：{width}x{height} 像素（宽 x 高），画面方向：{orientation}。"
+                f"最终保存到输出目录的图片文件实际像素必须是 {width}x{height}。"
+                "如果生成器先得到较小图片，请在保存前放大或导出到目标尺寸，不要返回 1024px 小图。"
+            )
+    combined = f"{size_text} {model_text}".lower()
+    if "4k" in combined:
+        return "目标输出为 4K 高分辨率图片；最终保存文件需要达到当前画幅对应的 4K 像素尺寸，不要默认输出 1024px 小图。"
+    if "2k" in combined:
+        return "目标输出为 2K 高分辨率图片；最终保存文件需要达到当前画幅对应的 2K 像素尺寸，不要默认输出 1024px 小图。"
+    return f"尺寸/比例参考：{size_text or 'auto'}。如果可以指定分辨率，请优先输出高分辨率图片。"
+
+async def generate_gemini_cli_provider_image(prompt, size, model, reference_images=None, provider=None):
+    ref_paths, temp_paths = await gemini_cli_reference_paths(reference_images)
+    since = time.time()
+    try:
+        ref_text = ""
+        if ref_paths:
+            ref_text = "\n参考图片本地路径：\n" + "\n".join(ref_paths)
+        size_context = f"{model or ''} {prompt or ''}"
+        image_prompt = (
+            f"你正在为 Infinite Canvas 生成图片。\n"
+            f"任务：{prompt}\n\n"
+            f"{gemini_cli_image_size_instruction(size, size_context)}\n"
+            f"{ref_text}\n\n"
+            f"如果当前 Antigravity CLI/模型支持图片生成或图片编辑，请把最终图片保存到这个本地目录：{OUTPUT_OUTPUT_DIR}\n"
+            "文件格式优先 png 或 jpg。只输出最终文件路径和一句简短说明；不要修改项目代码，不要创建额外文档。\n"
+            "如果你无法真正创建图片文件，请在 60 秒内直接回复“无法生成图片文件”，不要只写计划，也不要持续尝试。"
+        )
+        raw = await run_gemini_cli(
+            image_prompt,
+            model=model or GEMINI_CLI_DEFAULT_IMAGE_MODELS[0],
+            timeout=gemini_cli_image_timeout() if is_antigravity_cli(gemini_cli_executable()) else gemini_cli_timeout(),
+            allow_tools=True,
+        )
+        files = codex_output_image_files(since)
+        urls = []
+        for path in files:
+            processed_path = codex_postprocess_image_to_requested_size(path, size, "gemini-cli")
+            url = codex_output_url_from_path(processed_path or path)
+            if url and url not in urls:
+                urls.append(url)
+        if not urls:
+            text = f"{raw.get('text') or raw.get('_stdout') or ''}\n{raw.get('_stderr') or ''}"
+            pattern = r"([A-Za-z]:\\[^\r\n\"'<>]+\.(?:png|jpe?g|webp|gif)|/[^\r\n\"'<>]+\.(?:png|jpe?g|webp|gif))"
+            for match in re.findall(pattern, text, flags=re.I):
+                match_path = match.strip()
+                processed_path = codex_postprocess_image_to_requested_size(match_path, size, "gemini-cli")
+                url = codex_output_url_from_path(processed_path or match_path)
+                if url and url not in urls:
+                    urls.append(url)
+        if not urls:
+            status_text = (raw.get("text") or raw.get("_stdout") or raw.get("_stderr") or "")[:1200]
+            raise HTTPException(status_code=502, detail=f"{gemini_cli_display_name()} 已返回，但没有在输出目录发现图片：{status_text}")
+        return {"type": "url", "value": urls[0]}, {"images": urls, "text": raw.get("text"), "provider": "gemini-cli", "raw": raw.get("raw")}
+    finally:
+        for path in temp_paths:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
+def gemini_cli_chat_prompt(payload, history_messages=None):
+    parts = []
+    system_prompt = str(getattr(payload, "system_prompt", "") or "").strip()
+    if system_prompt:
+        parts.append(f"系统要求：\n{system_prompt}")
+    for item in (history_messages or [])[-MAX_HISTORY_MESSAGES:]:
+        role = str(item.get("role") or "").strip()
+        content = item.get("content")
+        if role in {"user", "assistant"} and content:
+            label = "用户" if role == "user" else "助手"
+            parts.append(f"{label}：\n{content}")
+    message = str(getattr(payload, "message", "") or "").strip()
+    parts.append(f"用户：\n{message}")
+    image_values = []
+    if hasattr(payload, "images"):
+        image_values.extend([{"url": item} for item in (getattr(payload, "images", None) or []) if item])
+    if hasattr(payload, "reference_images"):
+        image_values.extend([ref.dict() for ref in (getattr(payload, "reference_images", None) or []) if getattr(ref, "url", "")])
+    refs = []
+    temp_paths = []
+    return "\n\n".join(part for part in parts if part).strip(), image_values
+
+async def gemini_cli_chat_text(payload, history_messages=None):
+    temp_paths = []
+    try:
+        prompt, image_values = gemini_cli_chat_prompt(payload, history_messages)
+        image_paths, temp_paths = await gemini_cli_reference_paths(image_values)
+        if image_paths:
+            prompt = f"{prompt}\n\n可参考的本地图片路径：\n" + "\n".join(image_paths)
+        prompt = f"{prompt}\n\n请直接回答用户，输出纯文本，不要修改项目文件。"
+        raw = await run_gemini_cli(
+            prompt,
+            model=getattr(payload, "model", "") or GEMINI_CLI_DEFAULT_CHAT_MODELS[0],
+            timeout=gemini_cli_timeout(),
+            allow_tools=False,
+        )
+        text = str(raw.get("text") or "").strip()
+        return text or f"{gemini_cli_display_name()} 返回了空回复。", raw
+    finally:
+        for path in temp_paths:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
 def is_yuli_provider(provider):
     # 玉玉API（yuli.host）的视频接口走自有格式（/v1/video/create + /v1/video/query），
     # 与通用 OpenAI /v1/videos/generations 不同，需单独识别。
     base_url = str((provider or {}).get("base_url") or "").lower()
     return "yuli.host" in base_url
+
+def is_lingjing_provider(provider):
+    base_url = str((provider or {}).get("base_url") or "").lower()
+    provider_id = str((provider or {}).get("id") or "").strip().lower()
+    return provider_id == "lingjing" or "apistudio.vip" in base_url
 
 def is_agnes_provider(provider, model=""):
     base_url = str((provider or {}).get("base_url") or "").lower()
@@ -3961,13 +5568,51 @@ def jimeng_cli_executable():
         return shutil.which("wsl.exe") or shutil.which("wsl") or "wsl.exe"
     return ""
 
+
+def decode_utf16_auto(raw: bytes) -> str:
+    # WSL/Windows interop emits UTF-16 for null-heavy diagnostics, but the
+    # endianness varies by source (console vs proxy vs subprocess), so a
+    # hard-coded "utf-16le" silently byte-swaps UTF-16BE text into garbage
+    # (e.g. "localhost" -> 氀漀挀愀氀栀漀猀琀). Decode both ways and keep
+    # whichever produces more plain ASCII, since diagnostics are ASCII-heavy.
+    try:
+        le = raw.decode("utf-16le", errors="ignore")
+    except Exception:
+        le = ""
+    try:
+        be = raw.decode("utf-16be", errors="ignore")
+    except Exception:
+        be = ""
+    def ascii_score(text):
+        return sum(1 for ch in text if 0x20 <= ord(ch) <= 0x7e)
+    return le if ascii_score(le) >= ascii_score(be) else be
+
 def decode_wsl_output(data: bytes) -> str:
     data = data or b""
     if not data:
         return ""
+
+    # WSL can mix UTF-16 diagnostics with UTF-8 command output in the same
+    # stream. Decode per line so a WSL proxy warning does not corrupt CLI errors.
+    if b"\x00" in data[:400]:
+        lines = []
+        for raw_line in data.splitlines():
+            if not raw_line:
+                lines.append("")
+                continue
+            sample = raw_line[:200]
+            nul_ratio = sample.count(0) / max(1, len(sample))
+            if nul_ratio > 0.2:
+                try:
+                    lines.append(decode_utf16_auto(raw_line))
+                    continue
+                except Exception:
+                    pass
+            lines.append(raw_line.decode("utf-8-sig", errors="ignore"))
+        return "\n".join(lines)
     if b"\x00" in data[:200]:
         try:
-            return data.decode("utf-16le", errors="ignore")
+            return decode_utf16_auto(data)
         except Exception:
             pass
     return data.decode("utf-8-sig", errors="ignore")
@@ -4005,11 +5650,14 @@ def jimeng_wsl_base_args(exe="wsl.exe"):
 
 def jimeng_clean_wsl_stderr(text):
     lines = []
+    skip_next_warning_context = False
     for line in str(text or "").splitlines():
         clean = line.replace("\x00", "").strip()
         low = clean.lower()
         is_proxy_warning = "localhost" in low and "wsl" in low and ("nat" in low or "proxy" in low or "代理" in clean)
-        if clean and not is_proxy_warning:
+        is_python_warning = "requestsdependencywarning" in low or (skip_next_warning_context and clean.startswith("warnings.warn("))
+        skip_next_warning_context = "requestsdependencywarning" in low
+        if clean and not is_proxy_warning and not is_python_warning:
             lines.append(clean)
     return "\n".join(lines).strip()
 
@@ -4754,12 +6402,15 @@ async def generate_jimeng_provider_image(prompt, size, model, reference_images=N
     try:
         args = []
         if refs:
-            image_path, created = await jimeng_prepare_local_media(refs[0].get("url"), "image")
-            temp_paths.extend(created)
+            image_paths = []
+            for ref in refs[:10]:
+                image_path, created = await jimeng_prepare_local_media(ref.get("url"), "image")
+                image_paths.append(jimeng_cli_path_arg(image_path))
+                temp_paths.extend(created)
             model_version = jimeng_image_model_version(model, "image2image")
             args = [
                 "image2image",
-                f"--images={jimeng_cli_path_arg(image_path)}",
+                f"--images={','.join(image_paths)}",
                 f"--prompt={prompt}",
                 f"--resolution_type={jimeng_image_resolution(model, size, 'image2image')}",
                 f"--poll={jimeng_poll_seconds()}",
@@ -4907,8 +6558,11 @@ IMAGE_TASK_FAILED_STATUSES = {"FAILURE", "FAILED", "FAIL", "ERROR", "ERRORED", "
 
 def image_task_url_for_provider(provider, task_id):
     base_url = (provider.get("base_url") if provider else AI_BASE_URL).rstrip("/")
-    is_apimart = is_apimart_provider(provider)
-    if is_apimart:
+    # 异步生图（openai-video-proxy）模式优先于 apimart 协议判断：
+    # 提交走 /v1/videos，轮询必须走 /v1/videos/{id}；否则 protocol=apimart 的平台会错走 /v1/tasks/{id}
+    if normalize_image_request_mode((provider or {}).get("image_request_mode")) == "openai-video-proxy":
+        return f"{base_url}/videos/{task_id}" if base_url.endswith("/v1") else f"{base_url}/v1/videos/{task_id}"
+    if is_apimart_provider(provider):
         return f"{base_url}/tasks/{task_id}" if base_url.endswith("/v1") else f"{base_url}/v1/tasks/{task_id}"
     return f"{base_url}/images/tasks/{task_id}" if base_url.endswith("/v1") else f"{base_url}/v1/images/tasks/{task_id}"
 
@@ -4926,9 +6580,36 @@ def image_task_fail_reason(payload):
     error = task_data.get("error") if isinstance(task_data.get("error"), dict) else {}
     return task_data.get("fail_reason") or task_data.get("message") or error.get("message") or (payload.get("message") if isinstance(payload, dict) else "") or "生图任务失败"
 
+async def httpx_request_with_transient_retries(client, method, url, attempts=2, retry_delay=1.2, **kwargs):
+    attempts = max(1, int(attempts or 1))
+    last_exc = None
+    retry_statuses = {502, 503, 504, 520, 522, 524}
+    for attempt in range(attempts):
+        try:
+            response = await client.request(method, url, **kwargs)
+            if response.status_code in retry_statuses and attempt + 1 < attempts:
+                await asyncio.sleep(retry_delay * (attempt + 1))
+                continue
+            return response
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.PoolTimeout) as exc:
+            last_exc = exc
+            if attempt + 1 >= attempts:
+                raise
+            print(f"[HTTPX-RETRY] {method} {url} transient error: {exc}; retry {attempt + 2}/{attempts}", flush=True)
+            await asyncio.sleep(retry_delay * (attempt + 1))
+    if last_exc:
+        raise last_exc
+    raise httpx.HTTPError(f"请求失败：{method} {url}")
+
 async def fetch_image_task_payload(client, task_id, provider=None):
     task_url = image_task_url_for_provider(provider, task_id)
-    response = await client.get(task_url, headers=api_headers(provider=provider))
+    response = await httpx_request_with_transient_retries(
+        client,
+        "GET",
+        task_url,
+        attempts=3,
+        headers=api_headers(provider=provider),
+    )
     response.raise_for_status()
     return response.json()
 
@@ -5056,24 +6737,64 @@ async def media_preview(url: str, w: int = 512):
     if os.path.exists(png_path):
         return FileResponse(png_path, media_type="image/png")
 
-    try:
+    def _build_preview():
+        # 同步 PIL 处理 + 落盘，放到线程里执行，避免阻塞事件循环（几十张首次生成会卡死整个 loop → 缩略图全空白）
         os.makedirs(MEDIA_PREVIEW_DIR, exist_ok=True)
         if is_video_preview_file(path):
-            img = await asyncio.to_thread(generate_video_preview_image, path, width)
+            img = generate_video_preview_image(path, width)
         else:
             with Image.open(path) as source:
                 img = ImageOps.exif_transpose(source)
                 img.thumbnail((width, width), Image.LANCZOS)
                 img = img.convert("RGBA" if image_has_alpha(img) else "RGB")
-
         try:
-            img.save(webp_path, format="WEBP", quality=82, method=4)
-            return FileResponse(webp_path, media_type="image/webp")
+            img.save(webp_path, format="WEBP", quality=80, method=1)   # method=1 生成更快（缩略图不追求极致压缩）
+            return webp_path, "image/webp"
         except Exception:
-            img.save(png_path, format="PNG", optimize=True)
-            return FileResponse(png_path, media_type="image/png")
+            img.save(png_path, format="PNG")
+            return png_path, "image/png"
+
+    try:
+        out_path, media_type = await asyncio.to_thread(_build_preview)
+        return FileResponse(out_path, media_type=media_type)
     except Exception as exc:
         raise HTTPException(status_code=415, detail=f"无法生成预览图：{exc}") from exc
+
+@app.get("/api/image-jpeg")
+async def image_jpeg(url: str, w: int = 0):
+    """把任意图片转成 JPEG 返回（带缓存）。给不支持 WebP 等格式显示的客户端（PS UXP）用。
+    w>0 时同时缩放到该宽度（缩略图）；w=0 输出原尺寸。"""
+    path = output_file_from_url(url)
+    if not path or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="媒体文件不存在")
+    width = max(0, min(4096, int(w or 0)))
+    stat = os.stat(path)
+    key = hashlib.sha1(f"{os.path.abspath(path)}|{stat.st_mtime_ns}|{stat.st_size}|{width}|jpg".encode("utf-8", "ignore")).hexdigest()
+    cache_path = os.path.join(MEDIA_PREVIEW_DIR, f"{key}.jpg")
+    if os.path.exists(cache_path):
+        return FileResponse(cache_path, media_type="image/jpeg")
+
+    def _build():
+        os.makedirs(MEDIA_PREVIEW_DIR, exist_ok=True)
+        with Image.open(path) as src:
+            img = ImageOps.exif_transpose(src)
+            if width:
+                img.thumbnail((width, width), Image.LANCZOS)
+            if img.mode in ("RGBA", "LA", "P"):
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                rgba = img.convert("RGBA")
+                bg.paste(rgba, mask=rgba.split()[-1])
+                img = bg
+            else:
+                img = img.convert("RGB")
+            img.save(cache_path, format="JPEG", quality=86)
+        return cache_path
+
+    try:
+        out_path = await asyncio.to_thread(_build)
+        return FileResponse(out_path, media_type="image/jpeg")
+    except Exception as exc:
+        raise HTTPException(status_code=415, detail=f"无法转换图片：{exc}") from exc
 
 def local_media_file_by_basename(name: str):
     safe = os.path.basename(urllib.parse.unquote(str(name or "")))
@@ -5099,7 +6820,7 @@ def filename_from_media_url(url: str, fallback: str = "download.bin") -> str:
     return sanitize_export_filename(name or fallback, fallback)
 
 def fetch_remote_media_bytes(url: str, timeout: float = 30.0, max_bytes: int = 200 * 1024 * 1024):
-    text = str(url or "").strip()
+    text = rewrite_runninghub_file_url(str(url or "").strip())
     parsed = urllib.parse.urlparse(text)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return None
@@ -5986,6 +7707,8 @@ def content_type_for_path(path):
         return "video/x-msvideo"
     if ext == ".mkv":
         return "video/x-matroska"
+    if ext == ".flv":
+        return "video/x-flv"
     if ext == ".mp3":
         return "audio/mpeg"
     if ext == ".wav":
@@ -6118,13 +7841,192 @@ def image_references(refs):
     return [ref for ref in (refs or []) if is_image_reference(ref)]
 
 TEXT_ATTACHMENT_EXTS = {".txt", ".md", ".markdown", ".json", ".csv", ".log", ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".xml", ".yaml", ".yml"}
+XLSX_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+EXCEL_MAX_SHEETS = 8
+EXCEL_MAX_ROWS_PER_SHEET = 80
+EXCEL_MAX_COLS_PER_ROW = 30
 MAX_ATTACHMENT_TEXT_CHARS = 12000
+
+def _xml_local_name(tag):
+    return str(tag or "").rsplit("}", 1)[-1]
+
+def _xlsx_join_text(node):
+    parts = []
+    for child in node.iter():
+        if _xml_local_name(child.tag) == "t" and child.text:
+            parts.append(child.text)
+    return "".join(parts).strip()
+
+def _xlsx_shared_strings(archive):
+    try:
+        raw = archive.read("xl/sharedStrings.xml")
+    except KeyError:
+        return []
+    root = ET.fromstring(raw)
+    values = []
+    for node in root:
+        if _xml_local_name(node.tag) == "si":
+            values.append(_xlsx_join_text(node))
+    return values
+
+def _xlsx_sheet_paths(archive):
+    names = set(archive.namelist())
+    fallback = [(os.path.basename(name).rsplit(".", 1)[0], name) for name in sorted(names) if re.match(r"xl/worksheets/sheet\d+\.xml$", name)]
+    try:
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        rels = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        rel_map = {}
+        for rel in rels:
+            rid = rel.attrib.get("Id")
+            target = rel.attrib.get("Target") or ""
+            if not rid or not target:
+                continue
+            target = target.lstrip("/")
+            if not target.startswith("xl/"):
+                target = f"xl/{target}"
+            rel_map[rid] = target.replace("\\", "/")
+        result = []
+        for sheet in workbook.iter():
+            if _xml_local_name(sheet.tag) != "sheet":
+                continue
+            title = sheet.attrib.get("name") or "Sheet"
+            rid = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+            target = rel_map.get(rid, "")
+            if target in names:
+                result.append((title, target))
+        return result or fallback
+    except Exception:
+        return fallback
+
+def _xlsx_cell_text(cell, shared_strings):
+    cell_type = cell.attrib.get("t", "")
+    value_node = None
+    formula_node = None
+    inline_node = None
+    for child in cell:
+        name = _xml_local_name(child.tag)
+        if name == "v":
+            value_node = child
+        elif name == "f":
+            formula_node = child
+        elif name == "is":
+            inline_node = child
+    raw_value = (value_node.text if value_node is not None else "") or ""
+    formula = (formula_node.text if formula_node is not None else "") or ""
+    if cell_type == "s" and raw_value.isdigit():
+        idx = int(raw_value)
+        value = shared_strings[idx] if 0 <= idx < len(shared_strings) else raw_value
+    elif cell_type == "inlineStr" and inline_node is not None:
+        value = _xlsx_join_text(inline_node)
+    elif cell_type == "b":
+        value = "TRUE" if raw_value == "1" else "FALSE" if raw_value == "0" else raw_value
+    else:
+        value = raw_value
+    value = str(value or "").strip()
+    if formula and value:
+        return f"{value} [={formula}]"
+    if formula:
+        return f"={formula}"
+    return value
+
+def read_xlsx_attachment(path, limit=MAX_ATTACHMENT_TEXT_CHARS):
+    parts = []
+    used = 0
+    with zipfile.ZipFile(path) as archive:
+        shared = _xlsx_shared_strings(archive)
+        sheets = _xlsx_sheet_paths(archive)
+        media_count = sum(1 for name in archive.namelist() if name.startswith("xl/media/") and os.path.splitext(name)[1].lower() in XLSX_IMAGE_EXTS)
+        parts.append(f"Excel 工作簿：{os.path.basename(path)}")
+        if media_count:
+            parts.append(f"内嵌图片数量：{media_count}（已作为图片参考一并提供给模型）")
+        for sheet_index, (sheet_name, sheet_path) in enumerate(sheets[:EXCEL_MAX_SHEETS], start=1):
+            try:
+                root = ET.fromstring(archive.read(sheet_path))
+            except Exception:
+                continue
+            rows = []
+            for row in root.iter():
+                if _xml_local_name(row.tag) != "row":
+                    continue
+                cells = []
+                for cell in row:
+                    if _xml_local_name(cell.tag) != "c":
+                        continue
+                    ref = cell.attrib.get("r") or ""
+                    value = _xlsx_cell_text(cell, shared)
+                    if value:
+                        cells.append(f"{ref}={value}" if ref else value)
+                    if len(cells) >= EXCEL_MAX_COLS_PER_ROW:
+                        break
+                if cells:
+                    row_ref = row.attrib.get("r") or str(len(rows) + 1)
+                    rows.append(f"第 {row_ref} 行：" + " | ".join(cells))
+                if len(rows) >= EXCEL_MAX_ROWS_PER_SHEET:
+                    break
+            if rows:
+                section = f"\n工作表 {sheet_index}：{sheet_name}\n" + "\n".join(rows)
+            else:
+                section = f"\n工作表 {sheet_index}：{sheet_name}\n（未读取到非空单元格）"
+            if used + len(section) > limit:
+                remain = max(0, limit - used)
+                if remain:
+                    parts.append(section[:remain])
+                parts.append("\n（Excel 内容较长，已截断）")
+                break
+            parts.append(section)
+            used += len(section)
+    return "\n".join(parts).strip()[:limit]
+
+def xlsx_embedded_image_data_urls(path, max_images=4, max_size=1536):
+    urls = []
+    try:
+        with zipfile.ZipFile(path) as archive:
+            media = [name for name in archive.namelist() if name.startswith("xl/media/") and os.path.splitext(name)[1].lower() in XLSX_IMAGE_EXTS]
+            for name in sorted(media)[:max_images]:
+                try:
+                    raw = archive.read(name)
+                    with Image.open(BytesIO(raw)) as img:
+                        img.load()
+                        if max(img.size) > max_size:
+                            img.thumbnail((max_size, max_size), Image.LANCZOS)
+                        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                            bg = Image.new("RGB", img.size, (255, 255, 255))
+                            bg.paste(img.convert("RGBA"), mask=img.convert("RGBA").split()[-1])
+                            img = bg
+                        elif img.mode != "RGB":
+                            img = img.convert("RGB")
+                        buf = BytesIO()
+                        img.save(buf, format="JPEG", quality=88, optimize=True)
+                        encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+                        urls.append(f"data:image/jpeg;base64,{encoded}")
+                except Exception as exc:
+                    print(f"[chat] failed to extract xlsx image {name}: {exc}")
+    except Exception as exc:
+        print(f"[chat] failed to read xlsx images {path}: {exc}")
+    return urls
+
+def attachment_embedded_image_data_urls(refs, max_images=4):
+    urls = []
+    for ref in (refs or []):
+        if not isinstance(ref, dict) or is_image_reference(ref):
+            continue
+        path = output_file_from_url(ref.get("url", ""))
+        if not path or os.path.splitext(path)[1].lower() != ".xlsx":
+            continue
+        urls.extend(xlsx_embedded_image_data_urls(path, max_images=max(0, max_images - len(urls))))
+        if len(urls) >= max_images:
+            break
+    return urls[:max_images]
 
 def read_text_attachment(path, limit=MAX_ATTACHMENT_TEXT_CHARS):
     ext = os.path.splitext(path or "")[1].lower()
     if not path or not os.path.isfile(path):
         return ""
     try:
+        if ext == ".xlsx":
+            return read_xlsx_attachment(path, limit)
+        if ext == ".xls":
+            return "这是旧版 .xls 二进制 Excel 文件，当前内置解析器暂不支持直接读取内容。请另存为 .xlsx 后重新上传。"
         if ext == ".docx":
             with zipfile.ZipFile(path) as archive:
                 raw = archive.read("word/document.xml")
@@ -6151,7 +8053,7 @@ def read_text_attachment(path, limit=MAX_ATTACHMENT_TEXT_CHARS):
 
 def attachment_text_blocks(refs, limit_each=MAX_ATTACHMENT_TEXT_CHARS):
     blocks = []
-    for ref in (refs or [])[:4]:
+    for ref in (refs or [])[:CHAT_ATTACHMENT_MAX]:
         if not isinstance(ref, dict) or is_image_reference(ref):
             continue
         path = output_file_from_url(ref.get("url", ""))
@@ -6403,9 +8305,13 @@ def apply_trusted_asset_prompt_index(prompt: str, image_count: int, video_count:
     return f"{text}\n{hint}" if text else hint
 
 def public_base_url() -> str:
+    # 实时读 API/.env 且文件优先：公网隧道重启后地址会变，隧道脚本只改 .env；
+    # 启动时 load_env_file 会把旧值复制进 os.environ，若 env 优先会永远读到过期地址
     value = (
+        read_api_env_value("PUBLIC_MEDIA_BASE_URL") or
         os.getenv("PUBLIC_MEDIA_BASE_URL") or
         PUBLIC_MEDIA_BASE_URL or
+        read_api_env_value("PUBLIC_BASE_URL") or
         os.getenv("PUBLIC_BASE_URL") or
         PUBLIC_BASE_URL or
         ""
@@ -6428,6 +8334,60 @@ def local_asset_public_url(value: str) -> str:
     if not base:
         return ""
     return f"{base}{urllib.parse.quote(text, safe='/:?&=%#.-_~')}{public_media_url_suffix()}"
+
+async def openai_video_proxy_public_reference_url(ref) -> str:
+    """异步生图（openai-video-proxy）的参考图公网化。
+    不走公网隧道（暴露本机服务风险高）：本地文件上传图床（Litterbox/temp.sh，72h 短链），
+    与 RS 模式同一通道；真正的公网 URL 原样透传；若手动配置了 PUBLIC_MEDIA_BASE_URL 则作为兜底。"""
+    raw = ref.get("url", "") if isinstance(ref, dict) else ref
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    parsed = urllib.parse.urlsplit(text)
+    local_path = ""
+    if parsed.scheme in {"http", "https"}:
+        host = (parsed.hostname or "").lower()
+        if host in {"127.0.0.1", "localhost", "::1"} or re.match(r"^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)", host):
+            local_path = urllib.parse.unquote(parsed.path or "")
+        else:
+            return text
+    elif text.startswith(("/output/", "/assets/")):
+        local_path = text
+    if local_path and output_file_from_url(local_path):
+        upload_error = ""
+        try:
+            uploaded = await upload_local_video_to_cloud(local_path)
+            url = str((uploaded or {}).get("url") or "")
+            if url.startswith(("http://", "https://")):
+                return url
+        except HTTPException as exc:
+            upload_error = str(exc.detail)
+        public_url = local_asset_public_url(local_path)
+        if public_url:
+            return public_url
+        raise HTTPException(
+            status_code=400,
+            detail=f"参考图上传图床失败，无法转成公网 URL：{upload_error[:200] or '未知错误'}。请检查网络后重试。"
+        )
+    raise HTTPException(status_code=400, detail=f"参考图不是公网 URL，无法传给上游：{text[:160]}")
+
+def openai_video_proxy_local_image_path(ref) -> str:
+    raw = ref.get("url", "") if isinstance(ref, dict) else ref
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    local_path = ""
+    if re.match(r"^https?://", text, re.I):
+        parsed = urllib.parse.urlsplit(text)
+        host = (parsed.hostname or "").lower()
+        if host in {"127.0.0.1", "localhost", "::1"} or re.match(r"^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)", host):
+            local_path = urllib.parse.unquote(parsed.path or "")
+    elif text.startswith(("/output/", "/assets/")):
+        local_path = text
+    path = output_file_from_url(local_path) if local_path else None
+    if not path:
+        return ""
+    return path if content_type_for_path(path).startswith("image/") else ""
 
 def normalize_apimart_video_reference(value: str) -> str:
     text = str(value or "").strip()
@@ -7099,6 +9059,7 @@ async def save_ai_image_to_output(image_data, prefix="online_", category="output
     value = image_data["value"]
     if value.startswith("/output/") or value.startswith("/assets/"):
         return value
+    value = rewrite_runninghub_file_url(value)
     try:
         timeout = httpx.Timeout(connect=20.0, read=300.0, write=60.0, pool=20.0)
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -7115,37 +9076,93 @@ async def save_ai_image_to_output(image_data, prefix="online_", category="output
                 f.write(response.content)
             return output_url_for(filename, category)
     except Exception as e:
-        print(f"保存上游图片失败: {e}")
+        print(f"保存上游图片失败: {e}; url={value}")
         return value
+
+def image_output_meta(url, source_item=None):
+    meta = {"url": url, "kind": "image"}
+    if not url:
+        return meta
+    parsed_name = os.path.basename(urllib.parse.urlparse(str(url)).path)
+    if parsed_name:
+        meta["name"] = parsed_name
+    if isinstance(source_item, dict):
+        for key in ("natural_w", "natural_h", "width", "height", "w", "h", "layout_w", "layout_h"):
+            try:
+                value = int(float(source_item.get(key) or 0))
+            except (TypeError, ValueError):
+                value = 0
+            if value > 0:
+                meta[key] = value
+    path = output_file_from_url(url)
+    if path and os.path.exists(path):
+        try:
+            with Image.open(path) as img:
+                width, height = img.size
+            if width > 0 and height > 0:
+                meta.update({
+                    "natural_w": width,
+                    "natural_h": height,
+                    "width": width,
+                    "height": height,
+                })
+        except Exception:
+            pass
+    return meta
 
 async def save_remote_video_to_output(url, prefix="video_", category="output"):
     if not url:
         return ""
     if url.startswith("/output/") or url.startswith("/assets/"):
         return url
-    filename = f"{prefix}{uuid.uuid4().hex[:10]}.mp4"
+    video_exts = {".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv", ".flv"}
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return url
+    clean_ext = os.path.splitext(parsed.path)[1].lower()
+    stem = f"{prefix}{uuid.uuid4().hex[:10]}"
+    filename = f"{stem}{clean_ext if clean_ext in video_exts else '.mp4'}"
     path = output_path_for(filename, category)
     try:
-        async with httpx.AsyncClient(timeout=VIDEO_POLL_TIMEOUT) as client:
+        timeout = httpx.Timeout(connect=20.0, read=VIDEO_POLL_TIMEOUT, write=60.0, pool=20.0)
+        headers = {
+            "User-Agent": "ComfyUI-API-Modelscope/1.0",
+            "Accept": "video/*,application/octet-stream,*/*;q=0.8",
+        }
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
             response = await client.get(url)
             response.raise_for_status()
             content_type = (response.headers.get("Content-Type") or "").lower()
-            clean_path = urllib.parse.urlparse(url).path
-            ext = os.path.splitext(clean_path)[1].lower()
-            if ext in {".mp4", ".webm", ".mov"}:
-                filename = filename[:-4] + ext
+            if "text/html" in content_type or "application/json" in content_type:
+                raise RuntimeError(f"unexpected video content type: {content_type}")
+            ext = clean_ext
+            if ext in video_exts:
+                filename = f"{stem}{ext}"
                 path = output_path_for(filename, category)
             elif "webm" in content_type:
-                filename = filename[:-4] + ".webm"
+                filename = f"{stem}.webm"
                 path = output_path_for(filename, category)
             elif "quicktime" in content_type or "mov" in content_type:
-                filename = filename[:-4] + ".mov"
+                filename = f"{stem}.mov"
+                path = output_path_for(filename, category)
+            elif "x-matroska" in content_type or "mkv" in content_type:
+                filename = f"{stem}.mkv"
+                path = output_path_for(filename, category)
+            elif "x-flv" in content_type or "flv" in content_type:
+                filename = f"{stem}.flv"
                 path = output_path_for(filename, category)
             with open(path, "wb") as f:
                 f.write(response.content)
+            if os.path.getsize(path) <= 0:
+                raise RuntimeError("empty video response")
             return output_url_for(filename, category)
     except Exception as e:
         print(f"保存上游视频失败: {e}")
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
         return url
 
 def parse_size_pair(size):
@@ -7154,14 +9171,23 @@ def parse_size_pair(size):
         return 0, 0
     return int(match.group(1)), int(match.group(2))
 
+def snap_size_to_multiple(size, multiple=16):
+    width, height = parse_size_pair(size)
+    if not width or not height:
+        return size
+    step = max(1, int(multiple or 16))
+    snapped_w = max(step, int(math.ceil(width / step) * step))
+    snapped_h = max(step, int(math.ceil(height / step) * step))
+    return f"{snapped_w}x{snapped_h}"
+
 CHAT_RATIO_SIZE_OPTIONS = {
-    "1:1": ("1024x1024", "1536x1536"),
-    "2:3": ("720x1080", "1024x1536"),
-    "3:2": ("1080x720", "1536x1024"),
-    "3:4": ("1008x1344", "1536x2048"),
-    "4:3": ("1344x1008", "2048x1536"),
-    "9:16": ("720x1280", "1080x1920"),
-    "16:9": ("1280x720", "1920x1080"),
+    "1:1": ("1024x1024", "1536x1536", "2048x2048"),
+    "2:3": ("720x1080", "1024x1536", "1365x2048"),
+    "3:2": ("1080x720", "1536x1024", "2048x1365"),
+    "3:4": ("1008x1344", "1536x2048", "2448x3264"),
+    "4:3": ("1344x1008", "2048x1536", "3264x2448"),
+    "9:16": ("720x1280", "1080x1920", "1440x2560"),
+    "16:9": ("1280x720", "1920x1080", "2560x1440"),
 }
 
 def chat_prompt_size_override(message, current_size=""):
@@ -7188,9 +9214,14 @@ def chat_prompt_size_override(message, current_size=""):
     if not options:
         return ""
     width, height = parse_size_pair(current_size)
+    wants_4k = bool(re.search(r"(?i)\b4\s*k\b|4K|超清|超高分辨率", text))
     wants_2k = bool(re.search(r"(?i)\b2\s*k\b|2K|高清|高分辨率", text))
-    use_2k = wants_2k or max(width, height) >= 1500
-    return options[1] if use_2k else options[0]
+    long_edge = max(width, height)
+    if wants_4k or long_edge >= 2400:
+        return options[2] if len(options) > 2 else options[-1]
+    if wants_2k or long_edge >= 1500:
+        return options[1] if len(options) > 1 else options[0]
+    return options[0]
 
 # GPT-Image-2 限制：长边最大 3840，主要受最大像素限制（约 829 万 = 3840x2160）。
 # 这里只用于上游报错后给出友好的像素上限提示；不对尺寸做任何缩小（用户选什么就原样发送）。
@@ -7421,7 +9452,7 @@ async def generate_modelscope_provider_image(prompt, size, model, reference_imag
         raise HTTPException(status_code=400, detail="未配置 ModelScope API Key，请在 API 设置中填写。")
     width, height = parse_size_pair(size)
     refs = []
-    for ref in (reference_images or [])[:4]:
+    for ref in (reference_images or [])[:ONLINE_IMAGE_REFERENCE_MAX]:
         if not ref.get("url"):
             continue
         # 本地参考图转为 data URL；前端已生成的 data URL 保持原样，贴近旧版稳定链路。
@@ -7512,7 +9543,7 @@ async def generate_gemini_provider_image(prompt, size, model, reference_images=N
     model_name = gemini_model_name(model)
     endpoint = gemini_endpoint_url(provider, model_name)
     parts = [{"text": prompt.strip()}]
-    for ref in (reference_images or [])[:16]:
+    for ref in (reference_images or [])[:ONLINE_IMAGE_REFERENCE_MAX]:
         part = gemini_reference_part(ref)
         if part:
             parts.append(part)
@@ -7547,7 +9578,7 @@ async def generate_volcengine_provider_image(prompt, size, model, reference_imag
         "size": size,
         "response_format": "url",
     }
-    images = [volcengine_image_payload(ref) for ref in (reference_images or [])[:10]]
+    images = [volcengine_image_payload(ref) for ref in (reference_images or [])[:ONLINE_IMAGE_REFERENCE_MAX]]
     images = [value for value in images if value]
     if images:
         body["image"] = images
@@ -7641,6 +9672,17 @@ def runninghub_output_ext(remote, content_type=""):
         return "jpg"
     return "png"
 
+def rewrite_runninghub_file_url(url):
+    text = str(url or "")
+    if not text:
+        return text
+    try:
+        parsed = urllib.parse.urlsplit(text)
+    except Exception:
+        return text
+    target = RUNNINGHUB_FILE_HOST_REWRITES.get((parsed.netloc or "").lower())
+    return parsed._replace(netloc=target).geturl() if target else text
+
 def runninghub_extract_outputs(data):
     arr = []
     if isinstance(data, list):
@@ -7656,16 +9698,17 @@ def runninghub_extract_outputs(data):
     outputs = []
     for item in arr:
         if isinstance(item, str):
-            outputs.append(item)
+            outputs.append(rewrite_runninghub_file_url(item))
         elif isinstance(item, dict):
             url = item.get("fileUrl") or item.get("file_url") or item.get("url") or item.get("downloadUrl") or item.get("download_url")
             if isinstance(url, list):
-                outputs.extend([str(u) for u in url if u])
+                outputs.extend([rewrite_runninghub_file_url(u) for u in url if u])
             elif url:
-                outputs.append(str(url))
+                outputs.append(rewrite_runninghub_file_url(url))
     return outputs
 
 async def runninghub_store_remote_output(client, remote):
+    remote = rewrite_runninghub_file_url(remote)
     if not str(remote or "").startswith(("http://", "https://")):
         return remote
     response = await client.get(remote, follow_redirects=True)
@@ -7749,17 +9792,42 @@ def runninghub_workflow_node_info_list(workflow_json):
     return result
 
 def runninghub_task_endpoint(provider, model):
-    model_path = str(model or "").strip().strip("/")
+    raw_model_path = str(model or "").strip()
+    model_path = raw_model_path.strip("/")
     if not model_path:
         model_path = RUNNINGHUB_DEFAULT_IMAGE_MODELS[0]
-    if model_path.startswith("/openapi/"):
-        return runninghub_endpoint_url(provider, model_path)
+    if raw_model_path.startswith("/openapi/"):
+        return runninghub_endpoint_url(provider, raw_model_path)
     if model_path.startswith("openapi/"):
         return runninghub_endpoint_url(provider, f"/{model_path}")
     return runninghub_openapi_url(provider, model_path)
 
+def runninghub_endpoint_alias_for_model(model):
+    model_id = str(model or "").strip().strip("/")
+    if not model_id:
+        return ""
+    direct = RUNNINGHUB_MODEL_ENDPOINT_ALIASES.get(model_id)
+    if direct:
+        return direct
+    lowered = model_id.lower()
+    if lowered.startswith("gpt-image-2.0/") or lowered.startswith("gpt-image-2/"):
+        if "/text-to-image-" in lowered or lowered.endswith("/text-to-image"):
+            return "rhart-image-g-2/text-to-image"
+        if "/edit-" in lowered or lowered.endswith("/edit"):
+            return "rhart-image-g-2/image-to-image"
+        if "/image-to-image-" in lowered or lowered.endswith("/image-to-image"):
+            return "rhart-image-g-2/image-to-image"
+    if lowered.startswith("nano-banana/"):
+        if "/text-to-image-" in lowered or lowered.endswith("/text-to-image"):
+            return "rhart-image-v1/text-to-image"
+        if "/edit-" in lowered or lowered.endswith("/edit"):
+            return "rhart-image-v1/edit"
+    return ""
+
 def runninghub_registry_fallback():
     image = [
+        {"name_en": "gpt-image-2.0/text-to-image-channel-low-price", "endpoint": "rhart-image-g-2/text-to-image", "output_type": "image"},
+        {"name_en": "gpt-image-2.0/edit-channel-low-price", "endpoint": "rhart-image-g-2/image-to-image", "output_type": "image"},
         {"name_en": "gpt-image-2/text-to-image-official-stable", "endpoint": "rhart-image-g-2-official/text-to-image", "output_type": "image"},
         {"name_en": "gpt-image-2/image-to-image-official-stable", "endpoint": "rhart-image-g-2-official/image-to-image", "output_type": "image"},
         {"name_en": "nano-banana/text-to-image-official-stable", "endpoint": "rhart-image-v1-official/text-to-image", "output_type": "image"},
@@ -7892,13 +9960,33 @@ def runninghub_model_id(item):
         return ""
     return str(item.get("name_en") or item.get("id") or item.get("name") or item.get("endpoint") or "").strip()
 
+def runninghub_model_display_name(item, model_id=""):
+    if not isinstance(item, dict):
+        return ""
+    raw_id = str(model_id or runninghub_model_id(item) or "").strip()
+    for key in (
+        "name_cn", "name_zh", "zh_name", "cn_name", "display_name", "displayName",
+        "title", "label", "nameCn", "nameZh", "chinese_name", "chineseName",
+    ):
+        value = re.sub(r"\s+", " ", str(item.get(key) or "").strip())
+        if value and value != raw_id:
+            return value[:160]
+    name = re.sub(r"\s+", " ", str(item.get("name") or "").strip())
+    if name and name != raw_id and not re.fullmatch(r"[A-Za-z0-9_./:-]+", name):
+        return name[:160]
+    return ""
+
 def runninghub_registry_payload(items):
     grouped = {"image": [], "chat": RUNNINGHUB_FALLBACK_CHAT_MODELS[:], "video": []}
+    model_names = {}
     all_ids = []
     for item in items or []:
         mid = runninghub_model_id(item)
         if not mid:
             continue
+        display_name = runninghub_model_display_name(item, mid)
+        if display_name:
+            model_names[mid] = display_name
         output_type = str(item.get("output_type") or item.get("outputType") or "").strip().lower()
         if output_type in ("image", "video"):
             grouped[output_type].append(mid)
@@ -7922,6 +10010,7 @@ def runninghub_registry_payload(items):
         "chat_models": grouped["chat"],
         "video_models": grouped["video"],
         "all": sorted(set(all_ids)),
+        "model_names": model_names,
         "protocol": "runninghub",
     }
 
@@ -7942,12 +10031,20 @@ async def runninghub_model_definition(provider, model):
         mid = runninghub_model_id(item)
         endpoint = str(item.get("endpoint") or "").strip().strip("/")
         if requested and requested in {mid, endpoint, f"/openapi/v2/{endpoint}", f"openapi/v2/{endpoint}"}:
+            if endpoint:
+                return item
+            alias = runninghub_endpoint_alias_for_model(mid or requested)
+            if alias:
+                patched = dict(item)
+                patched["endpoint"] = alias
+                return patched
             return item
     endpoint = requested
     if endpoint.startswith("/openapi/v2/"):
         endpoint = endpoint[len("/openapi/v2/"):]
     elif endpoint.startswith("openapi/v2/"):
         endpoint = endpoint[len("openapi/v2/"):]
+    endpoint = runninghub_endpoint_alias_for_model(requested) or endpoint
     return {"name_en": requested, "endpoint": endpoint or RUNNINGHUB_DEFAULT_IMAGE_MODELS[0], "output_type": classify_upstream_model(requested), "params": []}
 
 def runninghub_schema_options(field):
@@ -8088,19 +10185,22 @@ def runninghub_extract_image(raw):
         if isinstance(results, list):
             for item in results:
                 if isinstance(item, str) and item.startswith(("http://", "https://")):
-                    return {"type": "url", "value": item}
+                    return {"type": "url", "value": rewrite_runninghub_file_url(item)}
                 if not isinstance(item, dict):
                     continue
                 if item.get("type") == "url" and item.get("value"):
-                    return {"type": "url", "value": item["value"]}
+                    return {"type": "url", "value": rewrite_runninghub_file_url(item["value"])}
                 if item.get("type") == "b64" and item.get("value"):
                     return {"type": "b64", "value": item["value"], "mime_type": item.get("mime_type") or "image/png"}
                 url = item.get("url") or item.get("fileUrl") or item.get("file_url") or item.get("download_url") or item.get("imageUrl") or item.get("image_url")
                 if isinstance(url, list) and url:
                     url = url[0]
                 if isinstance(url, str) and url:
-                    return {"type": "url", "value": url}
-    return extract_image(raw)
+                    return {"type": "url", "value": rewrite_runninghub_file_url(url)}
+    image = extract_image(raw)
+    if image.get("type") == "url":
+        image["value"] = rewrite_runninghub_file_url(image.get("value"))
+    return image
 
 async def runninghub_upload_reference(client, provider, ref):
     path = output_file_from_url(ref.get("url", ""))
@@ -8385,7 +10485,7 @@ async def runninghub_upload_local_to_filename(client, provider, url, use_wallet=
         return raw["data"]["fileName"]
     raise HTTPException(status_code=502, detail=(raw.get("msg") if isinstance(raw, dict) else "") or f"RunningHub 上传素材失败：{raw}")
 
-async def generate_runninghub_entry_image(prompt, model, reference_images, provider, entry):
+async def generate_runninghub_entry_image(prompt, size, model, reference_images, provider, entry):
     """运行 RunningHub 工作流 / AI 应用（与智能画布一致的运行方式），返回首张图片结果。"""
     kind = entry["kind"]
     entry_id = entry["id"]
@@ -8393,9 +10493,27 @@ async def generate_runninghub_entry_image(prompt, model, reference_images, provi
     idx_map = rh_field_indexes(fields)
     use_wallet = False
     timeout = httpx.Timeout(connect=20.0, read=1800.0, write=240.0, pool=20.0)
+    aspect = runninghub_aspect_from_size(size, "")
+    resolution = runninghub_resolution_from_size(size, "")
+    width, height = parse_size_pair(size)
+    def requested_size_field_value(field):
+        names = {
+            str(field.get("fieldName") or "").strip().lower(),
+            str(field.get("fieldKey") or "").strip().lower(),
+            str(field.get("label") or "").strip().lower(),
+        }
+        if aspect and names & {"aspectratio", "aspect_ratio", "ratio"}:
+            return runninghub_schema_value(field, aspect)
+        if resolution and "resolution" in names:
+            return runninghub_schema_value(field, resolution)
+        if width and "width" in names:
+            return width
+        if height and "height" in names:
+            return height
+        return None
     async with httpx.AsyncClient(timeout=timeout) as client:
         uploaded = []
-        for ref in (reference_images or [])[:10]:
+        for ref in (reference_images or [])[:ONLINE_IMAGE_REFERENCE_MAX]:
             ref_url = ref.get("url") if isinstance(ref, dict) else ref
             if not ref_url:
                 continue
@@ -8431,7 +10549,10 @@ async def generate_runninghub_entry_image(prompt, model, reference_images, provi
             elif kind_f == "number" and field.get("random_enabled") is True:
                 node_info_list.append({"nodeId": node_id, "fieldName": field_name, "fieldValue": rh_random_field_value(field)})
             else:
-                node_info_list.append({"nodeId": node_id, "fieldName": field_name, "fieldValue": rh_default_value(field)})
+                value = requested_size_field_value(field)
+                if value is None:
+                    value = rh_default_value(field)
+                node_info_list.append({"nodeId": node_id, "fieldName": field_name, "fieldValue": value})
 
         api_key = runninghub_api_key(provider, use_wallet=use_wallet)
         if kind == "workflow":
@@ -8474,7 +10595,7 @@ async def generate_runninghub_entry_image(prompt, model, reference_images, provi
 async def generate_runninghub_provider_image(prompt, size, model, reference_images=None, provider=None):
     entry = runninghub_entry_config_from_model(provider, model)
     if entry:
-        return await generate_runninghub_entry_image(prompt, model, reference_images, provider, entry)
+        return await generate_runninghub_entry_image(prompt, size, model, reference_images, provider, entry)
     model_def = await runninghub_model_definition(provider, model)
     endpoint = runninghub_task_endpoint(provider, model_def.get("endpoint") or model)
     params = model_def.get("params") if isinstance(model_def.get("params"), list) else []
@@ -8501,7 +10622,7 @@ async def generate_runninghub_provider_image(prompt, size, model, reference_imag
         body["quality"] = runninghub_schema_value(quality_field, "medium")
     async with httpx.AsyncClient(timeout=httpx.Timeout(connect=20.0, read=1800.0, write=180.0, pool=20.0)) as client:
         image_urls = []
-        for ref in (reference_images or [])[:10]:
+        for ref in (reference_images or [])[:ONLINE_IMAGE_REFERENCE_MAX]:
             url = await runninghub_upload_reference(client, provider, ref)
             if url:
                 image_urls.append(url)
@@ -8610,6 +10731,10 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
     provider = get_api_provider(provider_id)
     if provider["id"] == "modelscope":
         return await generate_modelscope_provider_image(prompt, size, model, reference_images, provider)
+    if is_codex_provider(provider):
+        return await generate_codex_provider_image(prompt, size, model, reference_images, provider)
+    if is_gemini_cli_provider(provider):
+        return await generate_gemini_cli_provider_image(prompt, size, model, reference_images, provider)
     if is_jimeng_provider(provider):
         return await generate_jimeng_provider_image(prompt, size, model, reference_images, provider)
     if is_runninghub_provider(provider):
@@ -8634,7 +10759,7 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
     mask_refs = [ref for ref in refs if str(ref.get("role") or "").strip().lower() == "mask" or str(ref.get("name") or "").lower().endswith("_mask.png")]
     image_refs = [ref for ref in refs if ref not in mask_refs]
     image_request_mode = effective_image_request_mode(provider, model)
-    request_timeout = httpx.Timeout(connect=20.0, read=1800.0, write=120.0, pool=20.0) if (is_gpt2 or is_apimart or image_request_mode == "openai-json") else AI_REQUEST_TIMEOUT
+    request_timeout = httpx.Timeout(connect=20.0, read=1800.0, write=120.0, pool=20.0) if (is_gpt2 or is_apimart or image_request_mode in {"openai-json", "openai-video-proxy", "openai-responses"}) else AI_REQUEST_TIMEOUT
     async with httpx.AsyncClient(timeout=request_timeout) as client:
         response = None
         async def post_openai_edits(edit_files=None):
@@ -8648,13 +10773,83 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
                 files=edit_files if edit_files is not None else {},
             )
 
-        if image_request_mode == "openai-json":
+        if image_request_mode == "openai-video-proxy":
+            body = {
+                "model": model,
+                "prompt": prompt,
+                "aspect_ratio": runninghub_aspect_from_size(size, "1:1"),
+            }
+            video_url = f"{base_url}/videos" if base_url.endswith("/v1") else f"{base_url}/v1/videos"
+            refs_for_proxy = image_refs[:6]
+            local_image_paths = [openai_video_proxy_local_image_path(ref) for ref in refs_for_proxy]
+            has_local_images = any(local_image_paths)
+            if has_local_images:
+                form_data = [(key, value) for key, value in body.items()]
+                for ref, local_path in zip(refs_for_proxy, local_image_paths):
+                    if local_path:
+                        continue
+                    url = await openai_video_proxy_public_reference_url(ref)
+                    if url:
+                        form_data.append(("images", url))
+                files = []
+                opened = []
+                try:
+                    for local_path in local_image_paths:
+                        if not local_path:
+                            continue
+                        fh = open(local_path, "rb")
+                        opened.append(fh)
+                        files.append(("images", (os.path.basename(local_path), fh, content_type_for_path(local_path))))
+                    response = await client.post(
+                        video_url,
+                        headers=api_headers(json_body=False, provider=provider, model=model),
+                        data=form_data,
+                        files=files,
+                    )
+                finally:
+                    for fh in opened:
+                        fh.close()
+            else:
+                if refs_for_proxy:
+                    body["images"] = [await openai_video_proxy_public_reference_url(ref) for ref in refs_for_proxy]
+                response = await httpx_request_with_transient_retries(
+                    client,
+                    "POST",
+                    video_url,
+                    attempts=2,
+                    headers=api_headers(provider=provider, model=model),
+                    json=body,
+                )
+        elif image_request_mode == "openai-responses":
+            tool = {"type": "image_generation"}
+            tool["action"] = "edit" if image_refs else "generate"
+            if size and str(size).strip().lower() != "auto":
+                tool["size"] = responses_proxy_tool_size(size)
+            if quality:
+                tool["quality"] = quality
+            size_instruction = responses_image_size_instruction(size)
+            input_text = f"{size_instruction}\n\n{prompt}" if size_instruction else prompt
+            content = [{"type": "input_text", "text": input_text}]
+            force_public_refs = bool(locked_recommended_provider_rule(provider.get("id"), provider.get("name"), base_url))
+            for ref in image_refs[:ONLINE_IMAGE_REFERENCE_MAX]:
+                image_url = await responses_input_image_url(ref, require_public_url=force_public_refs)
+                if image_url:
+                    content.append({"type": "input_image", "image_url": image_url})
+            body = {
+                "model": model,
+                "input": [{"role": "user", "content": content}],
+                "tools": [tool],
+                "tool_choice": {"type": "image_generation"},
+            }
+            responses_url = provider_endpoint_url(provider, "image_generation_endpoint", "/v1/responses")
+            response = await post_openai_responses(client, responses_url, api_headers(provider=provider, model=model), body)
+        elif image_request_mode == "openai-json":
             # Agnes 等“OpenAI JSON 图片接口”统一走 /images/generations：
             # 不使用 /images/edits，不传顶层 response_format/n/quality；
             # 文生图只传 extra_body.response_format，图生图把参考图放进 extra_body.image。
             extra_body = {"response_format": "url"}
             if image_refs:
-                extra_body["image"] = [reference_to_data_url(ref, max_size=1536) for ref in image_refs[:16]]
+                extra_body["image"] = [reference_to_data_url(ref, max_size=1536) for ref in image_refs[:ONLINE_IMAGE_REFERENCE_MAX]]
             body = {"model": model, "prompt": prompt, "size": size, "extra_body": extra_body}
             response = await client.post(gen_url, headers=api_headers(provider=provider, model=model), json=body)
         elif is_apimart:
@@ -8670,7 +10865,7 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
                 "official_fallback": False,
             }
             if image_refs:
-                body["image_urls"] = [reference_to_data_url(ref, max_size=1536) for ref in image_refs[:16]]
+                body["image_urls"] = [reference_to_data_url(ref, max_size=1536) for ref in image_refs[:ONLINE_IMAGE_REFERENCE_MAX]]
             response = await client.post(gen_url, headers=api_headers(provider=provider, model=model), json=body)
         elif is_gpt2 and not image_refs and not mask_refs:
             body = {"model": model, "prompt": prompt, "size": size}
@@ -8687,7 +10882,7 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
             edit_failed_status = None
             edit_failed_text = ""
             try:
-                for ref in image_refs[:4]:
+                for ref in image_refs[:ONLINE_IMAGE_REFERENCE_MAX]:
                     path = output_file_from_url(ref.get("url", ""))
                     if not path:
                         continue
@@ -8721,7 +10916,7 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
                         detail=f"GPT-Image-2 编辑接口 /images/edits 调用失败：{edit_failed_text[:300] or edit_failed_status}。已停止自动重试，避免上游可能已扣费后再次请求。"
                     )
                 print(f"/images/edits failed ({edit_failed_status}): {edit_failed_text[:200]} → 回退到 /images/generations + image:[] JSON")
-                image_payload = [reference_to_data_url(ref, max_size=1536) for ref in image_refs[:4]]
+                image_payload = [reference_to_data_url(ref, max_size=1536) for ref in image_refs[:ONLINE_IMAGE_REFERENCE_MAX]]
                 body = {
                     "model": model, "prompt": prompt, "size": size,
                     "response_format": "url", "n": 1,
@@ -8750,7 +10945,16 @@ async def generate_ai_image(prompt, size, quality, model, reference_images=None,
         raw = response.json()
         try:
             return extract_image(raw), raw
-        except HTTPException:
+        except HTTPException as exc:
+            if image_request_mode == "openai-responses":
+                fallback_image = responses_output_text_image(raw)
+                if fallback_image:
+                    return fallback_image, raw
+                try:
+                    print(f"RS 响应中没有图片，原始返回（截断）：{json.dumps(raw, ensure_ascii=False)[:800]}")
+                except Exception:
+                    pass
+                raise HTTPException(status_code=502, detail=responses_no_image_detail(raw) or exc.detail)
             task_id = extract_task_id(raw)
             if not task_id:
                 raise
@@ -8772,10 +10976,14 @@ def upstream_message_from_record(item):
         if blocks:
             text = f"{text}\n\n以下是用户上传附件的可读内容，请在回答时参考：\n\n" + "\n\n---\n\n".join(blocks)
         content = [{"type": "text", "text": text}]
-        for ref in image_references(attachments)[:4]:
+        image_urls = []
+        for ref in image_references(attachments[:CHAT_ATTACHMENT_MAX]):
             url = reference_to_data_url(ref)
             if url:
-                content.append({"type": "image_url", "image_url": {"url": url}})
+                image_urls.append(url)
+        image_urls.extend(attachment_embedded_image_data_urls(attachments[:CHAT_ATTACHMENT_MAX], max_images=max(0, CHAT_ATTACHMENT_MAX - len(image_urls))))
+        for url in image_urls[:CHAT_ATTACHMENT_MAX]:
+            content.append({"type": "image_url", "image_url": {"url": url}})
         return {"role": role, "content": content}
     return {"role": role, "content": item.get("content", "")}
 
@@ -8897,8 +11105,16 @@ def parse_agent_decision(raw_text, message, refs, has_previous_image):
 async def decide_chat_agent_action(payload, conversation, refs):
     has_previous_image = bool(latest_chat_image_refs(conversation, 1))
     fallback = heuristic_agent_decision(payload.message, refs, has_previous_image)
+    provider_cfg = get_api_provider(payload.provider) if payload.provider not in ("modelscope",) else {}
+    if is_codex_provider(provider_cfg):
+        fallback["router_model"] = selected_model(payload.model, (provider_cfg.get("chat_models") or CODEX_DEFAULT_CHAT_MODELS)[0])
+        return fallback
+    if is_gemini_cli_provider(provider_cfg):
+        fallback["router_model"] = selected_model(payload.model, (provider_cfg.get("chat_models") or GEMINI_CLI_DEFAULT_CHAT_MODELS)[0])
+        return fallback
     chat_base, chat_hdrs, model = resolve_chat_provider(payload.provider, payload.model, payload.ms_model)
     history = conversation["messages"][-MAX_HISTORY_MESSAGES:]
+    custom_system_prompt = str(getattr(payload, "system_prompt", "") or "").strip()
     system = (
         "你是图片创作聊天 Agent 的意图路由器。只返回 JSON，不要 Markdown。\n"
         "action 只能是 chat、generate_image、edit_image。\n"
@@ -8917,13 +11133,13 @@ async def decide_chat_agent_action(payload, conversation, refs):
         "role": "user",
         "content": (
             f"当前用户输入：{payload.message}\n"
+            f"用户设置的系统提示词：{custom_system_prompt or '无'}\n"
             f"本次上传参考图数量：{len(refs)}\n"
             f"对话中是否已有上一张生成图：{'是' if has_previous_image else '否'}\n"
             "请返回 JSON，例如 {\"action\":\"generate_image\",\"prompt\":\"...\",\"reply\":\"...\"}"
         )
     })
     try:
-        provider_cfg = get_api_provider(payload.provider) if payload.provider not in ("modelscope",) else {}
         async with httpx.AsyncClient(timeout=AI_REQUEST_TIMEOUT) as client:
             req_body = {"model": model, "messages": upstream_messages}
             if is_apimart_provider(provider_cfg):
@@ -8944,10 +11160,36 @@ async def decide_chat_agent_action(payload, conversation, refs):
         return fallback
 
 async def build_chat_text_reply(payload, conversation):
-    chat_base, chat_hdrs, model = resolve_chat_provider(payload.provider, payload.model, payload.ms_model)
     provider_cfg = get_api_provider(payload.provider) if payload.provider not in ("modelscope",) else {}
+    if is_codex_provider(provider_cfg):
+        model = selected_model(payload.model, (provider_cfg.get("chat_models") or CODEX_DEFAULT_CHAT_MODELS)[0])
+        payload.model = model
+        text, raw = await codex_chat_text(payload, conversation["messages"][-MAX_HISTORY_MESSAGES:])
+        return {
+            "id": uuid.uuid4().hex,
+            "role": "assistant",
+            "content": text,
+            "created_at": now_ms(),
+            "model": model,
+            "raw_usage": None,
+            "raw": raw,
+        }
+    if is_gemini_cli_provider(provider_cfg):
+        model = selected_model(payload.model, (provider_cfg.get("chat_models") or GEMINI_CLI_DEFAULT_CHAT_MODELS)[0])
+        payload.model = model
+        text, raw = await gemini_cli_chat_text(payload, conversation["messages"][-MAX_HISTORY_MESSAGES:])
+        return {
+            "id": uuid.uuid4().hex,
+            "role": "assistant",
+            "content": text,
+            "created_at": now_ms(),
+            "model": model,
+            "raw_usage": None,
+            "raw": raw,
+        }
+    chat_base, chat_hdrs, model = resolve_chat_provider(payload.provider, payload.model, payload.ms_model)
     is_apimart = is_apimart_provider(provider_cfg)
-    upstream_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    upstream_messages = [{"role": "system", "content": chat_system_prompt(payload)}]
     for item in conversation["messages"][-MAX_HISTORY_MESSAGES:]:
         msg = upstream_message_from_record(item)
         if msg:
@@ -9006,7 +11248,8 @@ def view_image(filename: str, type: str = "input", subfolder: str = ""):
     raise HTTPException(status_code=404, detail="Image not found on any available backend")
 
 @app.get("/api/download-output")
-def download_output(url: str, name: str = "", inline: bool = False):
+def download_output(request: Request, url: str, name: str = "", inline: bool = False):
+    url = rewrite_runninghub_file_url(url)
     path = output_file_from_url(url)
     if not path:
         path = local_media_file_by_basename(filename_from_media_url(url, ""))
@@ -9018,9 +11261,13 @@ def download_output(url: str, name: str = "", inline: bool = False):
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise HTTPException(status_code=400, detail="无效的下载地址")
     try:
+        upstream_headers = {"User-Agent": "ComfyUI-API-Modelscope/1.0"}
+        range_header = request.headers.get("range")
+        if range_header:
+            upstream_headers["Range"] = range_header
         upstream = requests.get(
             url, stream=True, timeout=(10, 60),
-            headers={"User-Agent": "ComfyUI-API-Modelscope/1.0"},
+            headers=upstream_headers,
         )
         upstream.raise_for_status()
     except requests.RequestException as exc:
@@ -9033,6 +11280,10 @@ def download_output(url: str, name: str = "", inline: bool = False):
     content_length = upstream.headers.get("content-length")
     if content_length:
         headers["Content-Length"] = content_length
+    for key in ("content-range", "accept-ranges"):
+        value = upstream.headers.get(key)
+        if value:
+            headers["-".join(part.capitalize() for part in key.split("-"))] = value
 
     def stream_remote():
         try:
@@ -9042,7 +11293,7 @@ def download_output(url: str, name: str = "", inline: bool = False):
         finally:
             upstream.close()
 
-    return StreamingResponse(stream_remote(), media_type=content_type, headers=headers)
+    return StreamingResponse(stream_remote(), media_type=content_type, headers=headers, status_code=upstream.status_code)
 
 @app.post("/api/upload")
 async def upload_image(files: List[UploadFile] = File(...)):
@@ -9147,6 +11398,36 @@ async def upload_ai_base64(payload: Base64UploadRequest):
     with open(path, "wb") as f:
         f.write(content)
     return {"files": [{"url": output_url_for(filename, "input"), "name": payload.name or filename, "kind": kind}]}
+
+@app.post("/api/comfyui/upload-base64")
+async def upload_comfyui_base64(payload: Base64UploadRequest):
+    """base64 方式把图片传到 ComfyUI 各后端的 input 目录，返回 comfy 用文件名（供 UXP 做 ComfyUI 图生图）。"""
+    raw = (payload.data or "").strip()
+    ct = (payload.content_type or "").split(";", 1)[0].strip().lower()
+    if raw.startswith("data:"):
+        header, _, raw = raw.partition(",")
+        if not ct:
+            ct = header[5:].split(";", 1)[0].strip().lower()
+    try:
+        content = base64.b64decode(raw, validate=False)
+    except Exception:
+        raise HTTPException(status_code=400, detail="数据无法解码")
+    if not content:
+        raise HTTPException(status_code=400, detail="内容为空")
+    _, ext = _local_upload_kind_ext(payload.name or "", ct or "image/png")
+    filename = f"dx_{uuid.uuid4().hex[:12]}{ext or '.png'}"
+    comfy_name = None
+    for addr in COMFYUI_INSTANCES:
+        try:
+            resp = requests.post(f"http://{addr}/upload/image",
+                                 files={'image': (filename, content, ct or 'image/png')}, timeout=10)
+            if resp.status_code == 200:
+                comfy_name = resp.json().get("name", filename)
+        except Exception as exc:
+            print(f"ComfyUI base64 upload error for {addr}: {exc}")
+    if not comfy_name:
+        raise HTTPException(status_code=502, detail="上传到 ComfyUI 失败")
+    return {"name": comfy_name}
 
 def _local_upload_kind_ext(filename, content_type):
     image_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -9360,6 +11641,68 @@ def migrate_double_extension_uploads():
     if renamed:
         print(f"修复双重扩展名素材: {renamed} 个")
 
+def _sniff_image_ext_bytes(head):
+    """按文件头魔数判断真实图片格式，返回规范扩展名（含点），无法识别返回 None。"""
+    head = head or b""
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return ".webp"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    if head[:2] == b"BM":
+        return ".bmp"
+    return None
+
+def _sniff_image_ext(path):
+    try:
+        with open(path, "rb") as f:
+            return _sniff_image_ext_bytes(f.read(16))
+    except OSError:
+        return None
+
+def migrate_mislabeled_image_extensions():
+    """有些采集来的图片内容与扩展名不符（例如 WebP 内容却叫 .png），导致服务端按错误 content-type 返回、
+    严格的客户端（PS UXP）解不出来。这里按真实魔数纠正扩展名，并同步重命名 caption/classification 旁车。"""
+    if not os.path.isdir(LOCAL_UPLOAD_DIR):
+        return
+    img_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+    fixed = 0
+    for current, _dirs, files in os.walk(LOCAL_UPLOAD_DIR):
+        for name in files:
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in img_exts:
+                continue
+            path = os.path.join(current, name)
+            real = _sniff_image_ext(path)
+            if not real:
+                continue
+            # .jpg/.jpeg 视为同一种，不互相纠正
+            if real == ext or (real == ".jpg" and ext == ".jpeg"):
+                continue
+            new_name = os.path.splitext(name)[0] + real
+            new_path = os.path.join(current, new_name)
+            if os.path.exists(new_path):
+                continue
+            try:
+                os.rename(path, new_path)
+            except OSError:
+                continue
+            fixed += 1
+            old_base = os.path.splitext(path)[0]
+            new_base = os.path.splitext(new_path)[0]
+            for suffix in (".classification.json", ".txt"):
+                src_side, dst_side = old_base + suffix, new_base + suffix
+                if os.path.isfile(src_side) and not os.path.exists(dst_side):
+                    try:
+                        os.rename(src_side, dst_side)
+                    except OSError:
+                        pass
+    if fixed:
+        print(f"纠正图片扩展名(内容与后缀不符): {fixed} 个")
+
 @app.post("/api/local-assets/upload")
 async def upload_local_assets(files: List[UploadFile] = File(...), folder: str = Form("")):
     uploaded = []
@@ -9424,6 +11767,10 @@ async def import_local_assets_from_urls(payload: LocalAssetUrlImportRequest):
                     content = response.content
                     name_path = urllib.parse.urlparse(src_url).path
                 kind, ext = _local_upload_kind_ext(name_path, content_type)
+                if kind == "image":
+                    real = _sniff_image_ext_bytes(content[:16])   # 以真实内容为准，避免 webp 被叫成 .png 等
+                    if real and not (real == ".jpg" and ext == ".jpeg"):
+                        ext = real
                 if kind not in ("image", "video"):
                     raise HTTPException(status_code=400, detail=f"不是图片或视频资源：{content_type or src_url}")
                 if not content:
@@ -9831,15 +12178,27 @@ async def runninghub_workflow_info(workflowId: str = ""):
 
 @app.get("/api/runninghub/workflows")
 def list_runninghub_workflows():
+    providers = load_api_providers()
+    hidden_ids = runninghub_saved_hidden_workflow_ids()
+    for provider in providers:
+        if provider.get("id") != "runninghub":
+            continue
+        for entry in provider.get("rh_workflows") or []:
+            workflow_id = runninghub_workflow_store_key(entry.get("workflowId") or entry.get("id"))
+            if workflow_id and entry.get("hidden") is True:
+                hidden_ids.add(workflow_id)
     with RUNNINGHUB_WORKFLOW_LOCK:
         store = load_runninghub_workflow_store()
-    merged = {workflow_id: cfg for workflow_id, cfg in store.items() if isinstance(cfg, dict)}
-    for provider in load_api_providers():
+    merged = {workflow_id: cfg for workflow_id, cfg in store.items() if isinstance(cfg, dict) and workflow_id not in hidden_ids}
+    for provider in providers:
         if provider.get("id") != "runninghub":
             continue
         for entry in provider.get("rh_workflows") or []:
             workflow_id = runninghub_workflow_store_key(entry.get("workflowId") or entry.get("id"))
             if not workflow_id:
+                continue
+            if entry.get("hidden") is True:
+                merged.pop(workflow_id, None)
                 continue
             provider_cfg = runninghub_provider_workflow_config(workflow_id)
             if provider_cfg:
@@ -9964,13 +12323,16 @@ async def runninghub_query(taskId: str = ""):
         code = raw.get("code") if isinstance(raw, dict) else None
         status = "PENDING"
         urls = []
+        image_items = []
         if code in (0, "0"):
             status = "SUCCESS"
             for remote in runninghub_extract_outputs(raw.get("data")):
                 try:
-                    urls.append(await runninghub_store_remote_output(client, remote))
+                    local_url = await runninghub_store_remote_output(client, remote)
                 except Exception:
-                    urls.append(remote)
+                    local_url = remote
+                urls.append(local_url)
+                image_items.append(image_output_meta(local_url))
         elif code in (804, "804"):
             status = "RUNNING"
         elif code in (813, "813"):
@@ -9979,11 +12341,11 @@ async def runninghub_query(taskId: str = ""):
             status = "FAILED"
         else:
             status = "UNKNOWN"
-        return {"success": True, "data": {"status": status, "urls": urls, "failReason": runninghub_fail_reason(raw), "code": code, "raw": raw}}
+        return {"success": True, "data": {"status": status, "urls": urls, "image_items": image_items, "failReason": runninghub_fail_reason(raw), "code": code, "raw": raw}}
 
 @app.post("/api/runninghub/upload-asset")
 async def runninghub_upload_asset(payload: RunningHubUploadAssetRequest):
-    source_url = str(payload.url or "").strip()
+    source_url = rewrite_runninghub_file_url(str(payload.url or "").strip())
     if not source_url:
         raise HTTPException(status_code=400, detail="url 必填")
     provider = runninghub_provider()
@@ -10022,6 +12384,142 @@ async def runninghub_upload_asset(payload: RunningHubUploadAssetRequest):
     if isinstance(raw, dict) and raw.get("code") in (0, "0") and isinstance(raw.get("data"), dict) and raw["data"].get("fileName"):
         return {"success": True, "data": {"fileName": raw["data"]["fileName"], "fileType": raw["data"].get("fileType") or content_type}}
     raise HTTPException(status_code=400, detail=(raw.get("msg") if isinstance(raw, dict) else "") or f"RunningHub 上传失败：{raw}")
+
+@app.get("/api/codex/status")
+async def codex_status():
+    exe = codex_cli_executable()
+    image2_exe = gpt_image_2_skill_executable()
+    if not exe:
+        return {
+            "installed": False,
+            "logged_in": False,
+            "image2_helper_installed": bool(image2_exe),
+            "image2_helper_path": image2_exe,
+            "message": "未找到 OpenAI Codex CLI，请先安装。",
+        }
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            exe,
+            "--version",
+            cwd=BASE_DIR,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+        out_text, err_text = codex_decode_output(stdout, stderr)
+        ok = proc.returncode == 0
+        helper_message = "GPT Image 2 helper 已安装，OpenAI CLI 生图会使用 GPT Image 2。" if image2_exe else "未找到 GPT Image 2 helper，OpenAI CLI 生图不可用；已禁用 Codex 内置 $imagegen 回退。"
+        return {
+            "installed": ok,
+            "logged_in": None,
+            "version": out_text or err_text,
+            "path": exe,
+            "image2_helper_installed": bool(image2_exe),
+            "image2_helper_path": image2_exe,
+            "message": f"OpenAI Codex CLI 已安装。{helper_message} 登录状态会在首次执行 codex exec 时由 CLI 校验。" if ok else (err_text or out_text or "Codex CLI 检测失败"),
+            "raw": {"stdout": out_text, "stderr": err_text, "returncode": proc.returncode},
+        }
+    except Exception as exc:
+        return {
+            "installed": False,
+            "logged_in": False,
+            "path": exe,
+            "image2_helper_installed": bool(image2_exe),
+            "image2_helper_path": image2_exe,
+            "message": f"Codex CLI 检测失败：{exc}",
+        }
+
+@app.post("/api/codex/help")
+async def codex_help(payload: CodexHelpRequest):
+    exe = codex_cli_executable()
+    if not exe:
+        raise HTTPException(status_code=400, detail="未找到 OpenAI Codex CLI。")
+    allowed = {"", "exec", "login", "logout", "doctor", "mcp", "app", "update"}
+    command = str(payload.command or "").strip()
+    if command not in allowed:
+        raise HTTPException(status_code=400, detail="不允许的 Codex CLI 命令")
+    args = [exe]
+    if command:
+        args.append(command)
+    args.append("--help")
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        cwd=BASE_DIR,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+    out_text, err_text = codex_decode_output(stdout, stderr)
+    if proc.returncode != 0:
+        raise HTTPException(status_code=502, detail=(err_text or out_text or f"exit={proc.returncode}")[:1000])
+    return {"text": out_text or err_text, "raw": {"stdout": out_text, "stderr": err_text}}
+
+@app.get("/api/gemini-cli/status")
+async def gemini_cli_status():
+    exe = gemini_cli_executable()
+    display_name = gemini_cli_display_name(exe)
+    if not exe:
+        return {
+            "installed": False,
+            "logged_in": False,
+            "provider": "antigravity",
+            "message": "未找到 Antigravity CLI，请先安装。",
+        }
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            exe,
+            "--version",
+            cwd=BASE_DIR,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+        out_text, err_text = codex_decode_output(stdout, stderr)
+        ok = proc.returncode == 0
+        is_agy = is_antigravity_cli(exe)
+        return {
+            "installed": ok,
+            "logged_in": None,
+            "version": out_text or err_text,
+            "path": exe,
+            "provider": "antigravity" if is_agy else "gemini",
+            "message": f"{display_name} 已安装。登录状态会在首次执行 {'agy' if is_agy else 'gemini'} 时由 CLI 校验。" if ok else (err_text or out_text or f"{display_name} 检测失败"),
+            "raw": {"stdout": out_text, "stderr": err_text, "returncode": proc.returncode},
+        }
+    except Exception as exc:
+        return {
+            "installed": False,
+            "logged_in": False,
+            "path": exe,
+            "provider": "antigravity" if is_antigravity_cli(exe) else "gemini",
+            "message": f"{display_name} 检测失败：{exc}",
+        }
+
+@app.post("/api/gemini-cli/help")
+async def gemini_cli_help(payload: GeminiCliHelpRequest):
+    exe = gemini_cli_executable()
+    if not exe:
+        raise HTTPException(status_code=400, detail="未找到 Antigravity CLI。")
+    is_agy = is_antigravity_cli(exe)
+    allowed = {"", "help", "install", "models", "plugin", "plugins", "update", "changelog"} if is_agy else {"", "help", "mcp", "extensions"}
+    command = str(payload.command or "").strip()
+    if command not in allowed:
+        raise HTTPException(status_code=400, detail=f"不允许的 {gemini_cli_display_name(exe)} 命令")
+    args = [exe]
+    if command:
+        args.append(command)
+    args.append("--help")
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        cwd=BASE_DIR,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+    out_text, err_text = codex_decode_output(stdout, stderr)
+    if proc.returncode != 0:
+        raise HTTPException(status_code=502, detail=(err_text or out_text or f"exit={proc.returncode}")[:1000])
+    return {"text": out_text or err_text, "raw": {"stdout": out_text, "stderr": err_text}}
 
 @app.get("/api/jimeng/status")
 async def jimeng_status():
@@ -10369,7 +12867,7 @@ def api_key_from_payload(payload, protocol: str = ""):
             value = os.getenv(runninghub_wallet_key_env(), "")
             if value:
                 return value
-        value = os.getenv(provider_key_env(provider_id), "")
+        value = provider_env_key_value(provider_id)
         if value:
             return value
     if protocol == "volcengine":
@@ -10393,17 +12891,16 @@ def upstream_model_headers(api_key: str, protocol: str):
     return {"Authorization": bearer_auth_value(api_key), "Accept": "application/json"}
 
 def volcengine_default_model_payload(status=200, message="", raw=None):
-    models = VOLCENGINE_DEFAULT_VIDEO_MODELS[:]
     return {
         "ok": True,
         "protocol": "volcengine",
         "status": status,
-        "message": message or "方舟任务接口可用，模型列表接口未返回模型，已使用默认 Seedance 模型。",
-        "model_count": len(models),
+        "message": message or "方舟任务接口可用，模型列表接口未返回模型。请按实际方舟控制台模型名称手动填写视频模型。",
+        "model_count": 0,
         "image_models": [],
         "chat_models": [],
-        "video_models": models,
-        "all": models,
+        "video_models": [],
+        "all": [],
         "raw": raw,
     }
 
@@ -10480,6 +12977,7 @@ async def probe_openai_models_endpoint(client, base_url: str, api_key: str):
     if response.status_code < 300:
         grouped, ids = parse_upstream_models(raw, "openai") if isinstance(raw, dict) else ({"image": [], "chat": [], "video": []}, [])
         grouped, ids = apply_agnes_model_defaults(base_url, grouped, ids)
+        grouped = apply_locked_recommended_model_rules(base_url, grouped)
         return True, {
             "status": response.status_code,
             "message": f"OpenAI 兼容模型列表端点可用{f'，找到 {len(ids)} 个模型' if ids else ''}",
@@ -10568,6 +13066,24 @@ def apply_agnes_model_defaults(base_url, grouped, ids):
 async def test_provider_connection(payload: TestConnectionPayload):
     """测试请求地址是否可用：调上游 /v1/models。验证通过时同时把模型清单按类别返回，避免再调一次拉取接口。"""
     protocol = protocol_from_payload(payload)
+    if protocol == "codex":
+        status = await codex_status()
+        payload_models = codex_models_payload(raw={"status": status})
+        payload_models.update({
+            "ok": bool(status.get("installed")),
+            "status": 200 if status.get("installed") else 0,
+            "message": status.get("message") or ("OpenAI Codex CLI 可用" if status.get("installed") else "未找到 OpenAI Codex CLI"),
+        })
+        return payload_models
+    if protocol == "gemini-cli":
+        status = await gemini_cli_status()
+        payload_models = gemini_cli_models_payload(raw={"status": status})
+        payload_models.update({
+            "ok": bool(status.get("installed")),
+            "status": 200 if status.get("installed") else 0,
+            "message": status.get("message") or ("Antigravity CLI 可用" if status.get("installed") else "未找到 Antigravity CLI"),
+        })
+        return payload_models
     if protocol == "jimeng":
         status = await jimeng_status()
         return {
@@ -10624,17 +13140,18 @@ async def test_provider_connection(payload: TestConnectionPayload):
                 if protocol == "volcengine":
                     detected, probe = await probe_volcengine_auto_detect(client, base_url, api_key)
                     if detected:
-                        message = f"{probe.get('message') or '方舟任务接口可达'}；但 /api/v3/models 不可用，已使用默认 Seedance 模型。"
+                        message = f"{probe.get('message') or '方舟任务接口可达'}；但 /api/v3/models 不可用。请按实际方舟控制台模型名称手动填写视频模型。"
                         return volcengine_default_model_payload(status=probe.get("status") or resp.status_code, message=message, raw={"models_error": resp.text[:300], **(probe.get("raw") or {})})
                 elif protocol == "openai":
                     detected, probe = await probe_volcengine_auto_detect(client, base_url, api_key)
                     if detected:
-                        message = f"{probe.get('message') or '检测到方舟/Ark 兼容入口'}；OpenAI /v1/models 不可用，已自动切换为方舟协议并使用默认 Seedance 模型。"
+                        message = f"{probe.get('message') or '检测到方舟/Ark 兼容入口'}；OpenAI /v1/models 不可用，已自动切换为方舟协议。请按实际方舟控制台模型名称手动填写视频模型。"
                         return volcengine_default_model_payload(status=probe.get("status") or resp.status_code, message=message, raw={"models_error": resp.text[:300], **(probe.get("raw") or {})})
                 return {"ok": False, "status": resp.status_code, "message": resp.text[:300]}
             data = resp.json() if resp.text else {}
             grouped, ids = parse_upstream_models(data, protocol)
             grouped, ids = apply_agnes_model_defaults(base_url, grouped, ids)
+            grouped = apply_locked_recommended_model_rules(base_url, grouped)
             if protocol == "volcengine" and not ids:
                 detected, probe = await probe_volcengine_auto_detect(client, base_url, api_key)
                 if detected:
@@ -10655,7 +13172,7 @@ async def test_provider_connection(payload: TestConnectionPayload):
                 async with httpx.AsyncClient(timeout=15) as client:
                     detected, probe = await probe_volcengine_auto_detect(client, base_url, api_key)
                     if detected:
-                        message = f"{probe.get('message') or '方舟任务接口可达'}；但模型列表请求失败，已使用默认 Seedance 模型。"
+                        message = f"{probe.get('message') or '方舟任务接口可达'}；但模型列表请求失败。请按实际方舟控制台模型名称手动填写视频模型。"
                         return volcengine_default_model_payload(status=probe.get("status") or 0, message=message, raw={"models_error": str(e)[:300], **(probe.get("raw") or {})})
             except Exception:
                 pass
@@ -10666,9 +13183,27 @@ async def probe_async_endpoint(payload: TestConnectionPayload):
     """验证异步协议：用假 task_id 请求 GET /v1/tasks/{fake_id}。
     收到 400 Invalid task ID = 端点存在且 Key 有效；401/403 = Key 无效；404/连接失败 = 不支持异步端点。"""
     base_url = (payload.base_url or "").strip().rstrip("/")
+    protocol = protocol_from_payload(payload)
+    if protocol == "codex":
+        status = await codex_status()
+        return {
+            "ok": bool(status.get("installed")),
+            "protocol": "codex",
+            "status_code": 200 if status.get("installed") else 0,
+            "message": status.get("message") or "OpenAI Codex CLI 本机检测完成",
+            "raw": status,
+        }
+    if protocol == "gemini-cli":
+        status = await gemini_cli_status()
+        return {
+            "ok": bool(status.get("installed")),
+            "protocol": "gemini-cli",
+            "status_code": 200 if status.get("installed") else 0,
+            "message": status.get("message") or "Antigravity CLI 本机检测完成",
+            "raw": status,
+        }
     if not base_url:
         raise HTTPException(status_code=400, detail="请先填写请求地址")
-    protocol = protocol_from_payload(payload)
     api_key = api_key_from_payload(payload, protocol)
     if not api_key:
         raise HTTPException(status_code=400, detail="请先填写或保存 API Key")
@@ -10746,6 +13281,24 @@ async def probe_async_endpoint(payload: TestConnectionPayload):
 
             openai_ok, openai_probe = await probe_openai_models_endpoint(client, base_url, api_key)
             if not openai_ok and protocol == "openai":
+                # /v1/models 不可用，先确认是不是“没实现 models 接口的 OpenAI 兼容站”：探一下 /v1/chat/completions。
+                # 可达就判定为 OpenAI 兼容（很多网关不暴露 /v1/models），避免被下面的方舟探测（404 也算可达）误判成方舟。
+                compat_ok, compat_probe = await probe_openai_compat_bearer_endpoint(client, base_url, api_key)
+                # 仅当 /v1/chat/completions 确实存在（返回 2xx 或我们发空 messages 触发的 400 等，而非 404 路径不存在）
+                # 才判为 OpenAI 兼容；404 说明该路径不存在，留给后面的方舟探测。
+                if compat_ok and (compat_probe.get("status") or 0) != 404:
+                    return {
+                        "ok": True,
+                        "protocol": "openai",
+                        "status_code": compat_probe.get("status") or openai_probe.get("status") or sc,
+                        "message": "OpenAI 兼容入口可达（该站未提供 /v1/models，模型请手动填写）",
+                        "raw": {"async_probe": async_probe, "openai_probe": openai_probe.get("raw"), "openai_compat_probe": compat_probe.get("raw")},
+                        "model_count": 0,
+                        "image_models": [],
+                        "chat_models": [],
+                        "video_models": [],
+                        "all": [],
+                    }
                 detected, volc_probe = await probe_volcengine_auto_detect(client, base_url, api_key)
                 if detected:
                     return {
@@ -10774,6 +13327,16 @@ async def probe_async_endpoint(payload: TestConnectionPayload):
 async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str = "openai", image_request_mode: str = "openai"):
     """从上游模型列表端点拉取模型，并按名称做轻量分类。"""
     protocol = protocol if protocol in SUPPORTED_PROVIDER_PROTOCOLS else "openai"
+    if protocol == "codex":
+        status = await codex_status()
+        payload = codex_models_payload(raw={"status": status})
+        payload["message"] = status.get("message") or payload["message"]
+        return payload
+    if protocol == "gemini-cli":
+        status = await gemini_cli_status()
+        payload = gemini_cli_models_payload(raw={"status": status})
+        payload["message"] = status.get("message") or payload["message"]
+        return payload
     if protocol == "jimeng":
         return {
             "total": len(JIMENG_DEFAULT_IMAGE_MODELS) + len(JIMENG_DEFAULT_VIDEO_MODELS),
@@ -10811,7 +13374,7 @@ async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str 
                     if detected:
                         payload = volcengine_default_model_payload(
                             status=probe.get("status") or resp.status_code,
-                            message=f"{probe.get('message') or '方舟任务接口可达'}；但 /api/v3/models 不可用，已使用默认 Seedance 模型。",
+                            message=f"{probe.get('message') or '方舟任务接口可达'}；但 /api/v3/models 不可用。请按实际方舟控制台模型名称手动填写视频模型。",
                             raw={"models_error": resp.text[:300], **(probe.get("raw") or {})},
                         )
                         return {
@@ -10829,7 +13392,7 @@ async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str 
                     if detected:
                         payload = volcengine_default_model_payload(
                             status=probe.get("status") or resp.status_code,
-                            message=f"{probe.get('message') or '检测到方舟/Ark 兼容入口'}；OpenAI /v1/models 不可用，已自动切换为方舟协议并使用默认 Seedance 模型。",
+                            message=f"{probe.get('message') or '检测到方舟/Ark 兼容入口'}；OpenAI /v1/models 不可用，已自动切换为方舟协议。请按实际方舟控制台模型名称手动填写视频模型。",
                             raw={"models_error": resp.text[:300], **(probe.get("raw") or {})},
                         )
                         return {
@@ -10852,7 +13415,7 @@ async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str 
                     if detected:
                         payload = volcengine_default_model_payload(
                             status=probe.get("status") or 0,
-                            message=f"{probe.get('message') or '方舟任务接口可达'}；但模型列表请求失败，已使用默认 Seedance 模型。",
+                            message=f"{probe.get('message') or '方舟任务接口可达'}；但模型列表请求失败。请按实际方舟控制台模型名称手动填写视频模型。",
                             raw={"models_error": str(e)[:300], **(probe.get("raw") or {})},
                         )
                         return {
@@ -10870,6 +13433,7 @@ async def fetch_models_from_upstream(base_url: str, api_key: str, protocol: str 
         raise HTTPException(status_code=502, detail=f"请求上游模型列表失败：{e}")
     grouped, ids = parse_upstream_models(raw, protocol)
     grouped, ids = apply_agnes_model_defaults(base_url, grouped, ids)
+    grouped = apply_locked_recommended_model_rules(base_url, grouped)
     if protocol == "volcengine" and not ids:
         payload = volcengine_default_model_payload(raw=raw)
         return {
@@ -10901,9 +13465,13 @@ async def fetch_upstream_models_from_payload(payload: TestConnectionPayload):
 async def fetch_upstream_models(provider_id: str):
     """从已保存的上游 OpenAI 兼容接口拉取 /v1/models 列表，按名称智能分类为 image/chat/video。"""
     provider = get_api_provider_exact(provider_id)
+    if is_codex_provider(provider):
+        return await fetch_models_from_upstream("", "", "codex", provider.get("image_request_mode") or "openai")
+    if is_gemini_cli_provider(provider):
+        return await fetch_models_from_upstream("", "", "gemini-cli", provider.get("image_request_mode") or "openai")
     api_key = os.getenv(runninghub_wallet_key_env(), "") if provider["id"] == "runninghub" else ""
     if not api_key:
-        api_key = os.getenv(provider_key_env(provider["id"]), "")
+        api_key = provider_env_key_value(provider["id"])
     if not api_key:
         raise HTTPException(status_code=400, detail=f"{provider.get('name') or provider_id} 未配置 API Key")
     return await fetch_models_from_upstream(provider.get("base_url") or "", api_key, provider_protocol(provider), provider.get("image_request_mode") or "openai")
@@ -10912,27 +13480,39 @@ async def build_online_image_result(payload: OnlineImageRequest):
     provider = get_api_provider(payload.provider_id)
     default_model = (provider.get("image_models") or [IMAGE_MODEL])[0]
     model = selected_model(payload.model, default_model)
+    request_size = snap_size_to_multiple(payload.size, 16)
     refs = [ref.dict() for ref in payload.reference_images if ref.url]
     image_refs = image_references(refs)
     count = max(1, min(8, int(payload.n or 1)))
     async def generate_one():
-        image_data, raw_item = await generate_ai_image(payload.prompt, payload.size, payload.quality, model, image_refs, provider["id"])
-        local_url = await save_ai_image_to_output(image_data, prefix="online_")
-        return local_url, raw_item
+        image_data, raw_item = await generate_ai_image(payload.prompt, request_size, payload.quality, model, image_refs, provider["id"])
+        try:
+            image_items = extract_images(raw_item) if isinstance(raw_item, dict) else [image_data]
+        except HTTPException:
+            image_items = [image_data]
+        local_urls = []
+        local_items = []
+        for item in image_items:
+            local_url = await save_ai_image_to_output(item, prefix="online_")
+            if local_url:
+                local_urls.append(local_url)
+                local_items.append(image_output_meta(local_url, item))
+        return local_urls, local_items, raw_item
     try:
         generated = await asyncio.gather(*(generate_one() for _ in range(count)))
     except httpx.HTTPStatusError as exc:
-        log_net_error(f"生图 HTTP状态错误 provider={provider.get('id')} model={model} size={payload.size}", exc)
+        log_net_error(f"生图 HTTP状态错误 provider={provider.get('id')} model={model} size={request_size}", exc)
         text = exc.response.text or ''
-        friendly = friendly_image_error_detail(text, payload.size, model)
+        friendly = friendly_image_error_detail(text, request_size, model)
         detail = friendly or f"上游生图接口错误：{text[:300]}"
         raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
     except httpx.HTTPError as exc:
         log_net_error(f"生图 网络/TLS错误 provider={provider.get('id')} model={model}", exc)
         raise HTTPException(status_code=502, detail=f"请求上游生图接口失败：{exc}") from exc
 
-    local_urls = [url for url, _raw in generated if url]
-    raw = generated[0][1] if generated else {}
+    local_urls = [url for urls, _items, _raw in generated for url in (urls or []) if url]
+    local_items = [item for _urls, items, _raw in generated for item in (items or []) if item.get("url")]
+    raw = generated[0][2] if generated else {}
     if not local_urls:
         provider_name = provider.get("name") or provider["id"]
         raw_text = json.dumps(raw, ensure_ascii=False)[:800] if isinstance(raw, (dict, list)) else str(raw)[:800]
@@ -10940,6 +13520,7 @@ async def build_online_image_result(payload: OnlineImageRequest):
     result = {
         "prompt": payload.prompt,
         "images": local_urls,
+        "image_items": local_items,
         "timestamp": time.time(),
         "type": "online",
         "model": model,
@@ -10947,7 +13528,7 @@ async def build_online_image_result(payload: OnlineImageRequest):
         "provider_name": provider.get("name") or provider["id"],
         "task_id": extract_task_id(raw) if isinstance(raw, dict) else None,
         "request_id": raw.get("id") if isinstance(raw, dict) else None,
-        "params": {"provider_id": provider["id"], "model": model, "size": payload.size, "quality": payload.quality, "n": count, "reference_images": refs},
+        "params": {"provider_id": provider["id"], "model": model, "size": request_size, "requested_size": payload.size, "quality": payload.quality, "n": count, "reference_images": refs},
         "raw_usage": raw.get("usage") if isinstance(raw, dict) else None,
     }
     save_to_history(result)
@@ -10963,6 +13544,67 @@ async def online_image(payload: OnlineImageRequest):
 async def query_image_task(payload: ImageTaskQueryRequest):
     provider = get_api_provider(payload.provider_id)
     task_id = str(payload.task_id or "").strip()
+    if is_runninghub_provider(provider):
+        api_key = runninghub_api_key(provider)
+        url = runninghub_endpoint_url(provider, "/task/openapi/outputs")
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=20.0, read=240.0, write=30.0, pool=20.0)) as client:
+                response = await client.post(url, headers=runninghub_app_headers(True), json={"apiKey": api_key, "taskId": task_id})
+                response.raise_for_status()
+                raw = response.json()
+                code = raw.get("code") if isinstance(raw, dict) else None
+                if code in (0, "0"):
+                    local_urls = []
+                    local_items = []
+                    for remote in runninghub_extract_outputs(raw.get("data")):
+                        try:
+                            local_url = await runninghub_store_remote_output(client, remote)
+                        except Exception:
+                            local_url = rewrite_runninghub_file_url(remote)
+                        if local_url:
+                            local_urls.append(local_url)
+                            local_items.append(image_output_meta(local_url))
+                    result = {
+                        "status": "succeeded",
+                        "prompt": "",
+                        "images": local_urls,
+                        "image_items": local_items,
+                        "timestamp": time.time(),
+                        "type": "online",
+                        "model": "",
+                        "provider_id": provider["id"],
+                        "provider_name": provider.get("name") or provider["id"],
+                        "task_id": task_id,
+                        "request_id": "",
+                        "params": {"provider_id": provider["id"]},
+                        "raw": raw,
+                    }
+                    save_to_history(result)
+                    if GLOBAL_LOOP:
+                        asyncio.run_coroutine_threadsafe(manager.broadcast_new_image(result), GLOBAL_LOOP)
+                    return result
+                if code in (805, "805"):
+                    return {
+                        "status": "failed",
+                        "task_id": task_id,
+                        "provider_id": provider["id"],
+                        "provider_name": provider.get("name") or provider["id"],
+                        "error": runninghub_fail_reason(raw),
+                        "raw": raw,
+                    }
+                return {
+                    "status": "running",
+                    "task_id": task_id,
+                    "provider_id": provider["id"],
+                    "provider_name": provider.get("name") or provider["id"],
+                    "message": "RunningHub 任务仍在生成中",
+                    "raw": raw,
+                }
+        except httpx.HTTPStatusError as exc:
+            text = exc.response.text or ""
+            raise HTTPException(status_code=exc.response.status_code, detail=f"查询 RunningHub 任务失败：{text[:300]}") from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"查询 RunningHub 任务失败：{exc}") from exc
     timeout = httpx.Timeout(connect=20.0, read=300.0, write=60.0, pool=20.0)
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -10976,17 +13618,24 @@ async def query_image_task(payload: ImageTaskQueryRequest):
         raise HTTPException(status_code=502, detail=f"查询上游生图任务失败：{exc}") from exc
 
     status = image_task_status(raw)
-    image_data = None
+    image_items = []
     try:
-        image_data = extract_image(raw)
+        image_items = extract_images(raw)
     except HTTPException:
-        image_data = None
-    if image_data:
-        local_url = await save_ai_image_to_output(image_data, prefix="online_")
+        image_items = []
+    if image_items:
+        local_urls = []
+        local_items = []
+        for item in image_items:
+            local_url = await save_ai_image_to_output(item, prefix="online_")
+            if local_url:
+                local_urls.append(local_url)
+                local_items.append(image_output_meta(local_url, item))
         result = {
             "status": "succeeded",
             "prompt": "",
-            "images": [local_url],
+            "images": local_urls,
+            "image_items": local_items,
             "timestamp": time.time(),
             "type": "online",
             "model": "",
@@ -11086,6 +13735,129 @@ async def get_canvas_image_task(task_id: str):
         raise HTTPException(status_code=404, detail="画布任务不存在，可能服务已重启或任务已过期")
     return task
 
+async def run_canvas_comfy_task(task_id: str, payload: GenerateRequest):
+    with CANVAS_TASK_LOCK:
+        if task_id in CANVAS_TASKS:
+            CANVAS_TASKS[task_id]["status"] = "running"
+            CANVAS_TASKS[task_id]["updated_at"] = time.time()
+    try:
+        result = await asyncio.to_thread(generate, payload)
+        if isinstance(result, dict) and result.get("error"):
+            raise RuntimeError(str(result.get("error") or "ComfyUI 生成失败"))
+        with CANVAS_TASK_LOCK:
+            CANVAS_TASKS[task_id].update({
+                "status": "succeeded",
+                "result": result,
+                "error": "",
+                "updated_at": time.time(),
+            })
+    except Exception as exc:
+        detail = getattr(exc, "detail", None) or str(exc)
+        status_code = getattr(exc, "status_code", 500)
+        with CANVAS_TASK_LOCK:
+            CANVAS_TASKS[task_id].update({
+                "status": "failed",
+                "error": str(detail),
+                "status_code": status_code,
+                "updated_at": time.time(),
+            })
+
+@app.post("/api/canvas-comfy-tasks")
+async def create_canvas_comfy_task(payload: GenerateRequest):
+    task_id = f"canvas_comfy_{uuid.uuid4().hex}"
+    with CANVAS_TASK_LOCK:
+        CANVAS_TASKS[task_id] = {
+            "id": task_id,
+            "type": "comfy",
+            "status": "queued",
+            "created_at": time.time(),
+            "updated_at": time.time(),
+            "result": None,
+            "error": "",
+            "workflow_json": payload.workflow_json,
+        }
+    asyncio.create_task(run_canvas_comfy_task(task_id, payload))
+    return {"task_id": task_id, "status": "queued"}
+
+@app.get("/api/canvas-comfy-tasks/{task_id}")
+async def get_canvas_comfy_task(task_id: str):
+    with CANVAS_TASK_LOCK:
+        task = dict(CANVAS_TASKS.get(task_id) or {})
+    if not task:
+        raise HTTPException(status_code=404, detail="ComfyUI 任务不存在，可能服务已重启或任务已过期")
+    return task
+
+# --- 图像生成参数 schema（供客户端动态渲染参数表单，避免把参数写死在前端） ---
+IMAGE_PARAM_RATIOS = [
+    {"value": "1:1", "label": "1:1"},
+    {"value": "3:4", "label": "3:4"},
+    {"value": "4:3", "label": "4:3"},
+    {"value": "16:9", "label": "16:9"},
+    {"value": "9:16", "label": "9:16"},
+    {"value": "2:3", "label": "2:3"},
+    {"value": "3:2", "label": "3:2"},
+]
+IMAGE_PARAM_RESOLUTIONS = [
+    {"value": "1k", "label": "1K"},
+    {"value": "2k", "label": "2K"},
+    {"value": "4k", "label": "4K"},
+]
+
+def build_image_param_fields(engine: str, provider: dict, model: str):
+    """返回某平台/引擎的图像生成参数字段定义。客户端按 type 动态渲染并回填到生成请求。
+    字段 key 直接对应 OnlineImageRequest 的字段名（size/quality/n/reference_images）。"""
+    gpt_auto_size = engine == "api" and is_gpt_image_2_model(model)
+    image_resolutions = ([{"value": "auto", "label": "自动"}] + IMAGE_PARAM_RESOLUTIONS) if gpt_auto_size else IMAGE_PARAM_RESOLUTIONS
+    size_field = {
+        "key": "size", "type": "size", "label": "尺寸",
+        "ratios": IMAGE_PARAM_RATIOS, "resolutions": image_resolutions,
+        "default": {"ratio": "1:1", "resolution": "auto" if gpt_auto_size else "1k"},
+    }
+    count_field = {
+        "key": "n", "type": "int", "label": "数量", "control": "chips",
+        "options": [1, 2, 3, 4], "default": 1,
+    }
+    refs_field = {"key": "reference_images", "type": "refs", "label": "参考图", "max": ONLINE_IMAGE_REFERENCE_MAX}
+
+    if engine == "runninghub":
+        # RunningHub 参数按 app/工作流动态，需先选工作流再用 /api/runninghub/workflow-info 拉字段。
+        return [{"key": "_rh_notice", "type": "notice",
+                 "label": "RunningHub 工作流参数将按所选工作流动态加载（开发中）。"}]
+
+    fields = [size_field]
+    if engine in ("api", "volcengine"):
+        fields.append({
+            "key": "quality", "type": "select", "label": "质量", "control": "chips",
+            "options": [
+                {"value": "auto", "label": "自动"},
+                {"value": "low", "label": "低"},
+                {"value": "medium", "label": "中"},
+                {"value": "high", "label": "高"},
+            ],
+            "default": "auto",
+        })
+    fields.append(count_field)
+    fields.append(refs_field)
+    return fields
+
+@app.get("/api/image-params")
+async def image_params(provider_id: str = "", model: str = ""):
+    providers = load_api_providers()
+    provider = next((p for p in providers if p.get("id") == (provider_id or "").strip().lower()), None) or {}
+    if is_runninghub_provider(provider):
+        engine = "runninghub"
+    elif (provider_id or "").strip().lower() == "modelscope":
+        engine = "modelscope"
+    elif is_volcengine_provider(provider):
+        engine = "volcengine"
+    else:
+        engine = "api"
+    return {
+        "engine": engine,
+        "submit": "/api/canvas-image-tasks",
+        "fields": build_image_param_fields(engine, provider, model),
+    }
+
 # --- Canvas Video ---
 
 VIDEO_URL_KEYS = (
@@ -11107,7 +13879,7 @@ def _collect_video_url(value, urls):
             _collect_video_url(item, urls)
         return
     if isinstance(value, dict):
-        for key in ("videos", "outputs", "data", "result", "content"):
+        for key in ("videos", "outputs", "data", "detail", "result", "content"):
             if key in value:
                 _collect_video_url(value.get(key), urls)
         for key in VIDEO_URL_KEYS:
@@ -11120,11 +13892,18 @@ def video_output_urls(raw):
         return urls
     candidates = [raw]
     data = raw.get("data")
+    detail = raw.get("detail")
     content = raw.get("content")
     if isinstance(data, dict):
         candidates.append(data)
     elif isinstance(data, list):
         for item in data:
+            if isinstance(item, dict):
+                candidates.append(item)
+    if isinstance(detail, dict):
+        candidates.append(detail)
+    elif isinstance(detail, list):
+        for item in detail:
             if isinstance(item, dict):
                 candidates.append(item)
     if isinstance(content, dict):
@@ -11174,6 +13953,8 @@ def looks_like_html_response(text: str) -> bool:
 def video_submit_url_candidates(provider, base_url):
     if is_agnes_provider(provider):
         return [f"{base_url}/v1/videos"]
+    if is_lingjing_provider(provider):
+        return [f"{base_url}/v1/videos"]
     if is_apimart_provider(provider):
         return [f"{base_url}/videos/generations" if base_url.endswith("/v1") else f"{base_url}/v1/videos/generations"]
     if is_volcengine_provider(provider):
@@ -11191,6 +13972,12 @@ def video_task_url_candidates(provider, base_url, task_id, submit_url=""):
         return [
             f"{base_url}/agnesapi?{urllib.parse.urlencode({'video_id': task_id})}",
             f"{base_url}/v1/videos/{quoted_id}",
+        ]
+    if is_lingjing_provider(provider):
+        quoted_id = urllib.parse.quote(str(task_id), safe="")
+        return [
+            f"{base_url}/v1/videos/{quoted_id}",
+            f"{base_url}/v1/video/query?{urllib.parse.urlencode({'id': task_id})}",
         ]
     if is_apimart_provider(provider):
         task_path = f"{base_url}/tasks/{task_id}" if base_url.endswith("/v1") else f"{base_url}/v1/tasks/{task_id}"
@@ -11272,7 +14059,11 @@ async def wait_for_video_task(client, provider, task_id, submit_url=""):
                 raise last_error
             raise HTTPException(status_code=502, detail=f"视频任务查询失败：{task_id}")
         last_payload = raw
-        task_data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+        task_data = (
+            raw.get("data") if isinstance(raw.get("data"), dict)
+            else raw.get("detail") if isinstance(raw.get("detail"), dict)
+            else raw
+        )
         status = str(task_data.get("status") or task_data.get("task_status") or raw.get("status") or raw.get("task_status") or "").upper()
         if status in VIDEO_TASK_SUCCESS_STATUSES:
             return raw
@@ -11431,6 +14222,17 @@ def yuli_openai_size(aspect_ratio: str) -> str:
         return "9x16"
     return "16x9"
 
+def lingjing_openai_video_model(model: str) -> str:
+    value = str(model or "").strip() or "veo_3_1-fast"
+    lower = value.lower()
+    if lower.startswith("veo3.1"):
+        value = "veo_3_1" + value[len("veo3.1"):]
+    elif lower.startswith("veo3_1"):
+        value = "veo_3_1" + value[len("veo3_1"):]
+    if value.lower().endswith("-4k"):
+        value = value[:-2] + "4K"
+    return value
+
 def yuli_video_seconds(duration) -> str:
     try:
         value = int(duration)
@@ -11475,6 +14277,43 @@ async def yuli_fetch_reference_bytes(client, ref_url):
         ext = (mime.split("/")[-1] or "png").split("+")[0]
         return (f"input_reference.{ext}", raw, mime)
     return None
+
+async def generate_lingjing_openai_video(client, payload, provider, base_url, requested_model):
+    """灵境 API OpenAI 视频格式：POST /v1/videos，参考图走 multipart input_reference。"""
+    submit_url = f"{base_url}/v1/videos"
+    data = {
+        "model": lingjing_openai_video_model(selected_model(requested_model, "veo_3_1-fast")),
+        "prompt": str(payload.prompt or ""),
+        "seconds": yuli_video_seconds(payload.duration),
+        "size": yuli_openai_size(payload.aspect_ratio or payload.size),
+        "watermark": "true" if payload.watermark else "false",
+    }
+    files = []
+    for ref in (payload.images or [])[:3]:
+        ref_file = await yuli_fetch_reference_bytes(client, getattr(ref, "url", ""))
+        if ref_file:
+            files.append(("input_reference", ref_file))
+    headers = api_headers(json_body=False, provider=provider)
+    if files:
+        response = await client.post(submit_url, headers=headers, data=data, files=files)
+    else:
+        multipart_fields = [(key, (None, value)) for key, value in data.items()]
+        response = await client.post(submit_url, headers=headers, files=multipart_fields)
+    response.raise_for_status()
+    try:
+        raw = response.json()
+    except Exception as exc:
+        resp_text = (response.text or "")[:500]
+        raise HTTPException(status_code=502, detail=f"灵境 API 视频接口返回非 JSON 响应（状态 {response.status_code}）：{resp_text}") from exc
+    task_id = str(raw.get("id") or extract_task_id(raw) or raw.get("task_id") or "").strip()
+    result = raw
+    if task_id and not video_output_urls(raw):
+        result = await wait_for_video_task(client, provider, task_id, submit_url)
+    urls = video_output_urls(result)
+    if not urls:
+        raise HTTPException(status_code=502, detail=f"灵境 API 视频生成成功但没有返回视频：{result}")
+    local_urls = [await save_remote_video_to_output(url) for url in urls]
+    return {"videos": local_urls, "task_id": task_id, "raw": result}
 
 async def generate_yuli_openai_video(client, payload, provider, base_url, requested_model):
     """玉玉API veo3.1 走 OpenAI multipart 格式 /v1/videos，支持 seconds 时长控制。"""
@@ -11544,12 +14383,13 @@ async def canvas_video(payload: CanvasVideoRequest):
     base_url = video_api_root(provider)
     if not base_url:
         raise HTTPException(status_code=400, detail=f"{provider.get('name') or provider['id']} 未配置 Base URL")
-    api_key = os.getenv(provider_key_env(provider["id"]), "")
+    api_key = provider_env_key_value(provider["id"])
     if not api_key:
         raise HTTPException(status_code=400, detail=f"未配置 {provider.get('name') or provider['id']} 的 API Key，请在 API 设置中填写。")
     is_apimart = is_apimart_provider(provider)
     is_volcengine = is_volcengine_provider(provider)
     is_yuli = is_yuli_provider(provider)
+    is_lingjing = is_lingjing_provider(provider)
     is_agnes = is_agnes_provider(provider, payload.model)
     volc_is_proxy = bool(is_volcengine and urllib.parse.urlparse(base_url).path.rstrip("/"))
     submit_urls = video_submit_url_candidates(provider, base_url)
@@ -11566,6 +14406,16 @@ async def canvas_video(payload: CanvasVideoRequest):
         except httpx.HTTPError as exc:
             log_net_error(f"视频(Agnes) 网络/TLS错误 model={requested_model}", exc)
             raise HTTPException(status_code=502, detail=f"请求 Agnes 视频接口失败：{exc}") from exc
+    if is_lingjing:
+        try:
+            async with httpx.AsyncClient(timeout=VIDEO_POLL_TIMEOUT) as lingjing_client:
+                return await generate_lingjing_openai_video(lingjing_client, payload, provider, base_url, requested_model)
+        except httpx.HTTPStatusError as exc:
+            text = exc.response.text
+            raise HTTPException(status_code=exc.response.status_code, detail=f"灵境 API 视频接口错误：{text}") from exc
+        except httpx.HTTPError as exc:
+            log_net_error(f"视频(灵境) 网络/TLS错误 model={requested_model}", exc)
+            raise HTTPException(status_code=502, detail=f"请求灵境 API 视频接口失败：{exc}") from exc
     # 玉玉API veo3.1 走 OpenAI multipart 格式（支持 seconds 时长）；其余模型（doubao 等）
     # 沿用下方原生 /v1/video/create JSON 流程。
     if is_yuli and yuli_is_veo_openai_model(requested_model):
@@ -11980,6 +14830,17 @@ async def canvas_video(payload: CanvasVideoRequest):
 
 @app.post("/api/canvas-llm")
 async def canvas_llm(payload: CanvasLLMRequest):
+    _provider = get_api_provider(payload.provider)
+    if is_codex_provider(_provider):
+        model = selected_model(payload.model, (_provider.get("chat_models") or CODEX_DEFAULT_CHAT_MODELS)[0])
+        payload.model = model
+        text, raw = await codex_chat_text(payload, payload.messages)
+        return {"text": text, "model": model, "raw_usage": None, "raw": raw}
+    if is_gemini_cli_provider(_provider):
+        model = selected_model(payload.model, (_provider.get("chat_models") or GEMINI_CLI_DEFAULT_CHAT_MODELS)[0])
+        payload.model = model
+        text, raw = await gemini_cli_chat_text(payload, payload.messages)
+        return {"text": text, "model": model, "raw_usage": None, "raw": raw}
     chat_base, chat_hdrs, model = resolve_chat_provider(payload.provider, payload.model, payload.ms_model)
     # 判断协议：APIMart 异步 vs 标准 OpenAI
     _llm_provider = get_api_provider(payload.provider) if payload.provider not in ("modelscope",) else {}
@@ -12089,13 +14950,64 @@ async def delete_conversation(conversation_id: str, request: Request, x_user_id:
 async def canvases():
     return {"canvases": list_canvases()}
 
+@app.get("/api/projects")
+async def get_projects():
+    return {"projects": list_projects()}
+
+@app.post("/api/projects")
+async def create_project(payload: ProjectCreateRequest):
+    return {"project": project_record(new_project(payload.name))}
+
+@app.post("/api/projects/{project_id}")
+async def update_project(project_id: str, payload: ProjectUpdateRequest):
+    projects = ensure_default_project()
+    target = next((p for p in projects if p.get("id") == project_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if payload.name is not None:
+        target["name"] = (str(payload.name).strip() or target.get("name") or "未命名项目")[:60]
+    if payload.order is not None:
+        target["order"] = int(payload.order)
+    target["updated_at"] = now_ms()
+    save_projects(projects)
+    return {"project": project_record(target)}
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(project_id: str):
+    """删除项目：默认项目不可删除；其余项目删除后，其下画布回归默认项目（不删画布）。"""
+    if project_id == DEFAULT_PROJECT_ID:
+        raise HTTPException(status_code=400, detail="默认项目不可删除")
+    projects = ensure_default_project()
+    if not any(p.get("id") == project_id for p in projects):
+        raise HTTPException(status_code=404, detail="项目不存在")
+    projects = [p for p in projects if p.get("id") != project_id]
+    save_projects(projects)
+    # 把该项目下的画布迁回默认项目
+    moved = 0
+    with CANVAS_LOCK:
+        for filename in os.listdir(CANVAS_DIR):
+            if not filename.endswith(".json"):
+                continue
+            path = os.path.join(CANVAS_DIR, filename)
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception:
+                continue
+            if str(data.get("project") or "") == project_id:
+                data["project"] = DEFAULT_PROJECT_ID
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                moved += 1
+    return {"ok": True, "moved": moved}
+
 @app.get("/api/canvases/trash")
 async def trashed_canvases():
     return {"canvases": list_deleted_canvases(), "retention_days": 30}
 
 @app.post("/api/canvases")
 async def create_canvas(payload: CanvasCreateRequest):
-    return {"canvas": new_canvas(payload.title, payload.icon, payload.kind)}
+    return {"canvas": new_canvas(payload.title, payload.icon, payload.kind, payload.project, payload.board_x, payload.board_y)}
 
 @app.get("/api/canvases/{canvas_id}/meta")
 async def get_canvas_meta(canvas_id: str):
@@ -12123,6 +15035,12 @@ async def update_canvas_meta(canvas_id: str, payload: CanvasMetaUpdate):
         canvas["color"] = normalize_canvas_color(payload.color)
     if payload.pinned is not None:
         canvas["pinned"] = bool(payload.pinned)
+    if payload.project is not None:
+        canvas["project"] = str(payload.project).strip() or DEFAULT_PROJECT_ID
+    if payload.board_x is not None:
+        canvas["board_x"] = float(payload.board_x)
+    if payload.board_y is not None:
+        canvas["board_y"] = float(payload.board_y)
     with CANVAS_LOCK:
         with open(canvas_path(canvas["id"]), 'w', encoding='utf-8') as f:
             json.dump(canvas, f, ensure_ascii=False, indent=2)
@@ -12902,8 +15820,28 @@ async def import_shared_folder_files(payload: SharedFolderImport):
     return {"library": lib, "items": added}
 
 async def caption_image_with_provider(abs_path, prompt, provider_id, model, ms_model=""):
-    chat_base, chat_hdrs, resolved_model = resolve_chat_provider(provider_id, model, ms_model)
     llm_provider = get_api_provider(provider_id) if provider_id not in ("modelscope",) else {}
+    if is_codex_provider(llm_provider):
+        resolved_model = selected_model(model, (llm_provider.get("chat_models") or CODEX_DEFAULT_CHAT_MODELS)[0])
+        payload = CanvasLLMRequest(
+            message=(prompt or "描述图片").strip() or "描述图片",
+            provider=provider_id or "codex",
+            model=resolved_model,
+            images=[abs_path],
+        )
+        text, _raw = await codex_chat_text(payload, [])
+        return text, resolved_model
+    if is_gemini_cli_provider(llm_provider):
+        resolved_model = selected_model(model, (llm_provider.get("chat_models") or GEMINI_CLI_DEFAULT_CHAT_MODELS)[0])
+        payload = CanvasLLMRequest(
+            message=(prompt or "描述图片").strip() or "描述图片",
+            provider=provider_id or "gemini-cli",
+            model=resolved_model,
+            images=[abs_path],
+        )
+        text, _raw = await gemini_cli_chat_text(payload, [])
+        return text, resolved_model
+    chat_base, chat_hdrs, resolved_model = resolve_chat_provider(provider_id, model, ms_model)
     is_apimart = is_apimart_provider(llm_provider)
     prompt_text = (prompt or "描述图片").strip() or "描述图片"
     data_url = image_path_to_data_url(abs_path, max_size=1024)
@@ -13317,11 +16255,46 @@ async def chat(payload: ChatRequest, request: Request, x_user_id: str = Header(d
             "raw_usage": raw.get("usage") if isinstance(raw, dict) else None,
         }
     else:
+        _codex_provider = get_api_provider(payload.provider)
+        if is_codex_provider(_codex_provider):
+            model = selected_model(payload.model, (_codex_provider.get("chat_models") or CODEX_DEFAULT_CHAT_MODELS)[0])
+            payload.model = model
+            text, raw = await codex_chat_text(payload, conversation["messages"][-MAX_HISTORY_MESSAGES:])
+            assistant_message = {
+                "id": uuid.uuid4().hex,
+                "role": "assistant",
+                "content": text,
+                "created_at": now_ms(),
+                "model": model,
+                "raw_usage": None,
+                "raw": raw,
+            }
+            conversation["messages"].append(assistant_message)
+            conversation["updated_at"] = now_ms()
+            save_conversation(user_id, conversation)
+            return {"conversation": conversation, "message": assistant_message}
+        if is_gemini_cli_provider(_codex_provider):
+            model = selected_model(payload.model, (_codex_provider.get("chat_models") or GEMINI_CLI_DEFAULT_CHAT_MODELS)[0])
+            payload.model = model
+            text, raw = await gemini_cli_chat_text(payload, conversation["messages"][-MAX_HISTORY_MESSAGES:])
+            assistant_message = {
+                "id": uuid.uuid4().hex,
+                "role": "assistant",
+                "content": text,
+                "created_at": now_ms(),
+                "model": model,
+                "raw_usage": None,
+                "raw": raw,
+            }
+            conversation["messages"].append(assistant_message)
+            conversation["updated_at"] = now_ms()
+            save_conversation(user_id, conversation)
+            return {"conversation": conversation, "message": assistant_message}
         chat_base, chat_hdrs, model = resolve_chat_provider(payload.provider, payload.model, payload.ms_model)
         _conv_provider = get_api_provider(payload.provider) if payload.provider not in ("modelscope",) else {}
         _conv_is_apimart = is_apimart_provider(_conv_provider)
         history = conversation["messages"][-MAX_HISTORY_MESSAGES:]
-        upstream_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        upstream_messages = [{"role": "system", "content": chat_system_prompt(payload)}]
         for item in history:
             msg = upstream_message_from_record(item)
             if msg:
@@ -13400,7 +16373,7 @@ async def chat_agent(payload: ChatRequest, request: Request, x_user_id: str = He
         model = selected_model(payload.image_model or default_model, default_model)
         prompt = decision.get("prompt") or payload.message
         prompt_size = chat_prompt_size_override(payload.message, payload.size) or chat_prompt_size_override(prompt, payload.size)
-        image_size = prompt_size or inherited_size or payload.size
+        image_size = snap_size_to_multiple(prompt_size or inherited_size or payload.size, 16)
         requested_count = 1 if action == "edit_image" else chat_requested_image_count(payload.message)
         prompts = chat_split_parallel_prompts(prompt, requested_count)
         local_urls = []
@@ -13472,10 +16445,67 @@ async def chat_stream(payload: ChatRequest, request: Request, x_user_id: str = H
     conversation["updated_at"] = now_ms()
     save_conversation(user_id, conversation)
 
+    _codex_provider = get_api_provider(payload.provider)
+    if is_codex_provider(_codex_provider):
+        model = selected_model(payload.model, (_codex_provider.get("chat_models") or CODEX_DEFAULT_CHAT_MODELS)[0])
+        payload.model = model
+
+        async def codex_stream():
+            yield sse_event({"type": "meta", "conversation": conversation})
+            try:
+                text, raw = await codex_chat_text(payload, conversation["messages"][-MAX_HISTORY_MESSAGES:])
+            except HTTPException as exc:
+                yield sse_event({"type": "error", "detail": exc.detail})
+                return
+            assistant_message = {
+                "id": uuid.uuid4().hex,
+                "role": "assistant",
+                "content": text,
+                "created_at": now_ms(),
+                "model": model,
+                "raw_usage": None,
+                "raw": raw,
+            }
+            conversation["messages"].append(assistant_message)
+            conversation["updated_at"] = now_ms()
+            save_conversation(user_id, conversation)
+            yield sse_event({"type": "delta", "delta": text})
+            yield sse_event({"type": "done", "conversation": conversation, "message": assistant_message})
+
+        return StreamingResponse(codex_stream(), media_type="text/event-stream")
+
+    if is_gemini_cli_provider(_codex_provider):
+        model = selected_model(payload.model, (_codex_provider.get("chat_models") or GEMINI_CLI_DEFAULT_CHAT_MODELS)[0])
+        payload.model = model
+
+        async def gemini_cli_stream():
+            yield sse_event({"type": "meta", "conversation": conversation})
+            try:
+                text, raw = await gemini_cli_chat_text(payload, conversation["messages"][-MAX_HISTORY_MESSAGES:])
+            except HTTPException as exc:
+                yield sse_event({"type": "error", "detail": exc.detail})
+                return
+            assistant_message = {
+                "id": uuid.uuid4().hex,
+                "role": "assistant",
+                "content": text,
+                "created_at": now_ms(),
+                "model": model,
+                "raw_usage": None,
+                "raw": raw,
+            }
+            conversation["messages"].append(assistant_message)
+            conversation["updated_at"] = now_ms()
+            save_conversation(user_id, conversation)
+            yield sse_event({"type": "delta", "delta": text})
+            yield sse_event({"type": "done", "conversation": conversation, "message": assistant_message})
+
+        return StreamingResponse(gemini_cli_stream(), media_type="text/event-stream")
+
     chat_base, chat_hdrs, model = resolve_chat_provider(payload.provider, payload.model, payload.ms_model)
     _stream_provider = get_api_provider(payload.provider) if payload.provider not in ("modelscope",) else {}
     history = conversation["messages"][-MAX_HISTORY_MESSAGES:]
-    upstream_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    upstream_messages = [{"role": "system", "content": chat_system_prompt(payload)}]
     for item in history:
         msg = upstream_message_from_record(item)
         if msg:
@@ -14314,6 +17344,26 @@ def runninghub_workflow_entry_from_config(cfg, fallback=None):
         "updatedAt": (cfg or {}).get("updatedAt") or fallback.get("updatedAt") or 0,
     }, "workflow")
 
+def runninghub_saved_hidden_workflow_ids():
+    if not os.path.exists(API_PROVIDERS_FILE):
+        return set()
+    try:
+        with open(API_PROVIDERS_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        return set()
+    hidden = set()
+    for provider in raw if isinstance(raw, list) else []:
+        if not isinstance(provider, dict) or str(provider.get("id") or "").strip().lower() != "runninghub":
+            continue
+        for entry in provider.get("rh_workflows") or []:
+            if not isinstance(entry, dict) or entry.get("hidden") is not True:
+                continue
+            key = runninghub_workflow_store_key(entry.get("workflowId") or entry.get("id"))
+            if key:
+                hidden.add(key)
+    return hidden
+
 def runninghub_provider_with_workflow_store(provider):
     if not isinstance(provider, dict) or provider.get("id") != "runninghub":
         return provider
@@ -14327,6 +17377,7 @@ def runninghub_provider_with_workflow_store(provider):
         for item in workflows
         if item.get("hidden") is True and runninghub_workflow_store_key(item.get("workflowId") or item.get("id"))
     }
+    hidden_ids.update(runninghub_saved_hidden_workflow_ids())
     by_id = {
         runninghub_workflow_store_key(item.get("workflowId") or item.get("id")): item
         for item in workflows
@@ -14353,6 +17404,8 @@ def runninghub_provider_workflow_config(workflow_id: str):
     key = runninghub_workflow_store_key(workflow_id)
     if not key:
         return None
+    if key in runninghub_saved_hidden_workflow_ids():
+        return None
     providers = load_api_providers()
     provider = next((item for item in providers if item.get("id") == "runninghub"), None)
     if not provider:
@@ -14361,6 +17414,8 @@ def runninghub_provider_workflow_config(workflow_id: str):
         entry_key = runninghub_workflow_store_key(entry.get("workflowId") or entry.get("id"))
         if entry_key != key:
             continue
+        if entry.get("hidden") is True:
+            return None
         cfg = {
             "workflowId": key,
             "title": entry.get("title") or key,
@@ -14380,8 +17435,6 @@ def runninghub_provider_workflow_config(workflow_id: str):
 
 def runninghub_select_workflow_config(local_cfg, provider_cfg, workflow_id: str = ""):
     static_cfg = runninghub_static_workflow_config(workflow_id)
-    if static_cfg and (isinstance(local_cfg, dict) or isinstance(provider_cfg, dict)):
-        return static_cfg
     if isinstance(local_cfg, dict) and isinstance(provider_cfg, dict):
         try:
             local_updated = int(local_cfg.get("updatedAt") or 0)
@@ -14396,6 +17449,8 @@ def runninghub_select_workflow_config(local_cfg, provider_cfg, workflow_id: str 
         return local_cfg
     if isinstance(provider_cfg, dict):
         return provider_cfg
+    if static_cfg:
+        return static_cfg
     return None
 
 def sync_runninghub_workflow_to_provider(cfg):
