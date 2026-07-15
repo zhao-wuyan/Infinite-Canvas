@@ -85,7 +85,8 @@ py -3 packaging\windows\build_launcher.py
 ### 5. 编译安装包
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\installer\infinite-canvas.iss
+$version = (Get-Content -LiteralPath VERSION | Select-Object -First 1).Trim()
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" packaging\windows\installer\infinite-canvas.iss
 ```
 
 检查：

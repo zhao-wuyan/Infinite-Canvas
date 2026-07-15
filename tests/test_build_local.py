@@ -23,6 +23,7 @@ class BuildLocalTests(unittest.TestCase):
         with (
             patch("packaging.build_local.run_command") as run_command,
             patch("packaging.build_local.find_inno_compiler", return_value=Path("C:/Inno/ISCC.exe")),
+            patch("packaging.build_local.read_version", return_value="2026.07.13"),
         ):
             outputs = build_local.build_windows(options)
 
@@ -38,8 +39,10 @@ class BuildLocalTests(unittest.TestCase):
             ],
         )
         release_command = run_command.call_args_list[1].args[1]
+        installer_command = run_command.call_args_list[4].args[1]
         self.assertIn("--update-base-url", release_command)
         self.assertIn(build_local.DEFAULT_UPDATE_BASE_URL, release_command)
+        self.assertIn("/DMyAppVersion=2026.07.13", installer_command)
         self.assertEqual(Path(outputs["release_dir"]), Path("dist/win-release-test"))
         self.assertEqual(Path(outputs["portable_zip"]), Path("dist/win-test/Infinite-Canvas-Windows-Portable.zip"))
 

@@ -74,7 +74,12 @@ jobs:
 
       - name: Compile Windows installer
         shell: pwsh
-        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows\installer\infinite-canvas.iss'
+        run: |
+          $version = (Get-Content -LiteralPath VERSION | Select-Object -First 1).Trim()
+          if (-not $version) {
+            throw "VERSION must contain a version number"
+          }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" packaging\windows\installer\infinite-canvas.iss
 
       - name: Stage Windows release assets
         shell: pwsh

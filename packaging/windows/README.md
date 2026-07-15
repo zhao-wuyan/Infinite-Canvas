@@ -63,7 +63,8 @@ python packaging\windows\build_launcher.py
 - 需要把生成的 `launcher.exe`、`updater.exe` 与 payload 文件一起纳入安装产物
 
 ```powershell
-& "C:\my_program\Inno Setup 6\ISCC.exe" packaging\windows\installer\infinite-canvas.iss
+$version = (Get-Content -LiteralPath VERSION | Select-Object -First 1).Trim()
+& "C:\my_program\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" packaging\windows\installer\infinite-canvas.iss
 ```
 
 本机 2026-05-25 实测 Inno Setup 安装在 `C:\my_program\Inno Setup 6`，`iscc` 不在 PATH，两个默认安装路径 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe` 与 `C:\Program Files\Inno Setup 6\ISCC.exe` 均不存在。
@@ -106,7 +107,7 @@ python packaging\windows\build_portable.py
   - 生成 `dist/windows/Infinite Canvas.exe`
   - 生成 `dist/windows/Infinite Canvas Service/Infinite Canvas Service.exe`
   - 生成 `dist/windows/Infinite Canvas Updater.exe`
-- `& "C:\my_program\Inno Setup 6\ISCC.exe" packaging\windows\installer\infinite-canvas.iss`
+- `$version = (Get-Content -LiteralPath VERSION | Select-Object -First 1).Trim(); & "C:\my_program\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$version" packaging\windows\installer\infinite-canvas.iss`
   - Inno Setup compiler engine：`6.7.0`
   - 重新生成 `dist/windows/Infinite Canvas 安装程序.exe`
   - 安装包大小：`36608133` bytes

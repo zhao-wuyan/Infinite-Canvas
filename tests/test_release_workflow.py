@@ -3,6 +3,12 @@ from pathlib import Path
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_windows_installer_version_comes_from_version_file(self):
+        workflow = Path(".github/workflows/release-installers.yml").read_text(encoding="utf-8")
+
+        self.assertIn("Get-Content -LiteralPath VERSION", workflow)
+        self.assertIn('"/DMyAppVersion=$version"', workflow)
+
     def test_release_workflow_uploads_only_prefixed_update_assets(self):
         workflow = Path(".github/workflows/release-installers.yml").read_text(encoding="utf-8")
 

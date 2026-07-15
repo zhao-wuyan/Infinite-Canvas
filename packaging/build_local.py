@@ -158,7 +158,11 @@ def build_windows(options: BuildOptions) -> dict[str, str]:
         else:
             run_command(
                 "Build Windows installer",
-                [compiler, ROOT / "packaging" / "windows" / "installer" / "infinite-canvas.iss"],
+                [
+                    compiler,
+                    f"/DMyAppVersion={read_version()}",
+                    ROOT / "packaging" / "windows" / "installer" / "infinite-canvas.iss",
+                ],
             )
             outputs["installer"] = str(dist_dir / "Infinite Canvas 安装程序.exe")
 

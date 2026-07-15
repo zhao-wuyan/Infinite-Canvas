@@ -2,11 +2,15 @@
 #define MyAppPublisher "Infinite Canvas"
 #define MyAppExeName "Infinite Canvas.exe"
 #define MyAppIcon "..\..\..\build\icons\infinite-canvas.ico"
+#ifndef MyAppVersion
+#define MyAppVersion "0.0.0"
+#endif
 
 [Setup]
 AppId={{8A1D924E-3776-41DE-95AB-F85CDA0B42D8}
 AppName={#MyAppName}
-AppVersion=0.1.0
+AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\InfiniteCanvas
 DefaultGroupName={#MyAppName}
@@ -20,7 +24,8 @@ WizardStyle=modern
 PrivilegesRequiredOverridesAllowed=dialog
 DisableDirPage=no
 UsePreviousAppDir=yes
-UninstallDisplayName={#MyAppName}
+UninstallDisplayName={#MyAppName} {#MyAppVersion}
+VersionInfoVersion={#MyAppVersion}
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
