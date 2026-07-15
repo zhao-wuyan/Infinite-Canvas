@@ -7,3 +7,11 @@
 {"type":"cli","id":"CLI-1780147690001-1","timestamp":"2026-05-30T13:28:10.001Z","command":"spec load","args":{"category":"debug","keyword":"ssl","stdin":false}}
 {"type":"cli","id":"CLI-1780152997556-1","timestamp":"2026-05-30T14:56:37.556Z","command":"spec load","args":{"category":"quality","stdin":false}}
 {"type":"cli","id":"CLI-1780153038544-1","timestamp":"2026-05-30T14:57:18.544Z","command":"spec load","args":{"keyword":"gitignore","stdin":false}}
+{"type":"cli","id":"CLI-1784029015217-1","timestamp":"2026-07-14T11:36:55.217Z","command":"load","args":{"type":"spec"}}
+{"type":"cli","id":"CLI-1784029015324-1","timestamp":"2026-07-14T11:36:55.324Z","command":"load","args":{"type":"spec","category":"arch"}}
+{"type":"cli","id":"CLI-1784029015428-1","timestamp":"2026-07-14T11:36:55.428Z","command":"load","args":{"type":"spec","category":"review"}}
+{"type":"cli","id":"CLI-1784029935742-1","timestamp":"2026-07-14T11:52:15.742Z","command":"load","args":{"type":"spec"}}
+{"type":"cli","id":"CLI-1784030389612-1","timestamp":"2026-07-14T11:59:49.612Z","command":"load","args":{"type":"spec"}}
+{"type":"cli","id":"CLI-1784031130588-1","timestamp":"2026-07-14T12:12:10.588Z","command":"load","args":{"type":"spec"}}
+{"type":"cli","id":"CLI-1784087568059-1","timestamp":"2026-07-15T03:52:48.059Z","command":"load","args":{"type":"spec"}}
+{"type":"cli","id":"CLI-1784087931723-1","timestamp":"2026-07-15T03:58:51.723Z","command":"load","args":{"type":"spec","category":"debug"}}
