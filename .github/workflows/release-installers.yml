@@ -38,7 +38,7 @@ jobs:
           $languageFile = Join-Path $languagesDir "ChineseSimplified.isl"
           New-Item -ItemType Directory -Force -Path $languagesDir | Out-Null
           Invoke-WebRequest `
-            -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" `
+            -Uri "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl" `
             -OutFile $languageFile
           if (-not (Test-Path -LiteralPath $languageFile)) {
             throw "Failed to install Inno Setup ChineseSimplified.isl"
