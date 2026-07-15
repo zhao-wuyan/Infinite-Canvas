@@ -1,0 +1,40 @@
+tests/test_windows_installer_icon.py
+  s_901d2d06c8ee39::t_4e3ed697e4eb14 12-14
+  s_901d2d06c8ee39::t_3ea4f32ab44407 15-17
+  s_901d2d06c8ee39::t_4d2c5947fa0438 18-22
+packaging/windows/installer/infinite-canvas.iss
+  s_901d2d06c8ee39::t_4e3ed697e4eb14 5-7,12
+  s_901d2d06c8ee39::t_b8d1133e8459ac 13
+  s_901d2d06c8ee39::t_d5d90d374898f4 27-28
+tests/test_release_workflow.py
+  s_901d2d06c8ee39::t_4e3ed697e4eb14 6-8
+  s_901d2d06c8ee39::t_682bb69a4cd4e3 9-11
+packaging/windows/payload/manifest.json
+  s_901d2d06c8ee39::t_168860454d08ee 25-26,30-31,47-48,51,65,73,76
+.github/workflows/release-installers.yml
+  s_901d2d06c8ee39::t_903e9a057ce552 77-82
+packaging/build_local.py
+  s_901d2d06c8ee39::t_678b2e99e83499 161-165
+packaging/windows/README.md
+  s_901d2d06c8ee39::t_ea609e4821a018 66-67,110
+packaging/windows/WINDOWS_RUNBOOK.md
+  s_901d2d06c8ee39::t_1e154604e47c70 88-89
+tests/test_build_local.py
+  s_901d2d06c8ee39::t_3f2bd19faafe32 26,42,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "9fb6400c0f6c5e3100d39dcbeb437775887e1698",
+  "prompts": {},
+  "sessions": {
+    "s_901d2d06c8ee39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f63fd-d911-78c1-abd1-f5371c8dea0a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
