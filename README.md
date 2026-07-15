@@ -1,7 +1,7 @@
 # Infinite-Canvas
 
 > [!IMPORTANT]
-> 本仓库是 [hero8152/Infinite-Canvas](https://github.com/hero8152/Infinite-Canvas) 的 fork，由 `zhao-wuyan` 维护桌面打包、Docker 适配和发布流程。当前默认分支为 `pkg`，不代表上游官方发行版本；需要原始上游代码时请查看本仓库的 `main` 分支或直接访问上游仓库。
+> 本仓库是 [hero8152/Infinite-Canvas](https://github.com/hero8152/Infinite-Canvas) 的 fork，本 fork 维护桌面打包、Docker 适配和发布流程。当前默认分支为 `pkg`，不代表上游官方发行版本；需要原始上游代码时请查看本仓库的 `main` 分支或直接访问上游仓库。
 
 ## Fork 分支说明
 
