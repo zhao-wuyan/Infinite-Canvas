@@ -1,0 +1,45 @@
+.env.example
+  s_901d2d06c8ee39::t_e92ad1e16b01ed 1-11
+tests/test_dockerfile.py
+  s_901d2d06c8ee39::t_babab66d0d865b 1-26
+docker-compose.yml
+  s_901d2d06c8ee39::t_e92ad1e16b01ed 1-22
+DOCKER.md
+  s_901d2d06c8ee39::t_e92ad1e16b01ed 1-101
+.dockerignore
+  s_901d2d06c8ee39::t_275e5fa5b5889a 1-40
+.github/workflows/docker-publish.yml
+  s_901d2d06c8ee39::t_fb539f1a474353 1-66
+.gitignore
+  s_901d2d06c8ee39::t_d476f05bef97c6 1-34
+Dockerfile
+  s_901d2d06c8ee39::t_25104d17d8ec91 1-41
+docker-entrypoint.py
+  s_901d2d06c8ee39::t_9a304e0203550a 1-123
+main.py
+  s_901d2d06c8ee39::t_853f7463e205e9 21,260-263,269-272,5262-5283,5289,5294-5302,5447-5653,12258,12260-12267,12276-12277,12280,12285-12298,12302-12304,12306,12319-12354,12358-12371,12380-12388,12390-12420,12422-12430,12822-12824
+static/api-settings.html
+  s_901d2d06c8ee39::t_c90cfb26d39e71 414-456
+static/css/api-settings.css
+  s_901d2d06c8ee39::t_ffdaf71f9253f4 247-251
+static/js/api-settings.js
+  s_901d2d06c8ee39::t_1da5035bd2a62b 31-34,75-79,163-164,2675-2703,2713-2719,2723-2732,2870-3050,3283-3286
+tests/test_docker_entrypoint.py
+  s_901d2d06c8ee39::t_a7737f9b3330fb 1-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "4255462793a43bda80cc771d31f581d7e4ec0b58",
+  "prompts": {},
+  "sessions": {
+    "s_901d2d06c8ee39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f63fd-d911-78c1-abd1-f5371c8dea0a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
