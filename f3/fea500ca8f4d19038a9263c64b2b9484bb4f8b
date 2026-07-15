@@ -1,0 +1,471 @@
+packaging/macos/__init__.py
+  s_901d2d06c8ee39::t_49dbe57b1caa82 1
+tests/test_app_runtime.py
+  s_ee6fdd2f142ac0::t_557f43e37e3ed1 2-15,25-33,41-48
+  s_437450135f996c::t_d0cfe139a2ca74 17-20,38-40
+  s_74b5d829c958a9::t_a433555da7fbdd 37
+  s_74b5d829c958a9::t_30b70559dbdef7 16,21-24,34-36
+  s_901d2d06c8ee39::t_a88c9e7bee2548 1,49-82
+tests/test_windows_installer_icon.py
+  s_008353cd6ad7cc::t_8d0cc19b2b47d2 12-13,15-16
+  s_901d2d06c8ee39::t_9269f9695f2149 1-11,14,17-22
+run.bat
+  s_cc9e56621aa13f::t_184f7cbbe1fc13 2-7
+  s_cc9e56621aa13f::t_f77b1ba8f45f4c 12-13
+packaging/windows/launcher/layout.py
+  s_901d2d06c8ee39::t_48820adce224c8 1-78
+tests/test_update_check_state.py
+  s_008353cd6ad7cc::t_1e5cbf2bcba802 17-35
+  s_008353cd6ad7cc::t_b74adcc9f12458 1-16
+tests/test_runtime_manager.py
+  s_901d2d06c8ee39::t_561fdfcaa42b57 1-7,9,11-14,16-25,34-35,44,46-50,82,89-92,142,145-148,151-152,154-163,229-230,237-238,245-261,276-287,291,298,300-308,312,319,321-334
+  s_008353cd6ad7cc::t_080330541d55f4 27-28,32-33,38-42,51-81,87-88,153,289,292-296,310,313-317
+  s_008353cd6ad7cc::t_882e97bab4a037 8,30-31,84-86,149,164-183,212-226
+  s_ff538a953c71d2::t_e284d6b8a1b8c4 15,36-37,43,112-141,144,150,232,263,290,297,311,318
+  s_7d1b10838a3c52::t_6fddae7957bd36 195,210,227-228
+  s_008353cd6ad7cc::t_be171af2b08c46 26,45,83,143,184-194,196-209,211,231,239-240,243-244,262,271-272,288,299,309,320
+  s_437450135f996c::t_c9c7f688788382 10,29,93-111,233-236,241-242,264-270,273-275
+packaging/windows/WINDOWS_RUNBOOK.md
+  s_ee6fdd2f142ac0::t_8067eafba4594a 87,90
+  s_901d2d06c8ee39::t_9269f9695f2149 1-86,88-89,91-260
+tests/test_dockerfile.py
+  s_ac9ed84019fc17::t_f7c33c17a0f0f3 1-11,17-19
+  s_901d2d06c8ee39::t_da521c3430aede 12-16
+packaging/windows/DESIGN.md
+  s_901d2d06c8ee39::t_2d36d399c790dc 1-105,121-141
+  s_6266632cfcc2d7::t_e603caed801e30 106-120
+packaging/README.md
+  s_437450135f996c::t_c9c7f688788382 1-13,15-25
+  s_437450135f996c::t_0f4f7eb4ca06d0 14
+mac-修复权限.command
+  s_901d2d06c8ee39::t_8635d6b27aa6a0 6,13-14,22,25-26,33
+tests/test_payload_build.py
+  s_901d2d06c8ee39::t_96b98754ad730b 1-48
+packaging/macos/updater/updater_main.py
+  s_901d2d06c8ee39::t_b068eeaca8c493 1-7,38-43
+  s_008353cd6ad7cc::t_fb00c8161ebff3 8-37
+tests/test_publish_release.py
+  s_6266632cfcc2d7::t_1406e12f5d212e 19-38
+  s_901d2d06c8ee39::t_7e624c13b430b8 1-18,39-45
+packaging/macos/updater/__init__.py
+  s_901d2d06c8ee39::t_0412b471ca987c 1
+tests/test_static_asset_version.py
+  s_008353cd6ad7cc::t_d0bc648541842b 53-54
+  s_008353cd6ad7cc::t_496a3dcf8dd855 1-6,8,11,13-15,22-27,30-43,47,49,51,58,66-70,72
+  s_008353cd6ad7cc::t_2533ffa8ac76f2 16-21,77-96
+  s_008353cd6ad7cc::t_fbdc59208af857 7,9-10,12,44-46,48,50,52,55-57,59-65,71,73-76
+  s_008353cd6ad7cc::t_4dd1bfc46175ba 28-29
+packaging/macos/build_dmg.py
+  s_901d2d06c8ee39::t_11914efde4ef8d 1-53,79-84
+  s_437450135f996c::t_c9c7f688788382 54-78
+packaging/windows/launcher/runtime_manager.py
+  s_6266632cfcc2d7::t_ad8b6c12fd42a3 380-382
+  s_48b000595cace9::t_dd016b5d68318a 203-205
+  s_008353cd6ad7cc::t_0c0ab3391e171d 179-182,186-191,279-280,290-292,411,414
+  s_437450135f996c::t_c9c7f688788382 82,87-111,256,370
+  s_901d2d06c8ee39::t_89a81eecc38324 1-2,72-80,83-86,112-128,130,132-147,149-178,192-202,206-219,233-255,257-269,271-275,281,322-369,371-379,383-397,399,401-402,409-410,412-413,415-419,421-519,521-553,558-568
+  s_7d1b10838a3c52::t_6fddae7957bd36 81,278,283-287,289
+  s_008353cd6ad7cc::t_b652bd3784ec26 65-71,555
+  s_008353cd6ad7cc::t_8a5b5c8b6d8fca 129,131,148,276-277,282,288,293-321,398,400,403-408,520
+  s_008353cd6ad7cc::t_269981da6cd8dc 183-185
+  s_008353cd6ad7cc::t_2fc7284649173f 3-64
+  s_008353cd6ad7cc::t_9bb6b3c9456e9c 270,420,554,556-557
+  s_ff538a953c71d2::t_3e4a0f1a9eb8ac 220-232
+MAC-使用说明.md
+  s_901d2d06c8ee39::t_51d16998e32879 3,5,9,12,48,55,57,60,63-64
+  s_cc9e56621aa13f::t_d56bd53c2174b3 14-16,23,25-26,32,34,36-38,40,42,45,62
+packaging/payload_filters.py
+  s_901d2d06c8ee39::t_5f57b05e38e4be 1-22
+packaging/windows/publish_release.py
+  s_6266632cfcc2d7::t_05f565c719c855 13-60
+  s_901d2d06c8ee39::t_1426254ea4b2eb 1-12,61-85
+tests/test_macos_build_portable.py
+  s_ee6fdd2f142ac0::t_a9f789ac06ce01 1-38
+mac-启动服务.sh
+  s_cc9e56621aa13f::t_d56bd53c2174b3 21
+tests/test_launcher_updater_fingerprint.py
+  s_008353cd6ad7cc::t_cd32e3fecc6bd5 3-10,16-52,152-179
+  s_7d1b10838a3c52::t_6fddae7957bd36 1-2,11-15,53-151
+.github/workflows/release-installers.yml
+  s_901d2d06c8ee39::t_9269f9695f2149 1-74,78-190
+  s_ff538a953c71d2::t_f7db753c2606a0 75-77
+tests/test_windows_layout.py
+  s_901d2d06c8ee39::t_9d1567cbb598b0 1-46
+packaging/windows/payload/manifest.json
+  s_437450135f996c::t_0f4f7eb4ca06d0 6
+  s_437450135f996c::t_c9c7f688788382 7-9,29,33,46,50,52-59,62,68
+  s_901d2d06c8ee39::t_1e5073ae50ecc2 1-5,10-16,25-26,30-31,41-44,47-48,51,65,69-73,75-76,91,97,99,101
+  s_ff538a953c71d2::t_505521469e11f0 17-24,27-28,32,34-40,45,49,60-61,63-64,66-67,74,77-90,92-96,98,100
+packaging/macos/service/__init__.py
+  s_901d2d06c8ee39::t_bfa6a4618f6b2a 1
+main.py
+  s_004abb5f7856ce::t_f166c562a82700 1943-1949,1963
+  s_004abb5f7856ce::t_9dbb0e5c08c29d 1920-1921,1923,1931,1934,1983-1992,1994-1995,2031,2040-2083,5738,5800,5809,12664
+  s_48b000595cace9::t_25b280f9ae6253 1832-1861,1864-1881,1904-1909,1914,5782,5787,5791,5797,5859,5869
+  s_004abb5f7856ce::t_eef8d0f93b91b4 1950-1951,1953,1957-1958,1993,1998-2005,2007-2009,2011-2016,2018-2026,2029
+  s_008353cd6ad7cc::t_2dcd606f2a0f40 1545-1546,1554,1556-1585,5743
+  s_004abb5f7856ce::t_deb94e90b7184f 29,1952,1954-1956,1959-1962,1996-1997,2006,2010,2017,2027
+  s_7d1b10838a3c52::t_6fddae7957bd36 222-229,234-244,246,248-251
+  s_004abb5f7856ce::t_10c3c7cd26aa26 2039
+  s_008353cd6ad7cc::t_43001dbedc1234 1547-1553
+  s_901d2d06c8ee39::t_d228503013f19c 21,37,267-270,276-279,1910-1913,1915-1919,1922,1924-1930,1932-1933,1935-1942,1964,2028,2030,2033-2038,2084,2304,2314,2317,2332,5531-5545,5547-5552,5558,5563-5568,5570-5571,5716-5737,5739-5742,5744-5781,5783-5786,5788-5790,5792-5796,5798-5799,5801-5808,5810-5858,5860-5868,5870-5922,12527,12529-12536,12545-12546,12549,12554-12567,12571-12573,12575,12588-12623,12627-12640,12649-12657,12659-12663,12665-12689,12691-12699,13091-13093,17850
+  s_004abb5f7856ce::t_8aee3687df8bb2 1965-1982,2032,5546,5569
+packaging/macos/payload/manifest.json
+  s_437450135f996c::t_c9c7f688788382 8-10,15-22,25-27,30-38,43-44,47-48,50-62,64-66,72,75-88,90-98
+  s_437450135f996c::t_0f4f7eb4ca06d0 7
+  s_901d2d06c8ee39::t_1e5073ae50ecc2 1-6,11-14,23-24,28-29,39-42,45-46,49,63,67-71,73-74,89
+  s_901d2d06c8ee39::t_35cfa2819aaee0 99
+tests/test_macos_layout.py
+  s_901d2d06c8ee39::t_d4d5578d70dd0c 1-41
+packaging/windows/README.md
+  s_ee6fdd2f142ac0::t_8067eafba4594a 65,68
+  s_901d2d06c8ee39::t_9269f9695f2149 1-35,37-64,66-67,69-97,99-153
+  s_437450135f996c::t_0f4f7eb4ca06d0 36,98
+packaging/windows/installer/README.md
+  s_901d2d06c8ee39::t_e86e8b0cf36313 1-18
+mac-启动服务.command
+  s_901d2d06c8ee39::t_5ff9163a893d02 5,9,11,21-23
+  s_cc9e56621aa13f::t_d56bd53c2174b3 14,18
+tests/test_windows_build_launcher.py
+  s_008353cd6ad7cc::t_f2ecdffc6df367 29,32-33,36-40
+  s_008353cd6ad7cc::t_d56a9d475ce67a 2-28,34-35,41-62
+  s_008353cd6ad7cc::t_0caff0dfb2caac 30-31
+  s_901d2d06c8ee39::t_4ab128eb9a1d33 1
+tests/test_macos_runtime_manager.py
+  s_901d2d06c8ee39::t_72e30262fb7034 1-7,14-35,42,57,63-69,104-105,111-113,116-125,130-139,163-165
+  s_437450135f996c::t_c9c7f688788382 8-13,36,43-56,58-60,62,106-108,110,114-115,126-129,140-162
+  s_c29a3966c97456::t_80025772d19adc 37-41
+  s_008353cd6ad7cc::t_19edd7f8134cf7 61,70-103,109
+Dockerfile
+  s_901d2d06c8ee39::t_da521c3430aede 1-15,17-29
+  h_cb0e2129f6578c 16
+packaging/macos/service/service_main.py
+  s_901d2d06c8ee39::t_8b8e9aca138f5f 1-25
+.dockerignore
+  s_48b000595cace9::t_7dbb6d3e15a252 4-23
+  s_901d2d06c8ee39::t_28677a98b32093 1-3,24-40
+requirements.txt
+  s_ff538a953c71d2::t_e9c591b2345dfe 2-5,8
+packaging/macos/payload/__init__.py
+  s_901d2d06c8ee39::t_68892562747624 1
+packaging/windows/launcher/__init__.py
+  s_901d2d06c8ee39::t_14e50ea152e980 1
+packaging/windows/launcher/config.py
+  s_901d2d06c8ee39::t_130cb8a7051e34 1-23
+static/js/i18n.js
+  s_008353cd6ad7cc::t_526e7af0107e9d 2-12,22-23,30
+packaging/macos/launcher/layout.py
+  s_901d2d06c8ee39::t_3c911eb31a7eff 1-33,38-72
+  s_437450135f996c::t_c9c7f688788382 34-37
+tests/test_jimeng_install_packaging.py
+  s_901d2d06c8ee39::t_a33978bd6bea31 1-17,19-40
+  s_901d2d06c8ee39::t_7454203039b93a 18
+packaging/windows/installer/infinite-canvas.iss
+  s_901d2d06c8ee39::t_9269f9695f2149 1,5-7,12-13,15-25,27-210
+  s_ff538a953c71d2::t_c9966d13f92c4d 26
+  s_901d2d06c8ee39::t_58818f7e8990d0 2-3
+  s_008353cd6ad7cc::t_9046289d184b25 4,8-11,14
+tests/test_main_runtime_config.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 1-19,24
+  s_901d2d06c8ee39::t_1f5af82cc5c006 20-23,25-37
+tests/test_launcher_update_modal.py
+  s_008353cd6ad7cc::t_c105a1ebeeb86b 32,34-35,48,50
+  s_48b000595cace9::t_40775c13d261dd 36-47,49
+  s_48b000595cace9::t_a465b6a3e263e0 1-31,33
+  s_008353cd6ad7cc::t_6a8933e609253f 51-67
+static/index.html
+  s_008353cd6ad7cc::t_3fe8a67eed5d73 2712,2763
+  s_008353cd6ad7cc::t_e37b81c8731316 2657
+  s_008353cd6ad7cc::t_9b30d9c6275092 2753-2756
+  s_437450135f996c::t_c9c7f688788382 2518,2721,2726-2728,2732-2743,2752,2759-2760,2762,2764,2768-2769
+  s_008353cd6ad7cc::t_34f98fe69409a0 2731
+  s_008353cd6ad7cc::t_7c8b1ef11e3f7c 2700-2703
+  s_48b000595cace9::t_6f486b2c188073 2343-2352,2515,2722-2725,2744-2751,2757,2761,2765-2767
+  s_008353cd6ad7cc::t_d5820aee99825d 1798-1802
+  s_901d2d06c8ee39::t_b14d812be06e01 2516-2517,2729-2730,2758,2770
+.env.example
+  s_901d2d06c8ee39::t_6621bf2dfc9946 1-11
+packaging/macos/payload/build_payload.py
+  s_901d2d06c8ee39::t_d3861df087050a 1-65
+tests/test_restart_script_visibility.py
+  s_437450135f996c::t_c9c7f688788382 1-63
+packaging/windows/updater/updater_main.py
+  s_7d1b10838a3c52::t_6fddae7957bd36 5,50-57
+  s_008353cd6ad7cc::t_610a048b70964a 15,59
+  s_901d2d06c8ee39::t_b54bddb588336e 1-4,6-12,16-42,47-49,62-66
+  s_008353cd6ad7cc::t_ddd97dae51f28a 13-14,43-46
+  s_008353cd6ad7cc::t_c48d0122232cae 58,60-61
+packaging/__init__.py
+  s_901d2d06c8ee39::t_efedf2af5cc02a 1-27
+tests/test_release_workflow.py
+  s_901d2d06c8ee39::t_9269f9695f2149 1-4,6,9-10,12-31
+  s_437450135f996c::t_c9c7f688788382 5,7-8,11
+static/api-settings.html
+  s_901d2d06c8ee39::t_8b903437e6bf54 414-456
+packaging/windows/payload/build_payload.py
+  s_901d2d06c8ee39::t_ac9b14e7d73d43 1-65
+tests/test_macos_launcher_update.py
+  s_437450135f996c::t_c9c7f688788382 1-26,36-41,47-156,158-165,167-168,171-172,175-176,181-192,214-223,225-227,229-234,238,240-244,290-291,299-306,308-312,316-317,323,325-326,332-383
+  s_7d1b10838a3c52::t_6fddae7957bd36 27-35,174,224,228,235-237,245-288,292-298,307,318-320,328,331
+  s_6266632cfcc2d7::t_c5f02b325f205f 42-46,157,180,193,239,289,313
+  s_901d2d06c8ee39::t_384d146a52d57f 166,169-170,173,177-179,194-213,314-315,321-322,324,327,329-330
+packaging/macos/build_portable.py
+  s_901d2d06c8ee39::t_e0465cb7109938 12
+  s_ee6fdd2f142ac0::t_4e94bd6545b73a 4,19-26,31-32
+  s_ee6fdd2f142ac0::t_a9f789ac06ce01 1-3,6-8,13-18,27-30,33-75
+  s_341a076531d508::t_3d17363d768d78 5,9-11
+packaging/windows/build_launcher.py
+  s_ff538a953c71d2::t_a2027284ea6ae8 16,19-33,35-38,40,42-43,45-53,56-60,109,111-115,124
+  s_ff538a953c71d2::t_25c8a9da081a0f 39,96-98
+  s_008353cd6ad7cc::t_52b3b6806a2d91 17-18,41,54-55,64-66,77-79,102-108,116-123
+  s_ff538a953c71d2::t_f5d81e19c4a25c 4,34,44,61-62,80-92,99-100,110
+  s_008353cd6ad7cc::t_2f56ef3070ac5e 63,67-76,101
+  s_901d2d06c8ee39::t_4bb494927a3d76 1-3,5-15,93-95,125-129
+tests/test_run_bat.py
+  s_cc9e56621aa13f::t_184f7cbbe1fc13 1-5,7-8,11-12,28-29
+  s_cc9e56621aa13f::t_d56bd53c2174b3 13-27
+  s_cc9e56621aa13f::t_f77b1ba8f45f4c 6,9-10
+tests/test_windows_launcher_update.py
+  s_6266632cfcc2d7::t_805b296d6a606d 35-39,96,105,118,144,192,215
+  s_7d1b10838a3c52::t_6fddae7957bd36 20-28,125,133,140-142,150-191,200,209
+  s_437450135f996c::t_c9c7f688788382 1-19,29-34,40-95,97-104,106-117,119-124,126-132,134-139,143,145-149,193-199,201-208,210-214,216-267
+app_runtime.py
+  s_74b5d829c958a9::t_30b70559dbdef7 42
+  s_437450135f996c::t_d0cfe139a2ca74 43
+  s_901d2d06c8ee39::t_59408a0227db91 1-41,44-60
+packaging/macos/launcher/runtime_manager.py
+  s_008353cd6ad7cc::t_7aebaa2bda35f5 3-63,161-173
+  s_901d2d06c8ee39::t_69258c65ee909a 1-2,64-70,72-75,125-160,174-178,181-189,191-193,197-217,223-291,295-403
+  s_437450135f996c::t_c9c7f688788382 71,76-124,179-180,190,218-222
+  s_48b000595cace9::t_d01af846b220c8 194-196
+  s_6266632cfcc2d7::t_f6eac8618a4fb9 292-294
+packaging/macos/launcher/__init__.py
+  s_901d2d06c8ee39::t_fc005ad8b9c543 1
+packaging/windows/build_portable.py
+  s_ee6fdd2f142ac0::t_a9f789ac06ce01 1-73
+docker-compose.yml
+  s_369144b5605b72::t_15414605a281a8 3
+  s_901d2d06c8ee39::t_72a08ecf6f7fc4 1-2,4-21
+docker-entrypoint.py
+  s_901d2d06c8ee39::t_e16256014c243a 1-91
+.github/workflows/docker-publish.yml
+  s_ff538a953c71d2::t_f7db753c2606a0 4-62
+  s_901d2d06c8ee39::t_f344f8680d1aaa 1-3,63-66
+tests/test_build_local.py
+  s_901d2d06c8ee39::t_babab66d0d865b 9-14
+  s_437450135f996c::t_c9c7f688788382 8,15,29-31,33-34,47,49-50,52
+  s_901d2d06c8ee39::t_9269f9695f2149 1-7,16-28,32,35-46,48,51,53-118
+packaging/macos/launcher/launcher_main.py
+  s_6266632cfcc2d7::t_5556414d3cd506 46-47,184-187,195-200,202-203
+  s_7d1b10838a3c52::t_6fddae7957bd36 17,206-215,320,329-368,370-378
+  s_901d2d06c8ee39::t_b696aecd747c7e 1-4,15-16,18,204-205,216,218-220,321-323,325-327,422-431,433-439,441-448,503-504,506-510
+  s_437450135f996c::t_c9c7f688788382 5-14,19-45,48-183,188-194,201,217,221-319,324,328,369,379-419,432,440,449-502,505
+  s_004abb5f7856ce::t_6971d89971644a 420-421
+packaging/build_venv.py
+  s_901d2d06c8ee39::t_923a8eb5060683 1-31
+tests/test_macos_publish_release.py
+  s_6266632cfcc2d7::t_5573f5c4816a11 19-37
+  s_901d2d06c8ee39::t_8622074d02c0b7 1-18,38-45
+tests/test_launcher_env.py
+  s_901d2d06c8ee39::t_83119a93eb5c2a 1-15,42-48
+  s_48b000595cace9::t_5fc53876026100 16-41
+static/css/api-settings.css
+  s_901d2d06c8ee39::t_1d610f87ebc60c 247-251
+packaging/macos/MACOS_RUNBOOK.md
+  s_6266632cfcc2d7::t_f84a9e9fc78425 53-59
+  s_ee6fdd2f142ac0::t_8067eafba4594a 3,16,20,26,28,34,36,38,45,47,60,64,66,68,77,79,81,85-96,103,143,145,151
+  s_437450135f996c::t_c9c7f688788382 30-31,115-124
+  s_901d2d06c8ee39::t_a87a89841520ef 1-2,4-15,17-19,21-25,27,29,32-33,35,37,39-44,46,48-52,61-63,65,67,69-76,78,80,82-84,97-102,104-114,125-142,144,146-150,152-163
+packaging/macos/build_app.py
+  s_437450135f996c::t_c9c7f688788382 23-45,47,49,51-60,92-100,128-198,200-210,212-236,239-240,243,247-249,252,255-260,262-279,293-296
+  s_008353cd6ad7cc::t_5eeafcf07e69d4 75,79-88,237
+  s_008353cd6ad7cc::t_a1bd910ac6ce5e 19-21,48,63-64,76-78,89-91,113,199,211,246,254,261,284
+  s_901d2d06c8ee39::t_15163fed5b2207 1-18,22,46,50,61-62,65-74,101-112,114-127,238,241-242,244-245,250-251,253,280-283,285-292,297-302
+.gitignore
+  s_901d2d06c8ee39::t_c0164d7540dbf4 1-15,17-36
+  h_cb0e2129f6578c 16
+packaging/windows/service/service_main.py
+  s_ff538a953c71d2::t_3370ab23f2b422 1-25
+pytest.ini
+  s_901d2d06c8ee39::t_6dbd683682b979 9
+  s_9f02f1ec6fa482::t_4eb9e4c0474bdc 1-8
+packaging/macos/DESIGN.md
+  s_901d2d06c8ee39::t_9e4abf40b5d3f6 1-97,100-123
+  s_6266632cfcc2d7::t_866ae778e48bed 98-99
+tests/test_macos_build_dmg.py
+  s_437450135f996c::t_c9c7f688788382 1-57
+packaging/macos/README.md
+  s_437450135f996c::t_c9c7f688788382 47-49
+  s_ee6fdd2f142ac0::t_8067eafba4594a 21,56-61,68
+  s_901d2d06c8ee39::t_1e5073ae50ecc2 1-20,22-35,37-46,50-55,62-67,69-87
+  s_437450135f996c::t_0f4f7eb4ca06d0 36
+tests/test_macos_build_app.py
+  s_008353cd6ad7cc::t_1362c051d95088 155
+  s_437450135f996c::t_c9c7f688788382 2-8,10-12,14-16,18-24,29,32-75,77,93-148,176-193
+  s_008353cd6ad7cc::t_888004c653a17c 154,157-158,161-165
+  s_901d2d06c8ee39::t_0b040e9a27295c 1,27-28,30-31,76,78-79,156,159,166,175,194,196-218
+  s_008353cd6ad7cc::t_5683b6bb2749c8 9,13,17,80-92,149-153,160,167-174,195
+  s_437450135f996c::t_be0fc326d8f040 25-26
+packaging/windows/launcher/launcher_main.py
+  s_6266632cfcc2d7::t_00b9d68f65dc6b 37-38,73-76,84-89,91-92,111,233
+  s_901d2d06c8ee39::t_5eb907122d5efc 1-4,6,8,12-13,15,55-71,93-94,105-108,230-232,326-334,336-342,344-349,389-393
+  s_ff538a953c71d2::t_6e226c9112a48e 7,46-54
+  s_7d1b10838a3c52::t_6fddae7957bd36 14,95-104,229,235-272,274-282
+  s_437450135f996c::t_c9c7f688788382 5,9-11,16-36,39-45,72,77-83,90,109-110,112-228,234,273,283-323,335,343,350-388
+  s_004abb5f7856ce::t_9ba4b4f9d0799e 324-325
+DOCKER.md
+  s_901d2d06c8ee39::t_9d5267184cd107 1-2,85-87
+  s_369144b5605b72::t_15414605a281a8 3-84
+packaging/build_local.py
+  s_901d2d06c8ee39::t_9269f9695f2149 1-14,16-158,162-164,167-294
+  s_437450135f996c::t_0f4f7eb4ca06d0 15
+  s_437450135f996c::t_c9c7f688788382 159-161,165-166
+static/js/api-settings.js
+  s_901d2d06c8ee39::t_32fb9c82040e58 31-34,75-79,163-164,2675-2703,2713-2719,2723-2732,2870-3050,3283-3286
+packaging/macos/publish_release.py
+  s_901d2d06c8ee39::t_4287d84abf9fbe 1-16,61-85
+  s_6266632cfcc2d7::t_da0e2d31d0619b 17-60
+tests/test_windows_build_portable.py
+  s_ee6fdd2f142ac0::t_a9f789ac06ce01 1-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "f3fea500ca8f4d19038a9263c64b2b9484bb4f8b",
+  "prompts": {},
+  "humans": {
+    "h_cb0e2129f6578c": {
+      "author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  },
+  "sessions": {
+    "s_004abb5f7856ce": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e6e-a15a-7dd0-965d-592986b0cdc0",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_008353cd6ad7cc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7859-ca43-7f62-b224-0aa1556a1146",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_341a076531d508": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d62-d14a-7d61-b876-3f92e3671bfa",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_369144b5605b72": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5db8-0dbc-7b43-8edc-85bbecd6817c",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_437450135f996c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5ed4-a46c-7ec2-bfaa-a5257be74b10",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_48b000595cace9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e7835-a8b2-7fb2-902e-4c44495210fb",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_6266632cfcc2d7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5efc-eb39-7712-82c7-0637cf70d795",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_74b5d829c958a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e23-1e3d-7f51-b3b2-db150628fdd0",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_7d1b10838a3c52": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e78ae-de69-7943-ba85-803f7512068e",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_901d2d06c8ee39": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f63fd-d911-78c1-abd1-f5371c8dea0a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_9f02f1ec6fa482": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5e39-1a16-7792-8e6c-d292e1161271",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_ac9ed84019fc17": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d73-7656-7c52-a56b-7902e2a7a602",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_c29a3966c97456": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e69ec-7be1-70a3-b463-74ae148a63d0",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_cc9e56621aa13f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d90-cce9-70f2-9eab-2af29b54bfba",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_ee6fdd2f142ac0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5d45-3a06-7a22-aee7-7e81cba47c7b",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    },
+    "s_ff538a953c71d2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e5aaf-a681-7ba1-9e9d-a775c021eca2",
+        "model": "gpt-5.5"
+      },
+      "human_author": "zhao-wuyan <zhao-wuyan@exampl.com>"
+    }
+  }
+}
